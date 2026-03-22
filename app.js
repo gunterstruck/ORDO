@@ -15,6 +15,11 @@ let pickingState = null; // { roomId, containerId, hotspots, confirmed, activeId
 let pickingRecognition = null;
 let pickingIsRecording = false;
 
+// Staging / Review state
+let stagedPhotos = []; // [{ base64, mimeType, previewUrl, originalFile }]
+let stagingTarget = null; // { roomId, containerId, containerName, mode }
+let reviewState = null; // { roomId, containerId, containerName, items, mode }
+
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   Brain.init();
@@ -26,6 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setupBrain();
   setupSettings();
   setupPickingView();
+  setupStagingOverlay();
+  setupReviewOverlay();
   setupPullToRefresh();
   showView('chat');
 });
@@ -632,13 +639,32 @@ function executeAction(action) {
 // ── PHOTO VIEW ─────────────────────────────────────────
 function setupPhoto() {
   document.getElementById('photo-camera-btn').addEventListener('click', () => {
+    const roomId = document.getElementById('photo-room-select').value;
+    if (!roomId) { showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error'); return; }
+    const customName = document.getElementById('photo-custom-name').value.trim();
+    const containerId = customName ? Brain.slugify(customName) : 'inhalt';
+    stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
+    showStagingOverlay(customName ? `📷 ${customName}` : '📷 Fotos sammeln');
     document.getElementById('photo-input-camera').click();
   });
   document.getElementById('photo-gallery-btn').addEventListener('click', () => {
+    const roomId = document.getElementById('photo-room-select').value;
+    if (!roomId) { showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error'); return; }
+    const customName = document.getElementById('photo-custom-name').value.trim();
+    const containerId = customName ? Brain.slugify(customName) : 'inhalt';
+    stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
+    showStagingOverlay(customName ? `📷 ${customName}` : '📷 Fotos sammeln');
     document.getElementById('photo-input-gallery').click();
   });
-  document.getElementById('photo-input-camera').addEventListener('change', e => handlePhotoFile(e.target.files[0]));
-  document.getElementById('photo-input-gallery').addEventListener('change', e => handlePhotoFile(e.target.files[0]));
+  // Both hidden inputs feed into the staging area
+  document.getElementById('photo-input-camera').addEventListener('change', e => {
+    if (e.target.files[0]) addFileToStaging(e.target.files[0]);
+    e.target.value = '';
+  });
+  document.getElementById('photo-input-gallery').addEventListener('change', e => {
+    if (e.target.files[0]) addFileToStaging(e.target.files[0]);
+    e.target.value = '';
+  });
 }
 
 function renderRoomDropdown(selectId) {
@@ -1218,6 +1244,321 @@ function togglePickingMic() {
   btn.classList.add('recording');
 }
 
+// ── STAGING OVERLAY ────────────────────────────────────
+function setupStagingOverlay() {
+  document.getElementById('staging-close').addEventListener('click', closeStagingOverlay);
+  document.getElementById('staging-cancel-btn').addEventListener('click', closeStagingOverlay);
+  document.getElementById('staging-add-btn').addEventListener('click', () => {
+    document.getElementById('staging-photo-input').click();
+  });
+  document.getElementById('staging-photo-input').addEventListener('change', e => {
+    if (e.target.files[0]) addFileToStaging(e.target.files[0]);
+    e.target.value = '';
+  });
+  document.getElementById('staging-analyze-btn').addEventListener('click', analyzeAllStagedPhotos);
+}
+
+function showStagingOverlay(title) {
+  stagedPhotos = [];
+  document.getElementById('staging-thumbnails').innerHTML = '';
+  document.getElementById('staging-analyze-btn').disabled = true;
+  document.getElementById('staging-analyze-btn').textContent = 'Analysieren';
+  document.getElementById('staging-title').textContent = title || 'Fotos sammeln';
+  document.getElementById('staging-hint').style.display = 'none';
+  document.getElementById('staging-overlay').style.display = 'flex';
+}
+
+function closeStagingOverlay() {
+  document.getElementById('staging-overlay').style.display = 'none';
+  stagedPhotos = [];
+  stagingTarget = null;
+}
+
+async function addFileToStaging(file) {
+  if (!file) return;
+  if (stagedPhotos.length >= 5) {
+    alert('Maximal 5 Fotos möglich.');
+    return;
+  }
+  if (file.size > 4 * 1024 * 1024) {
+    alert('Foto zu groß – bitte ein kleineres wählen.');
+    return;
+  }
+  try {
+    const { base64, mimeType } = await resizeImageForChat(file);
+    const previewUrl = `data:${mimeType};base64,${base64}`;
+    stagedPhotos.push({ base64, mimeType, previewUrl, originalFile: file });
+    renderStagingThumbnails();
+    document.getElementById('staging-analyze-btn').disabled = false;
+  } catch {
+    alert('Foto konnte nicht geladen werden.');
+  }
+}
+
+function renderStagingThumbnails() {
+  const container = document.getElementById('staging-thumbnails');
+  container.innerHTML = '';
+  stagedPhotos.forEach((photo, index) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'staging-thumb';
+    const img = document.createElement('img');
+    img.src = photo.previewUrl;
+    img.alt = `Foto ${index + 1}`;
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'staging-thumb-remove';
+    removeBtn.textContent = '✕';
+    removeBtn.setAttribute('aria-label', `Foto ${index + 1} entfernen`);
+    removeBtn.addEventListener('click', () => {
+      stagedPhotos.splice(index, 1);
+      renderStagingThumbnails();
+      document.getElementById('staging-analyze-btn').disabled = stagedPhotos.length === 0;
+    });
+    thumb.appendChild(img);
+    thumb.appendChild(removeBtn);
+    container.appendChild(thumb);
+  });
+  // Show/hide "add more" hint
+  const addBtn = document.getElementById('staging-add-btn');
+  addBtn.style.display = stagedPhotos.length >= 5 ? 'none' : '';
+}
+
+async function analyzeAllStagedPhotos() {
+  if (stagedPhotos.length === 0 || !stagingTarget) return;
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    alert('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.');
+    return;
+  }
+
+  const { roomId, containerId, containerName, mode } = stagingTarget;
+  const analyzeBtn = document.getElementById('staging-analyze-btn');
+  analyzeBtn.disabled = true;
+  analyzeBtn.textContent = 'Analysiere…';
+
+  try {
+    ensureRoomExists(roomId);
+
+    const photoCount = stagedPhotos.length;
+    const systemPrompt = `Analysiere ${photoCount > 1 ? 'alle ' + photoCount + ' Fotos zusammen' : 'dieses Foto'}.
+WICHTIG: Zähle identische oder ähnliche Gegenstände und gib die Menge an. Sei spezifisch bei Farbe, Muster und Größe.
+Antworte NUR mit diesem JSON:
+{
+  "inhalt": [
+    {"name": "Handtuch, dunkelblau", "menge": 3},
+    {"name": "Handtuch, weiß", "menge": 2}
+  ],
+  "hinweis": "optionaler Tipp wenn Sachen übereinanderliegen oder schwer zählbar sind (sonst leer lassen)"
+}
+Regeln:
+- Jede Variante (Farbe, Muster, Größe) ist ein separater Eintrag mit eigenem Mengenwert
+- NICHT "Handtücher" (zu allgemein) → sondern "Handtuch, dunkelblau" mit Menge 3
+- Bei mehreren Fotos: Kombiniere alle Erkenntnisse, vermeide Duplikate
+- Schätze Mengen wenn nicht exakt zählbar
+- hinweis nur setzen wenn wirklich hilfreich (z.B. "Dinge liegen übereinander – einzeln fotografieren hilft")`;
+
+    const imageContents = stagedPhotos.map(p => ({
+      type: 'image',
+      source: { type: 'base64', media_type: p.mimeType, data: p.base64 }
+    }));
+    const textContent = {
+      type: 'text',
+      text: containerName ? `Inhalt von: ${containerName}` : 'Analysiere die Gegenstände.'
+    };
+
+    const messages = [{ role: 'user', content: [...imageContents, textContent] }];
+    const raw = await callGemini(apiKey, systemPrompt, messages);
+
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+
+    const analysis = JSON.parse(jsonMatch[0]);
+    const items = (analysis.inhalt || []).map((item, i) => ({
+      id: `item_${i}`,
+      name: typeof item === 'string' ? item : (item.name || ''),
+      menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+      checked: true
+    })).filter(item => item.name.trim());
+
+    // Save first photo to IndexedDB for thumbnail
+    try {
+      const firstFile = stagedPhotos[0].originalFile;
+      if (firstFile) {
+        const resized = await resizeImage(firstFile, 1200);
+        await Brain.savePhoto(`${roomId}_${containerId}`, resized);
+      }
+      if (!Brain.getContainer(roomId, containerId)) {
+        Brain.addContainer(roomId, containerId, containerName || containerId, 'sonstiges', [], true);
+      }
+      Brain.setContainerHasPhoto(roomId, containerId, true);
+    } catch { /* photo save failed silently */ }
+
+    const hint = (analysis.hinweis || '').trim();
+    closeStagingOverlay();
+    showReviewPopup(roomId, containerId, containerName, items, mode || 'add', hint || null);
+
+  } catch (err) {
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = 'Analysieren';
+    alert(getErrorMessage(err));
+  }
+}
+
+function ensureRoomExists(roomId) {
+  if (Brain.getRoom(roomId)) return;
+  const presets = {
+    kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'],
+    schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'],
+    keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges']
+  };
+  const p = presets[roomId] || ['🏠', roomId];
+  Brain.addRoom(roomId, p[1], p[0]);
+}
+
+// ── REVIEW OVERLAY ─────────────────────────────────────
+function setupReviewOverlay() {
+  document.getElementById('review-confirm').addEventListener('click', confirmReview);
+  document.getElementById('review-cancel').addEventListener('click', closeReviewPopup);
+  document.getElementById('review-add-manual').addEventListener('click', addManualReviewItem);
+}
+
+function showReviewPopup(roomId, containerId, containerName, items, mode, hinweis) {
+  reviewState = { roomId, containerId, containerName, items: items.map(i => ({ ...i })), mode };
+  renderReviewList();
+
+  const subtitleEl = document.getElementById('review-subtitle');
+  subtitleEl.textContent = containerName ? `für "${containerName}"` : '';
+
+  const tipEl = document.getElementById('review-tip');
+  if (hinweis) {
+    tipEl.textContent = `💡 Tipp: ${hinweis}`;
+    tipEl.style.display = 'block';
+  } else {
+    tipEl.style.display = 'none';
+  }
+
+  document.getElementById('review-overlay').style.display = 'flex';
+}
+
+function renderReviewList() {
+  if (!reviewState) return;
+  const listEl = document.getElementById('review-list');
+  listEl.innerHTML = '';
+
+  reviewState.items.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = `review-item${item.checked ? '' : ' review-item--unchecked'}`;
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = item.checked;
+    checkbox.className = 'review-checkbox';
+    checkbox.addEventListener('change', e => {
+      reviewState.items[index].checked = e.target.checked;
+      row.classList.toggle('review-item--unchecked', !e.target.checked);
+    });
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.value = item.name;
+    nameInput.className = 'review-name-input';
+    nameInput.setAttribute('aria-label', 'Gegenstandsname');
+    nameInput.addEventListener('input', e => {
+      reviewState.items[index].name = e.target.value;
+    });
+
+    const mengeWrapper = document.createElement('div');
+    mengeWrapper.className = 'review-menge';
+
+    const mengeInput = document.createElement('input');
+    mengeInput.type = 'number';
+    mengeInput.min = '1';
+    mengeInput.max = '999';
+    mengeInput.value = item.menge;
+    mengeInput.className = 'review-menge-input';
+    mengeInput.setAttribute('aria-label', 'Menge');
+    mengeInput.addEventListener('input', e => {
+      reviewState.items[index].menge = parseInt(e.target.value) || 1;
+    });
+
+    const mengeLabel = document.createElement('span');
+    mengeLabel.textContent = 'x';
+    mengeLabel.className = 'review-menge-label';
+
+    mengeWrapper.appendChild(mengeInput);
+    mengeWrapper.appendChild(mengeLabel);
+
+    row.appendChild(checkbox);
+    row.appendChild(nameInput);
+    row.appendChild(mengeWrapper);
+    listEl.appendChild(row);
+  });
+}
+
+function closeReviewPopup() {
+  document.getElementById('review-overlay').style.display = 'none';
+  reviewState = null;
+}
+
+function confirmReview() {
+  if (!reviewState) return;
+  const { roomId, containerId, containerName, items, mode } = reviewState;
+
+  ensureRoomExists(roomId);
+  if (!Brain.getContainer(roomId, containerId)) {
+    Brain.addContainer(roomId, containerId, containerName || containerId, 'sonstiges', [], true);
+  }
+
+  // In replace mode: clear existing items first
+  if (mode === 'replace') {
+    const data = Brain.getData();
+    if (data.rooms?.[roomId]?.containers?.[containerId]) {
+      data.rooms[roomId].containers[containerId].items = [];
+      data.rooms[roomId].containers[containerId].quantities = {};
+      Brain.save(data);
+    }
+  }
+
+  const count = Brain.addItemsFromReview(roomId, containerId, items);
+  const containerDisplayName = Brain.getContainer(roomId, containerId)?.name || containerName || containerId;
+
+  closeReviewPopup();
+  renderBrainView();
+
+  if (currentView === 'brain') {
+    showBrainToast(`${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} übernommen`);
+  } else {
+    showPhotoStatus(
+      `${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} in "${containerDisplayName}" übernommen.`,
+      'success'
+    );
+  }
+}
+
+function addManualReviewItem() {
+  if (!reviewState) return;
+  const name = prompt('Gegenstand hinzufügen:');
+  if (!name?.trim()) return;
+  reviewState.items.push({
+    id: `manual_${Date.now()}`,
+    name: name.trim(),
+    menge: 1,
+    checked: true
+  });
+  renderReviewList();
+}
+
+function showBrainToast(msg) {
+  const existing = document.getElementById('brain-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.id = 'brain-toast';
+  toast.className = 'brain-toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
 // ── BRAIN VIEW ─────────────────────────────────────────
 function setupBrain() {
   document.getElementById('brain-add-room').addEventListener('click', showAddRoomDialog);
@@ -1324,7 +1665,8 @@ function buildContainerNode(roomId, cId, c) {
   (c.items || []).forEach(item => {
     const chip = document.createElement('span');
     chip.className = 'brain-chip';
-    chip.textContent = item;
+    const qty = c.quantities?.[item];
+    chip.textContent = qty > 1 ? `${qty}x ${item}` : item;
     chip.addEventListener('click', () => {
       showView('chat');
       const input = document.getElementById('chat-input');
@@ -1361,9 +1703,24 @@ function buildContainerNode(roomId, cId, c) {
     }
   });
 
+  // Camera button – opens staging overlay for this container
+  const cameraItemBtn = document.createElement('button');
+  cameraItemBtn.className = 'brain-camera-item-btn';
+  cameraItemBtn.innerHTML = '📷 Foto';
+  cameraItemBtn.title = 'Foto machen und Inhalt per KI erkennen';
+  cameraItemBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    openCameraForContainer(roomId, cId);
+  });
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'brain-item-btn-row';
+  btnRow.appendChild(addItemBtn);
+  btnRow.appendChild(cameraItemBtn);
+
   body.appendChild(thumbnailWrapper);
   body.appendChild(chips);
-  body.appendChild(addItemBtn);
+  body.appendChild(btnRow);
   el.appendChild(header);
   el.appendChild(body);
   return el;
@@ -1400,26 +1757,12 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
   }
 }
 
-// Hidden file input for brain-view per-container photo capture
-let _brainPhotoInput = null;
-let _brainPhotoTarget = null; // { roomId, cId }
-
 function openCameraForContainer(roomId, cId) {
-  if (!_brainPhotoInput) {
-    _brainPhotoInput = document.createElement('input');
-    _brainPhotoInput.type = 'file';
-    _brainPhotoInput.accept = 'image/*';
-    _brainPhotoInput.style.display = 'none';
-    document.body.appendChild(_brainPhotoInput);
-    _brainPhotoInput.addEventListener('change', async e => {
-      const file = e.target.files[0];
-      _brainPhotoInput.value = '';
-      if (!file || !_brainPhotoTarget) return;
-      await handlePhotoFile(file, _brainPhotoTarget.roomId, _brainPhotoTarget.cId);
-    });
-  }
-  _brainPhotoTarget = { roomId, cId };
-  _brainPhotoInput.click();
+  const container = Brain.getContainer(roomId, cId);
+  const containerName = container?.name || cId;
+  stagingTarget = { roomId, containerId: cId, containerName, mode: 'add' };
+  showStagingOverlay(`📷 ${containerName}`);
+  document.getElementById('staging-photo-input').click();
 }
 
 function showLightbox(src) {

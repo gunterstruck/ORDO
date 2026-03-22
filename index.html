@@ -282,6 +282,44 @@
   </div>
 </div>
 
+<!-- ── STAGING OVERLAY ───────────────────────────────── -->
+<div id="staging-overlay" class="staging-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Fotos sammeln">
+  <div class="staging-modal">
+    <div class="staging-header">
+      <button id="staging-close" class="staging-close-btn" aria-label="Schließen">✕</button>
+      <span id="staging-title" class="staging-title">Fotos sammeln</span>
+    </div>
+    <div id="staging-thumbnails" class="staging-thumbnails"></div>
+    <div class="staging-add-row">
+      <button id="staging-add-btn" class="staging-add-btn">+ Foto hinzufügen</button>
+      <input type="file" id="staging-photo-input" accept="image/*" style="display:none" aria-label="Weiteres Foto">
+    </div>
+    <p id="staging-hint" class="staging-hint" style="display:none"></p>
+    <div class="staging-footer">
+      <button id="staging-cancel-btn" class="staging-cancel-btn">Abbrechen</button>
+      <button id="staging-analyze-btn" class="staging-analyze-btn" disabled>Analysieren</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── REVIEW OVERLAY ────────────────────────────────── -->
+<div id="review-overlay" class="review-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Erkannte Gegenstände prüfen">
+  <div class="review-modal">
+    <div class="review-header">
+      <h2 class="review-title">Erkannte Gegenstände</h2>
+      <p id="review-subtitle" class="review-subtitle"></p>
+    </div>
+    <p class="review-hint">Hake an was stimmt. Korrigiere Namen oder Mengen per Tippen. Nicht Erkanntes unten manuell hinzufügen.</p>
+    <p id="review-tip" class="review-tip" style="display:none"></p>
+    <div id="review-list" class="review-list"></div>
+    <button id="review-add-manual" class="review-add-manual-btn">+ Gegenstand manuell hinzufügen</button>
+    <div class="review-actions">
+      <button id="review-cancel" class="review-cancel-btn">Abbrechen</button>
+      <button id="review-confirm" class="review-confirm-btn">Übernehmen</button>
+    </div>
+  </div>
+</div>
+
 <script src="brain.js"></script>
 <script src="app.js"></script>
 </body>

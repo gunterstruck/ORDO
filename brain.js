@@ -209,6 +209,7 @@ const Brain = {
       name,
       typ: typ || 'sonstiges',
       items: items || [],
+      quantities: {},
       last_updated: Date.now(),
       photo_analyzed: photoAnalyzed
     };
@@ -251,6 +252,7 @@ const Brain = {
     const c = data.rooms?.[roomId]?.containers?.[containerId];
     if (c) {
       c.items = c.items.filter(i => i !== item);
+      if (c.quantities) delete c.quantities[item];
       c.last_updated = Date.now();
       this.save(data);
     }
@@ -264,6 +266,35 @@ const Brain = {
       c.has_photo = value;
       this.save(data);
     }
+  },
+
+  // Save reviewed items to a container (used by the Review Popup)
+  // reviewItems: [{name, menge, checked}]
+  addItemsFromReview(roomId, containerId, reviewItems) {
+    const data = this.getData();
+    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    if (!c) return 0;
+    if (!c.quantities) c.quantities = {};
+    let count = 0;
+    (reviewItems || []).forEach(item => {
+      if (!item.checked) return;
+      const name = (item.name || '').trim();
+      if (!name) return;
+      if (!c.items.includes(name)) {
+        c.items.push(name);
+      }
+      const menge = Math.max(1, parseInt(item.menge) || 1);
+      if (menge > 1) {
+        c.quantities[name] = menge;
+      } else {
+        delete c.quantities[name];
+      }
+      count++;
+    });
+    c.last_updated = Date.now();
+    data.rooms[roomId].last_updated = Date.now();
+    this.save(data);
+    return count;
   },
 
   // --- Photo Analysis Result ---
@@ -362,7 +393,11 @@ const Brain = {
         for (const [cId, c] of containers) {
           ctx += `\n  ${c.typ}: ${c.name}`;
           if (c.items?.length > 0) {
-            ctx += ` → ${c.items.join(', ')}`;
+            const itemsStr = c.items.map(item => {
+              const qty = c.quantities?.[item];
+              return qty > 1 ? `${qty}x ${item}` : item;
+            }).join(', ');
+            ctx += ` → ${itemsStr}`;
           } else {
             ctx += ' (leer)';
           }
