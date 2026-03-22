@@ -48,6 +48,7 @@ const Brain = context.Brain;
 // ── Hilfsfunktionen ─────────────────────────────────────
 function resetBrain() {
   localStorage.clear();
+  Brain._cache = null;
   Brain.init();
 }
 
@@ -549,6 +550,7 @@ describe('Brain – Datenpersistenz', () => {
   });
 
   it('getData() gibt null bei korruptem JSON', () => {
+    Brain._cache = null;
     localStorage.setItem('haushalt_data', 'not valid json{{{');
     const data = Brain.getData();
     assertEqual(data, null);

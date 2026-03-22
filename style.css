@@ -1480,6 +1480,181 @@ select.settings-input { appearance: none; }
 .picking-panel-skip:active { opacity: 0.7; }
 
 /* ── Pull-to-Refresh Indikator ────────────────────── */
+/* ── Toast Notifications ─────────────────────────── */
+.toast-container {
+  position: fixed;
+  top: env(safe-area-inset-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  width: 92%;
+  max-width: 400px;
+}
+
+.toast {
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  pointer-events: auto;
+  animation: toastIn 0.25s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.toast--success { background: var(--success); }
+.toast--warning { background: #E8A020; }
+.toast--error { background: var(--error); }
+
+.toast--out {
+  animation: toastOut 0.2s ease forwards;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-12px); }
+}
+
+/* ── Modal (wiederverwendbar) ───────────────────── */
+.ordo-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: modalFadeIn 0.15s ease;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ordo-modal-panel {
+  background: var(--bg);
+  border-radius: var(--radius) var(--radius) 0 0;
+  width: 100%;
+  max-width: 480px;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: modalSlideUp 0.2s ease;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+@keyframes modalSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.ordo-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ordo-modal-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.ordo-modal-desc:empty { display: none; }
+
+.ordo-modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ordo-modal-fields:empty { display: none; }
+
+.ordo-modal-field-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.ordo-modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 16px;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ordo-modal-input:focus {
+  border-color: var(--accent);
+}
+
+.ordo-modal-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 16px;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+}
+
+.ordo-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.ordo-modal-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  min-height: 44px;
+}
+
+.ordo-modal-btn:active { opacity: 0.8; }
+
+.ordo-modal-btn--primary {
+  background: var(--accent);
+  color: white;
+}
+
+.ordo-modal-btn--cancel {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.ordo-modal-btn--danger {
+  background: var(--error);
+  color: white;
+}
+
+/* ── Send Button Loading State ──────────────────── */
+#chat-send.sending {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 #ptr-indicator {
   position: fixed;
   top: 0;

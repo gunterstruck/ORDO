@@ -8,6 +8,9 @@ const MAX_PHOTO_HISTORY = 10;
 
 const Brain = {
 
+  // --- In-Memory Cache ---
+  _cache: null,
+
   // --- IndexedDB Photo Storage ---
   _photoDB: null,
 
@@ -123,14 +126,26 @@ const Brain = {
   },
   // --- Core Data ---
   getData() {
+    if (this._cache) return this._cache;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+      const data = raw ? JSON.parse(raw) : null;
+      if (data) this._cache = data;
+      return data;
+    } catch {
+      this._cache = null;
+      return null;
+    }
+  },
+
+  // Invalidate cache (used by tests or external changes)
+  invalidateCache() {
+    this._cache = null;
   },
 
   save(data) {
     data.last_updated = Date.now();
+    this._cache = data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   },
 
@@ -145,6 +160,12 @@ const Brain = {
       });
     }
     this.initPhotoDB().catch(() => {});
+    // Listen for external changes (other tabs)
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('storage', e => {
+        if (e.key === STORAGE_KEY) this._cache = null;
+      });
+    }
     return this.getData();
   },
 
@@ -488,14 +509,33 @@ const Brain = {
       const unsicherItems = (b.inhalt_unsicher || []).map(u =>
         typeof u === 'string' ? u : u.name
       );
-      targetContainers[cId] = {
-        name: b.name,
-        typ: b.typ || 'sonstiges',
-        items: sicherItems,
-        uncertain_items: unsicherItems,
-        last_updated: Date.now(),
-        photo_analyzed: true
-      };
+      const existing = targetContainers[cId];
+      if (existing) {
+        // Merge: keep existing items, add new ones
+        const mergedItems = [...(existing.items || [])];
+        sicherItems.forEach(item => {
+          if (!mergedItems.includes(item)) mergedItems.push(item);
+        });
+        const mergedUncertain = [...(existing.uncertain_items || [])];
+        unsicherItems.forEach(item => {
+          if (!mergedUncertain.includes(item) && !mergedItems.includes(item)) mergedUncertain.push(item);
+        });
+        existing.items = mergedItems;
+        existing.uncertain_items = mergedUncertain;
+        existing.name = b.name || existing.name;
+        existing.typ = b.typ || existing.typ;
+        existing.last_updated = Date.now();
+        existing.photo_analyzed = true;
+      } else {
+        targetContainers[cId] = {
+          name: b.name,
+          typ: b.typ || 'sonstiges',
+          items: sicherItems,
+          uncertain_items: unsicherItems,
+          last_updated: Date.now(),
+          photo_analyzed: true
+        };
+      }
       count++;
 
       // Recursively handle nested containers
@@ -523,14 +563,32 @@ const Brain = {
       const unsicherItems = (b.inhalt_unsicher || []).map(u =>
         typeof u === 'string' ? u : u.name
       );
-      parentContainer.containers[cId] = {
-        name: b.name,
-        typ: b.typ || 'sonstiges',
-        items: sicherItems,
-        uncertain_items: unsicherItems,
-        last_updated: Date.now(),
-        photo_analyzed: true
-      };
+      const existing = parentContainer.containers[cId];
+      if (existing) {
+        const mergedItems = [...(existing.items || [])];
+        sicherItems.forEach(item => {
+          if (!mergedItems.includes(item)) mergedItems.push(item);
+        });
+        const mergedUncertain = [...(existing.uncertain_items || [])];
+        unsicherItems.forEach(item => {
+          if (!mergedUncertain.includes(item) && !mergedItems.includes(item)) mergedUncertain.push(item);
+        });
+        existing.items = mergedItems;
+        existing.uncertain_items = mergedUncertain;
+        existing.name = b.name || existing.name;
+        existing.typ = b.typ || existing.typ;
+        existing.last_updated = Date.now();
+        existing.photo_analyzed = true;
+      } else {
+        parentContainer.containers[cId] = {
+          name: b.name,
+          typ: b.typ || 'sonstiges',
+          items: sicherItems,
+          uncertain_items: unsicherItems,
+          last_updated: Date.now(),
+          photo_analyzed: true
+        };
+      }
       count++;
       if (b.behaelter?.length > 0) {
         count += this._applyNestedAnalysis(parentContainer.containers[cId], b.behaelter);
@@ -735,12 +793,13 @@ const Brain = {
   },
 
   // --- Export / Import ---
-  async exportData() {
+  async exportData(confirmCallback) {
     const date = new Date().toISOString().slice(0, 10);
     const { exportData, sizeEstimate } = await this.exportWithPhotos();
     const sizeMB = (sizeEstimate / 1024 / 1024).toFixed(1);
-    if (sizeEstimate > 10 * 1024 * 1024) {
-      if (!confirm(`Die Export-Datei ist ca. ${sizeMB} MB groß (Fotos enthalten). Trotzdem exportieren?`)) return;
+    if (sizeEstimate > 10 * 1024 * 1024 && confirmCallback) {
+      const ok = await confirmCallback(sizeMB);
+      if (!ok) return;
     }
     const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -758,6 +817,7 @@ const Brain = {
 
   resetAll() {
     localStorage.removeItem(STORAGE_KEY);
+    this._cache = null;
     this.deleteAllPhotos().catch(() => {});
     this.init();
   },
