@@ -704,7 +704,8 @@ select.settings-input { appearance: none; }
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   #nav { padding-bottom: env(safe-area-inset-bottom); height: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
   #footer { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
-  #chat-input-row { bottom: calc(var(--nav-h) + var(--footer-h) + env(safe-area-inset-bottom)); }
+  #chat-input-row { padding-bottom: calc(var(--nav-h) + var(--footer-h) + env(safe-area-inset-bottom)); }
+  .view { padding-bottom: calc(var(--nav-h) + var(--footer-h) + 8px + env(safe-area-inset-bottom)); }
 }
 
 /* ── Brain Thumbnails ─────────────────────────────── */
