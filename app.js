@@ -731,11 +731,17 @@ function toggleMic() {
 
 // ── DEBUG LOG ───────────────────────────────────────────
 function debugLog(msg) {
-  const el = document.getElementById('debug-log');
-  if (!el) return;
   const ts = new Date().toLocaleTimeString('de-DE');
-  const current = el.textContent === '— noch kein Log —' ? '' : el.textContent;
-  el.textContent = `[${ts}] ${msg}\n${current}`;
+  const line = `[${ts}] ${msg}\n`;
+  for (const id of ['debug-log', 'photo-debug-log']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const current = el.textContent === '— noch kein Log —' ? '' : el.textContent;
+    el.textContent = line + current;
+  }
+  // Auto-open the photo debug panel on first entry
+  const panel = document.getElementById('photo-debug-panel');
+  if (panel) panel.open = true;
 }
 
 // ── GEMINI API ─────────────────────────────────────────
