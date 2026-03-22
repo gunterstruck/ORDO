@@ -625,6 +625,41 @@ const Brain = {
     localStorage.setItem('photo_history_limit', String(Math.max(1, Math.min(20, limit))));
   },
 
+  // --- Photo Proof Lookup (with parent fallback) ---
+  // Returns { photoKey, timestamp, source } or null
+  // source: 'container' | 'parent'
+  async findBestPhoto(roomId, containerId) {
+    // Priority 1: Container's own photo
+    const container = this.getContainer(roomId, containerId);
+    if (container?.has_photo || container?.photo_history?.length > 0) {
+      const key = this.getLatestPhotoKey(roomId, containerId);
+      const blob = await this.getPhoto(key);
+      if (blob) {
+        const ts = container.photo_history?.length > 0
+          ? container.photo_history[container.photo_history.length - 1]
+          : null;
+        return { photoKey: key, timestamp: ts, source: 'container', blob };
+      }
+    }
+    // Priority 2: Parent container's photo
+    const path = this.getContainerPath(roomId, containerId);
+    if (path.length >= 2) {
+      const parentId = path[path.length - 2];
+      const parent = this.getContainer(roomId, parentId);
+      if (parent?.has_photo || parent?.photo_history?.length > 0) {
+        const key = this.getLatestPhotoKey(roomId, parentId);
+        const blob = await this.getPhoto(key);
+        if (blob) {
+          const ts = parent.photo_history?.length > 0
+            ? parent.photo_history[parent.photo_history.length - 1]
+            : null;
+          return { photoKey: key, timestamp: ts, source: 'parent', blob };
+        }
+      }
+    }
+    return null;
+  },
+
   // --- Chat History ---
   getChatHistory() {
     return this.getData()?.chat_history || [];

@@ -303,7 +303,13 @@ WICHTIG:
 
 Wenn du Raum oder Behälter nicht kennst, frage zuerst nach. Füge dann KEINEN Marker ein.
 Verwende slugifizierte IDs: Kleinbuchstaben, Umlaute umschreiben (ä→ae, ö→oe, ü→ue, ß→ss), Leerzeichen zu Unterstrichen.
-Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"`;
+Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"
+
+Wenn du einen Gegenstand in der Datenbank findest und seinen Ort nennst, füge am Ende deiner Antwort einen FOUND-Marker ein:
+<!--FOUND:{"room":"raum_id","container":"container_id","item":"Name des Gegenstands"}-->
+Du kannst mehrere FOUND-Marker einfügen wenn der Gegenstand an mehreren Orten liegt.
+Der Marker ist unsichtbar für den Nutzer. Die App zeigt darunter automatisch einen Foto-Button falls ein Foto für diesen Ort existiert.
+Füge den Marker NUR ein wenn du einen konkreten Ort in der Datenbank nennen kannst. Nicht bei Vermutungen oder allgemeinen Antworten.`;
 
     // NFC-Kontext in System-Prompt einbetten
     if (nfcContext) {
@@ -363,11 +369,17 @@ Bekannte Räume: ${knownRooms}`;
       // <!--SAVE:...--> Marker-System (add/move/remove items, add container)
       const { cleanText: afterSave, actions: saveActions } = processSaveMarkers(response);
       // <!--ACTION:...--> Marker-System (alle Aktionen inkl. delete/rename)
-      const { cleanText, actions: actionActions } = processActions(afterSave);
-      appendMessage('assistant', cleanText);
+      const { cleanText: afterAction, actions: actionActions } = processActions(afterSave);
+      // <!--FOUND:...--> Marker-System (photo proof buttons)
+      const { cleanText, foundItems } = processFoundMarkers(afterAction);
+      const msgDiv = appendMessage('assistant', cleanText);
       Brain.addChatMessage('assistant', cleanText);
       saveActions.forEach(action => executeSaveAction(action));
       actionActions.forEach(action => executeAction(action));
+      // Render photo proof buttons (async, non-blocking)
+      if (foundItems.length > 0) {
+        renderFoundPhotoButtons(msgDiv, foundItems);
+      }
     }
   } catch (err) {
     thinking.remove();
@@ -525,6 +537,143 @@ function showSystemMessage(text) {
 // Alias used by the ACTION marker system
 function appendSystemMessage(text) {
   showSystemMessage(text);
+}
+
+// ── FOUND MARKER SYSTEM (Photo Proof) ──────────────────
+
+// Extracts all <!--FOUND:{...}--> markers from AI response text
+// Returns { cleanText, foundItems[] }
+function processFoundMarkers(text) {
+  const foundItems = [];
+  const cleanText = text.replace(/<!--FOUND:([\s\S]*?)-->/g, (_, jsonStr) => {
+    try {
+      const item = JSON.parse(jsonStr.trim());
+      if (item.room && item.container) foundItems.push(item);
+    } catch { /* ignore malformed markers */ }
+    return '';
+  }).trim();
+  return { cleanText, foundItems };
+}
+
+// Renders photo proof buttons under a chat message element
+async function renderFoundPhotoButtons(msgDiv, foundItems) {
+  if (!foundItems || foundItems.length === 0) return;
+
+  const btnContainer = document.createElement('div');
+  btnContainer.className = 'chat-proof-buttons';
+
+  for (const found of foundItems) {
+    const photoInfo = await Brain.findBestPhoto(found.room, found.container);
+    if (!photoInfo) continue;
+
+    const btn = document.createElement('button');
+    btn.className = 'chat-proof-btn';
+
+    // Build label
+    const room = Brain.getRoom(found.room);
+    const container = Brain.getContainer(found.room, found.container);
+    const locationName = container?.name || found.container;
+
+    // Date info
+    let dateLabel = '';
+    let isOld = false;
+    let isVeryOld = false;
+    if (photoInfo.timestamp) {
+      const photoDate = new Date(photoInfo.timestamp);
+      const now = new Date();
+      const diffDays = Math.floor((now - photoDate) / (1000 * 60 * 60 * 24));
+
+      if (diffDays > 90) {
+        isVeryOld = true;
+        const months = Math.floor(diffDays / 30);
+        dateLabel = `\u26A0\uFE0F vor ${months} Monaten \u2013 evtl. nicht mehr aktuell`;
+      } else if (diffDays > 30) {
+        isOld = true;
+        const months = Math.floor(diffDays / 30);
+        dateLabel = `vor ${months} Monat${months > 1 ? 'en' : ''} aufgenommen`;
+      } else {
+        dateLabel = `aufgenommen am ${photoDate.toLocaleDateString('de-DE')}`;
+      }
+    }
+
+    btn.innerHTML = `\uD83D\uDCF7 ${foundItems.length > 1 ? locationName + ' ansehen' : 'Foto ansehen'}`;
+    if (dateLabel) {
+      const dateSpan = document.createElement('span');
+      dateSpan.className = 'chat-proof-date' + (isVeryOld ? ' chat-proof-date--old' : isOld ? ' chat-proof-date--warn' : '');
+      dateSpan.textContent = `  \u00B7  ${dateLabel}`;
+      btn.appendChild(dateSpan);
+    }
+
+    btn.addEventListener('click', () => {
+      showProofLightbox(photoInfo.blob, photoInfo.timestamp, found.room, found.container, found.item);
+    });
+
+    btnContainer.appendChild(btn);
+  }
+
+  if (btnContainer.children.length > 0) {
+    msgDiv.after(btnContainer);
+    const messages = document.getElementById('chat-messages');
+    messages.scrollTop = messages.scrollHeight;
+  }
+}
+
+// Shows the proof lightbox with photo, date, and action buttons
+function showProofLightbox(blob, timestamp, roomId, containerId, itemName) {
+  const lb = document.getElementById('lightbox');
+  const img = document.getElementById('lightbox-img');
+
+  // Clear previous proof actions
+  let proofActions = lb.querySelector('.lightbox-proof-actions');
+  if (proofActions) proofActions.remove();
+  let proofDate = lb.querySelector('.lightbox-proof-date');
+  if (proofDate) proofDate.remove();
+
+  const url = URL.createObjectURL(blob);
+  img.src = url;
+
+  // Add date label
+  if (timestamp) {
+    const dateEl = document.createElement('div');
+    dateEl.className = 'lightbox-proof-date';
+    const photoDate = new Date(timestamp);
+    dateEl.textContent = `Aufgenommen am ${photoDate.toLocaleDateString('de-DE')}`;
+    lb.appendChild(dateEl);
+  }
+
+  // Add action buttons
+  const actionsEl = document.createElement('div');
+  actionsEl.className = 'lightbox-proof-actions';
+
+  const newPhotoBtn = document.createElement('button');
+  newPhotoBtn.className = 'lightbox-proof-btn';
+  newPhotoBtn.textContent = 'Neues Foto machen';
+  newPhotoBtn.addEventListener('click', () => {
+    closeLightbox();
+    // Navigate to photo view with pre-selected room
+    showView('photo');
+    const roomSelect = document.getElementById('photo-room-select');
+    if (roomSelect) roomSelect.value = roomId;
+  });
+
+  const wrongBtn = document.createElement('button');
+  wrongBtn.className = 'lightbox-proof-btn lightbox-proof-btn--secondary';
+  wrongBtn.textContent = 'Stimmt nicht mehr';
+  wrongBtn.addEventListener('click', () => {
+    closeLightbox();
+    // Insert a correction message into the chat
+    const input = document.getElementById('chat-input');
+    const displayItem = itemName || 'Der Gegenstand';
+    input.value = `${displayItem} ist nicht mehr dort.`;
+    input.focus();
+  });
+
+  actionsEl.appendChild(newPhotoBtn);
+  actionsEl.appendChild(wrongBtn);
+  lb.appendChild(actionsEl);
+
+  lb.style.display = 'flex';
+  requestAnimationFrame(() => lb.classList.add('lightbox--visible'));
 }
 
 // ── ACTION MARKER SYSTEM ────────────────────────────────
@@ -2047,6 +2196,11 @@ function closeLightbox() {
     const img = document.getElementById('lightbox-img');
     if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
     img.src = '';
+    // Clean up proof lightbox elements
+    const proofActions = lb.querySelector('.lightbox-proof-actions');
+    if (proofActions) proofActions.remove();
+    const proofDate = lb.querySelector('.lightbox-proof-date');
+    if (proofDate) proofDate.remove();
   }, 200);
 }
 
