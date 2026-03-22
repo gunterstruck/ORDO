@@ -777,7 +777,7 @@ async function callClaude(apiKey, systemPrompt, messages) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: geminiContents,
-        generationConfig: { maxOutputTokens: 1024 }
+        generationConfig: { maxOutputTokens: 2048 }
       })
     });
   } catch (fetchErr) {
@@ -796,8 +796,13 @@ async function callClaude(apiKey, systemPrompt, messages) {
   }
 
   const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  debugLog(`Antwort OK – ${text.length} Zeichen`);
+  const candidate = data.candidates?.[0];
+  const finishReason = candidate?.finishReason ?? 'UNKNOWN';
+  const text = candidate?.content?.parts?.[0]?.text ?? '';
+  debugLog(`Antwort OK – ${text.length} Zeichen, finishReason: ${finishReason}`);
+  if (!text && finishReason === 'SAFETY') throw new Error('safety_block');
+  if (!text && finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
+  if (!text) debugLog(`Warnung: Leere Antwort. Volle Antwort: ${JSON.stringify(data).slice(0, 500)}`);
   return text;
 }
 
@@ -805,6 +810,9 @@ function getErrorMessage(err) {
   if (err.message === 'offline') return 'Ich bin gerade offline. Deine gespeicherten Infos kann ich dir trotzdem zeigen.';
   if (err.message === 'api_key') return 'API Key ungültig oder nicht gesetzt. Bitte in den Einstellungen prüfen.';
   if (err.message === 'quota') return 'Tageslimit der kostenlosen Google AI API erreicht (429). Bitte morgen wieder versuchen oder ein bezahltes Konto nutzen.';
+  if (err.message === 'safety_block') return 'Das Foto wurde vom Sicherheitsfilter blockiert. Bitte ein anderes Foto versuchen.';
+  if (err.message === 'max_tokens') return 'Antwort zu lang – bitte ein übersichtlicheres Foto wählen.';
+  if (err.message === 'Kein JSON in Antwort') return 'Die KI hat keine auswertbare Antwort geliefert. Bitte nochmal versuchen.';
   if (err.message?.includes('too large') || err.message?.includes('size')) return 'Foto zu groß – bitte ein kleineres wählen oder Auflösung reduzieren.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
 }
