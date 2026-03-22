@@ -1,7 +1,7 @@
 // app.js – Main application logic
 
-const MODEL = 'gemini-2.0-flash';
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const MODEL = 'gemini-1.5-flash';
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
@@ -790,6 +790,7 @@ async function callClaude(apiKey, systemPrompt, messages) {
   if (!response.ok) {
     const rawText = await response.text().catch(() => '');
     debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
+    if (response.status === 429) throw new Error('quota');
     if (response.status === 400 || response.status === 403) throw new Error('api_key');
     throw new Error(`HTTP ${response.status}`);
   }
@@ -802,7 +803,8 @@ async function callClaude(apiKey, systemPrompt, messages) {
 
 function getErrorMessage(err) {
   if (err.message === 'offline') return 'Ich bin gerade offline. Deine gespeicherten Infos kann ich dir trotzdem zeigen.';
-  if (err.message === 'api_key') return 'API Key ungültig oder nicht gesetzt (401). Bitte in den Einstellungen prüfen.';
+  if (err.message === 'api_key') return 'API Key ungültig oder nicht gesetzt. Bitte in den Einstellungen prüfen.';
+  if (err.message === 'quota') return 'Tageslimit der kostenlosen Google AI API erreicht (429). Bitte morgen wieder versuchen oder ein bezahltes Konto nutzen.';
   if (err.message?.includes('too large') || err.message?.includes('size')) return 'Foto zu groß – bitte ein kleineres wählen oder Auflösung reduzieren.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
 }
