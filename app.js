@@ -73,7 +73,10 @@ function showView(name) {
   if (name === 'chat') initChat();
   if (name === 'brain') renderBrainView();
   if (name === 'settings') renderSettings();
-  if (name === 'photo') renderRoomDropdown('photo-room-select');
+  if (name === 'photo') {
+    renderRoomDropdown('photo-room-select');
+    applyNfcContextToPhotoView();
+  }
 }
 
 // ── CHAT VIEW ──────────────────────────────────────────
@@ -216,10 +219,29 @@ ${context}
 
 Antworte immer in maximal 2 kurzen Sätzen.
 Wenn du etwas nicht weißt, sag es direkt und bitte den Nutzer ein Foto zu machen.
-Wenn der Nutzer einen Gegenstand erwähnt den du noch nicht kennst, frage kurz nach wo er ist und speichere es.
 Antworte immer auf Deutsch.
-Wenn du nach ausdrücklicher Bestätigung des Nutzers Haushaltsdaten speichern sollst, hänge am Ende deiner Antwort diesen Block an (sonst nie):
-##SAVE## {"raumId":"raum_slug","behaelter":[{"id":"id","name":"Name","typ":"schrank","position":"Ort","inhalt":["Gegenstand"]}],"lose_gegenstaende":[],"raumhinweis":"kurz"}`;
+
+Wenn der Nutzer einen Gegenstand erwähnt und du weißt wo er hingehört (weil er es gesagt hat oder weil ein NFC-Kontext gesetzt ist), speichere ihn automatisch.
+Füge dafür am Ende deiner Antwort diesen Marker ein (der Nutzer sieht ihn nicht):
+<!--SAVE:{"action":"add_item","room":"raum_slug","container":"container_slug","item":"Name"}-->
+
+Mögliche Aktionen: add_item, move_item (mit "from_room","from_container" zusätzlich), remove_item, add_container.
+Wenn du Raum oder Behälter nicht kennst, frage zuerst nach. Füge dann KEINEN Marker ein.
+Verwende slugifizierte IDs: Kleinbuchstaben, Umlaute umschreiben (ä→ae, ö→oe, ü→ue, ß→ss), Leerzeichen zu Unterstrichen.
+Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"`;
+
+    // NFC-Kontext in System-Prompt einbetten
+    if (nfcContext) {
+      const nfcRoom = Brain.getRoom(nfcContext.room);
+      const nfcContainer = nfcContext.tag ? Brain.getContainer(nfcContext.room, nfcContext.tag) : null;
+      const nfcRoomName = nfcRoom?.name || nfcContext.room;
+      const nfcContainerName = nfcContainer?.name || nfcContext.tag || '';
+      if (nfcContainerName) {
+        systemPrompt += `\n\nDer Nutzer steht gerade vor: ${nfcContainerName} im Raum ${nfcRoomName}. Wenn er ein Foto schickt oder Gegenstände erwähnt, ordne sie diesem Behälter zu (room: "${nfcContext.room}", container: "${nfcContext.tag}") – außer er sagt ausdrücklich etwas anderes.`;
+      } else {
+        systemPrompt += `\n\nDer Nutzer befindet sich gerade im Raum: ${nfcRoomName}. Ordne erwähnte Gegenstände diesem Raum zu – außer er sagt ausdrücklich etwas anderes.`;
+      }
+    }
 
     // Erweiterung für Foto-Nachrichten
     if (photo) {
@@ -229,11 +251,17 @@ Wenn du nach ausdrücklicher Bestätigung des Nutzers Haushaltsdaten speichern s
       systemPrompt += `
 
 Auf diesem Foto: Analysiere es im Kontext des Haushalts.
-A) Zeigt es einen Raum, Schrank, Regal oder Möbelstück → schlage vor, den Inhalt zu speichern. Frage nach dem Raum falls unklar.
-B) Zeigt es einen einzelnen Gegenstand → frage wo er liegt und biete an ihn zu merken.
-C) Allgemeine Frage → beantworte sie einfach ohne zu speichern.
-Bekannte Räume: ${knownRooms}
-Füge ##SAVE## nur hinzu wenn der Nutzer explizit zugestimmt hat (z.B. "ja", "speichern", "ok").`;
+A) Zeigt es einen Raum, Schrank, Regal oder Möbelstück → erkenne was drin liegt und füge <!--SAVE:...--> Marker für jeden erkannten Gegenstand ein.
+B) Zeigt es einen einzelnen Gegenstand → frage wo er liegt und speichere ihn mit <!--SAVE:...--> wenn der Nutzer antwortet.
+C) Allgemeine Frage → beantworte sie einfach.
+Bekannte Räume: ${knownRooms}`;
+
+      // Bei NFC-Kontext: KI weiß schon wo sie ist
+      if (nfcContext) {
+        const nfcRoom = Brain.getRoom(nfcContext.room);
+        const nfcContainer = nfcContext.tag ? Brain.getContainer(nfcContext.room, nfcContext.tag) : null;
+        systemPrompt += `\nDer Nutzer steht vor "${nfcContainer?.name || nfcContext.tag || nfcRoom?.name}" – ordne erkannte Gegenstände direkt diesem Behälter zu (room: "${nfcContext.room}", container: "${nfcContext.tag || ''}").`;
+      }
     }
 
     const history = Brain.getChatHistory().slice(-20).map(m => ({ role: m.role, content: m.content }));
@@ -251,13 +279,15 @@ Füge ##SAVE## nur hinzu wenn der Nutzer explizit zugestimmt hat (z.B. "ja", "sp
     const response = await callGemini(apiKey, systemPrompt, messages);
     thinking.remove();
 
-    // ##SAVE##-Marker prüfen
+    // Legacy ##SAVE##-Marker prüfen (Rückwärtskompatibilität)
     if (response.includes('##SAVE##')) {
       handleSaveResponse(response);
     } else {
-      appendMessage('assistant', response);
-      Brain.addChatMessage('assistant', response);
-      if (!photo) checkForItemExtraction(text, response);
+      // Neues <!--SAVE:...--> Marker-System
+      const { cleanText, actions } = processSaveMarkers(response);
+      appendMessage('assistant', cleanText);
+      Brain.addChatMessage('assistant', cleanText);
+      actions.forEach(action => executeSaveAction(action));
     }
   } catch (err) {
     thinking.remove();
@@ -322,8 +352,94 @@ function buildMessages(history, newUserText) {
 }
 
 function checkForItemExtraction(userText, assistantResponse) {
-  // Simple heuristic: if user mentions an item location, we could extract it
-  // This is handled conversationally by the AI
+  // Handled via <!--SAVE:--> markers in the AI response
+}
+
+// ── SAVE MARKER SYSTEM ─────────────────────────────────
+
+// Extracts all <!--SAVE:{...}--> markers from AI response text
+// Returns { cleanText, actions[] }
+function processSaveMarkers(text) {
+  const actions = [];
+  const cleanText = text.replace(/<!--SAVE:([\s\S]*?)-->/g, (_, jsonStr) => {
+    try {
+      const action = JSON.parse(jsonStr.trim());
+      actions.push(action);
+    } catch { /* ignore malformed markers */ }
+    return '';
+  }).trim();
+  return { cleanText, actions };
+}
+
+// Executes a parsed save action from the AI
+function executeSaveAction(action) {
+  const presets = {
+    kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'],
+    schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'],
+    keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges']
+  };
+
+  function ensureRoom(roomId) {
+    if (roomId && !Brain.getRoom(roomId)) {
+      const p = presets[roomId] || ['🏠', roomId];
+      Brain.addRoom(roomId, p[1], p[0]);
+    }
+  }
+
+  try {
+    switch (action.action) {
+      case 'add_item': {
+        ensureRoom(action.room);
+        if (!Brain.getContainer(action.room, action.container)) {
+          Brain.addContainer(action.room, action.container, action.container, 'sonstiges');
+        }
+        Brain.addItem(action.room, action.container, action.item);
+        const c = Brain.getContainer(action.room, action.container);
+        const r = Brain.getRoom(action.room);
+        showSystemMessage(`✓ ${action.item} → ${c?.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'move_item': {
+        Brain.removeItem(action.from_room || action.room, action.from_container || action.container, action.item);
+        ensureRoom(action.room);
+        if (!Brain.getContainer(action.room, action.container)) {
+          Brain.addContainer(action.room, action.container, action.container, 'sonstiges');
+        }
+        Brain.addItem(action.room, action.container, action.item);
+        const c = Brain.getContainer(action.room, action.container);
+        const r = Brain.getRoom(action.room);
+        showSystemMessage(`✓ ${action.item} verschoben → ${c?.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'remove_item': {
+        Brain.removeItem(action.room, action.container, action.item);
+        showSystemMessage(`✓ ${action.item} entfernt`);
+        renderBrainView();
+        break;
+      }
+      case 'add_container': {
+        ensureRoom(action.room);
+        Brain.addContainer(action.room, action.container, action.name || action.container, action.typ || 'sonstiges');
+        const r = Brain.getRoom(action.room);
+        showSystemMessage(`✓ Neuer Bereich: ${action.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      // need_info → no action needed
+    }
+  } catch { /* silent fail – don't break chat */ }
+}
+
+// Displays a small system confirmation message in the chat
+function showSystemMessage(text) {
+  const messages = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg chat-msg--system';
+  div.textContent = text;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
 }
 
 // ── PHOTO VIEW ─────────────────────────────────────────
@@ -374,6 +490,30 @@ function renderRoomDropdown(selectId) {
       select.appendChild(opt);
     }
   });
+}
+
+function applyNfcContextToPhotoView() {
+  const hint = document.getElementById('photo-nfc-hint');
+  if (!nfcContext) {
+    if (hint) hint.style.display = 'none';
+    return;
+  }
+
+  const room = Brain.getRoom(nfcContext.room);
+  const container = nfcContext.tag ? Brain.getContainer(nfcContext.room, nfcContext.tag) : null;
+  const roomName = room?.name || nfcContext.room;
+  const containerName = container?.name || nfcContext.tag || '';
+
+  const select = document.getElementById('photo-room-select');
+  if (select && nfcContext.room) select.value = nfcContext.room;
+
+  const customName = document.getElementById('photo-custom-name');
+  if (customName && containerName) customName.value = containerName;
+
+  if (hint) {
+    hint.textContent = `📍 Foto wird "${containerName || roomName}" zugeordnet`;
+    hint.style.display = 'block';
+  }
 }
 
 async function handlePhotoFile(file) {
@@ -428,10 +568,22 @@ Antworte NUR mit diesem JSON, nichts anderes:
       "name": "menschlicher Name",
       "typ": "schrank|regal|schublade|kiste|sonstiges",
       "position": "kurze Positionsbeschreibung",
-      "inhalt": ["erkannter Gegenstand 1", "Gegenstand 2"]
+      "inhalt_sicher": ["Gegenstand der klar in diesem Behälter liegt"],
+      "inhalt_unsicher": [
+        {
+          "name": "Gegenstand",
+          "vermutung": "liegt vermutlich in diesem Behälter, aber nicht 100% sicher"
+        }
+      ]
     }
   ],
-  "lose_gegenstaende": ["Gegenstand außerhalb Behälter"],
+  "lose_gegenstaende": ["Gegenstand klar außerhalb aller Behälter"],
+  "unklar": [
+    {
+      "name": "Gegenstand",
+      "kontext": "Kurze Beschreibung warum unklar, z.B. liegt zwischen zwei Behältern"
+    }
+  ],
   "raumhinweis": "kurze Raumcharakteristik"
 }`;
 
@@ -464,6 +616,10 @@ Antworte NUR mit diesem JSON, nichts anderes:
       }
 
       const count = Brain.applyPhotoAnalysis(roomId, analysis);
+
+      // Feature 1: process three confidence levels and generate chat messages
+      processPhotoAnalysisResult(roomId, analysis);
+
       showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
       renderBrainView();
     } catch (err) {
@@ -478,6 +634,46 @@ function showPhotoStatus(msg, type) {
   el.textContent = msg;
   el.className = `photo-status photo-status--${type}`;
   el.style.display = 'block';
+}
+
+// ── PHOTO ANALYSIS CONFIDENCE PROCESSING ──────────────
+// Generates chat follow-up messages for unsicher/unklar items
+function processPhotoAnalysisResult(roomId, analysis) {
+  const unsicherQuestions = [];
+  const unklarItems = [];
+
+  (analysis.behaelter || []).forEach(b => {
+    const containerName = b.name;
+    // inhalt_unsicher → saved with uncertain flag, ask user to confirm
+    (b.inhalt_unsicher || []).forEach(u => {
+      const itemName = typeof u === 'string' ? u : u.name;
+      unsicherQuestions.push({ item: itemName, container: containerName });
+    });
+  });
+
+  (analysis.unklar || []).forEach(u => {
+    unklarItems.push(typeof u === 'string' ? u : u.name);
+  });
+
+  if (unsicherQuestions.length === 0 && unklarItems.length === 0) return;
+
+  // Switch to chat to show follow-up questions
+  showView('chat');
+
+  // Unsichere Items: one question per item
+  unsicherQuestions.forEach(({ item, container }) => {
+    const msg = `Ich habe eine ${item} gefunden und sie vorläufig in "${container}" einsortiert. Stimmt das, oder soll ich sie woanders zuordnen?`;
+    appendMessage('assistant', msg);
+    Brain.addChatMessage('assistant', msg);
+  });
+
+  // Unklar Items: one combined message
+  if (unklarItems.length > 0) {
+    const list = unklarItems.join(', ');
+    const msg = `Ein paar Dinge konnte ich nicht zuordnen: ${list}. Wo sollen die hin?`;
+    appendMessage('assistant', msg);
+    Brain.addChatMessage('assistant', msg);
+  }
 }
 
 // ── BRAIN VIEW ─────────────────────────────────────────
@@ -581,6 +777,21 @@ function buildContainerNode(roomId, cId, c) {
       showView('chat');
       const input = document.getElementById('chat-input');
       input.value = `Wo ist die ${item}?`;
+      setTimeout(() => sendChatMessage(), 100);
+    });
+    chips.appendChild(chip);
+  });
+
+  // Uncertain items (from inhalt_unsicher) shown with "?" badge
+  (c.uncertain_items || []).forEach(item => {
+    const chip = document.createElement('span');
+    chip.className = 'brain-chip brain-chip--uncertain';
+    chip.textContent = `${item} ?`;
+    chip.title = 'Noch nicht bestätigt';
+    chip.addEventListener('click', () => {
+      showView('chat');
+      const input = document.getElementById('chat-input');
+      input.value = `Ist "${item}" wirklich in "${c.name}"?`;
       setTimeout(() => sendChatMessage(), 100);
     });
     chips.appendChild(chip);

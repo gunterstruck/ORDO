@@ -132,6 +132,7 @@ const Brain = {
   },
 
   // --- Photo Analysis Result ---
+  // Supports new format with inhalt_sicher / inhalt_unsicher, as well as legacy inhalt
   applyPhotoAnalysis(roomId, analysisResult) {
     const data = this.getData();
     if (!data.rooms[roomId]) return 0;
@@ -139,10 +140,16 @@ const Brain = {
     let count = 0;
     (analysisResult.behaelter || []).forEach(b => {
       const cId = this.slugify(b.id || b.name);
+      // Support both new format (inhalt_sicher/inhalt_unsicher) and legacy (inhalt)
+      const sicherItems = b.inhalt_sicher || b.inhalt || [];
+      const unsicherItems = (b.inhalt_unsicher || []).map(u =>
+        typeof u === 'string' ? u : u.name
+      );
       data.rooms[roomId].containers[cId] = {
         name: b.name,
         typ: b.typ || 'sonstiges',
-        items: b.inhalt || [],
+        items: sicherItems,
+        uncertain_items: unsicherItems,
         last_updated: Date.now(),
         photo_analyzed: true
       };
@@ -156,6 +163,32 @@ const Brain = {
     data.rooms[roomId].last_updated = Date.now();
     this.save(data);
     return count;
+  },
+
+  // Add a single item as uncertain (shows "?" in brain view)
+  addUncertainItem(roomId, containerId, item) {
+    const data = this.getData();
+    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    if (c) {
+      if (!c.uncertain_items) c.uncertain_items = [];
+      if (!c.uncertain_items.includes(item)) {
+        c.uncertain_items.push(item);
+        c.last_updated = Date.now();
+        this.save(data);
+      }
+    }
+  },
+
+  // Confirm an uncertain item → moves it to regular items
+  confirmUncertainItem(roomId, containerId, item) {
+    const data = this.getData();
+    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    if (c) {
+      c.uncertain_items = (c.uncertain_items || []).filter(i => i !== item);
+      if (!c.items.includes(item)) c.items.push(item);
+      c.last_updated = Date.now();
+      this.save(data);
+    }
   },
 
   // --- Chat History ---
