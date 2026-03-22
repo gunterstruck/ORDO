@@ -252,7 +252,29 @@ Wenn der Nutzer einen Gegenstand erwähnt und du weißt wo er hingehört (weil e
 Füge dafür am Ende deiner Antwort diesen Marker ein (der Nutzer sieht ihn nicht):
 <!--SAVE:{"action":"add_item","room":"raum_slug","container":"container_slug","item":"Name"}-->
 
-Mögliche Aktionen: add_item, move_item (mit "from_room","from_container" zusätzlich), remove_item, add_container.
+Mögliche SAVE-Aktionen: add_item, move_item (mit "from_room","from_container" zusätzlich), remove_item, add_container.
+
+Du kannst die Haushaltsdatenbank aktiv verändern. Wenn der Nutzer sagt dass etwas nicht mehr existiert, verschoben wurde, aufgebraucht ist oder sich geändert hat, führe die passende Aktion aus.
+Füge am Ende deiner Antwort einen unsichtbaren ACTION-Marker ein. Format: <!--ACTION:{"type":"...", ...}-->
+
+Verfügbare ACTION-Typen:
+- add_item: {"type":"add_item","room":"...","container":"...","item":"..."}
+- remove_item: {"type":"remove_item","room":"...","container":"...","item":"..."}
+- move_item: {"type":"move_item","from_room":"...","from_container":"...","to_room":"...","to_container":"...","item":"..."}
+- remove_items: {"type":"remove_items","room":"...","container":"...","items":["...",  "..."]}
+- replace_items: {"type":"replace_items","room":"...","container":"...","items":["...","..."]}
+- delete_container: {"type":"delete_container","room":"...","container":"..."}
+- rename_container: {"type":"rename_container","room":"...","container":"...","new_name":"..."}
+- delete_room: {"type":"delete_room","room":"..."}
+- add_container: {"type":"add_container","room":"...","container":"...","name":"...","typ":"..."}
+
+WICHTIG:
+- Verwende als room und container IDs die slugifizierten Namen aus der Datenbank (siehe Kontext oben).
+- Wenn du nicht sicher bist WELCHER Gegenstand oder Behälter gemeint ist, frage ERST nach. Füge dann KEINEN Marker ein.
+- Bei destruktiven Aktionen (delete_container, delete_room): Frage IMMER kurz nach bevor du den Marker einfügst. Erst wenn der Nutzer bestätigt → Marker einfügen.
+- Bei einfachen Änderungen (remove_item, move_item): Direkt ausführen, nur kurz bestätigen.
+- Nutze die exakten IDs aus dem Kontext.
+
 Wenn du Raum oder Behälter nicht kennst, frage zuerst nach. Füge dann KEINEN Marker ein.
 Verwende slugifizierte IDs: Kleinbuchstaben, Umlaute umschreiben (ä→ae, ö→oe, ü→ue, ß→ss), Leerzeichen zu Unterstrichen.
 Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"`;
@@ -310,11 +332,14 @@ Bekannte Räume: ${knownRooms}`;
     if (response.includes('##SAVE##')) {
       handleSaveResponse(response);
     } else {
-      // Neues <!--SAVE:...--> Marker-System
-      const { cleanText, actions } = processSaveMarkers(response);
+      // <!--SAVE:...--> Marker-System (add/move/remove items, add container)
+      const { cleanText: afterSave, actions: saveActions } = processSaveMarkers(response);
+      // <!--ACTION:...--> Marker-System (alle Aktionen inkl. delete/rename)
+      const { cleanText, actions: actionActions } = processActions(afterSave);
       appendMessage('assistant', cleanText);
       Brain.addChatMessage('assistant', cleanText);
-      actions.forEach(action => executeSaveAction(action));
+      saveActions.forEach(action => executeSaveAction(action));
+      actionActions.forEach(action => executeAction(action));
     }
   } catch (err) {
     thinking.remove();
@@ -467,6 +492,135 @@ function showSystemMessage(text) {
   div.textContent = text;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
+}
+
+// Alias used by the ACTION marker system
+function appendSystemMessage(text) {
+  showSystemMessage(text);
+}
+
+// ── ACTION MARKER SYSTEM ────────────────────────────────
+
+// Extracts all <!--ACTION:{...}--> markers from AI response text
+// Returns { cleanText, actions[] }
+function processActions(text) {
+  const actions = [];
+  const cleanText = text.replace(/<!--ACTION:([\s\S]*?)-->/g, (_, jsonStr) => {
+    try {
+      const action = JSON.parse(jsonStr.trim());
+      actions.push(action);
+    } catch { /* ignore malformed markers */ }
+    return '';
+  }).trim();
+  return { cleanText, actions };
+}
+
+// Executes a parsed action from the ACTION marker system
+function executeAction(action) {
+  try {
+    switch (action.type) {
+      case 'add_item': {
+        if (!Brain.getRoom(action.room)) return;
+        if (!Brain.getContainer(action.room, action.container)) return;
+        Brain.addItem(action.room, action.container, action.item);
+        const c = Brain.getContainer(action.room, action.container);
+        const r = Brain.getRoom(action.room);
+        showSystemMessage(`✓ ${action.item} hinzugefügt zu ${c?.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'remove_item': {
+        if (!Brain.getRoom(action.room)) return;
+        const c = Brain.getContainer(action.room, action.container);
+        if (!c) return;
+        const r = Brain.getRoom(action.room);
+        Brain.removeItem(action.room, action.container, action.item);
+        showSystemMessage(`✓ ${action.item} entfernt aus ${c?.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'move_item': {
+        const fromC = Brain.getContainer(action.from_room, action.from_container);
+        const toR = Brain.getRoom(action.to_room);
+        const toC = Brain.getContainer(action.to_room, action.to_container);
+        if (!fromC || !toR || !toC) return;
+        const fromR = Brain.getRoom(action.from_room);
+        Brain.removeItem(action.from_room, action.from_container, action.item);
+        Brain.addItem(action.to_room, action.to_container, action.item);
+        showSystemMessage(`✓ ${action.item} verschoben: ${fromR?.name || action.from_room} → ${toR?.name || action.to_room}`);
+        renderBrainView();
+        break;
+      }
+      case 'remove_items': {
+        if (!Brain.getRoom(action.room)) return;
+        const c = Brain.getContainer(action.room, action.container);
+        if (!c) return;
+        const r = Brain.getRoom(action.room);
+        (action.items || []).forEach(item => Brain.removeItem(action.room, action.container, item));
+        showSystemMessage(`✓ ${(action.items || []).length} Gegenstände entfernt aus ${c?.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'replace_items': {
+        if (!Brain.getRoom(action.room)) return;
+        const c = Brain.getContainer(action.room, action.container);
+        if (!c) return;
+        const r = Brain.getRoom(action.room);
+        const data = Brain.getData();
+        data.rooms[action.room].containers[action.container].items = action.items || [];
+        Brain.save(data);
+        showSystemMessage(`✓ Inhalt aktualisiert: ${c?.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'delete_container': {
+        if (!Brain.getRoom(action.room)) return;
+        const c = Brain.getContainer(action.room, action.container);
+        if (!c) return;
+        const r = Brain.getRoom(action.room);
+        const containerName = c.name;
+        const roomName = r?.name || action.room;
+        Brain.deleteContainer(action.room, action.container);
+        Brain.deletePhoto(action.room + '_' + action.container);
+        showSystemMessage(`✓ ${containerName} gelöscht (${roomName})`);
+        renderBrainView();
+        break;
+      }
+      case 'rename_container': {
+        if (!Brain.getRoom(action.room)) return;
+        const c = Brain.getContainer(action.room, action.container);
+        if (!c) return;
+        const r = Brain.getRoom(action.room);
+        const oldName = c.name;
+        Brain.renameContainer(action.room, action.container, action.new_name);
+        showSystemMessage(`✓ ${oldName} umbenannt zu ${action.new_name} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'delete_room': {
+        const r = Brain.getRoom(action.room);
+        if (!r) return;
+        const roomName = r.name;
+        const data = Brain.getData();
+        const containers = data.rooms[action.room]?.containers || {};
+        Object.keys(containers).forEach(cId => {
+          Brain.deletePhoto(action.room + '_' + cId);
+        });
+        Brain.deleteRoom(action.room);
+        showSystemMessage(`✓ Raum ${roomName} gelöscht`);
+        renderBrainView();
+        break;
+      }
+      case 'add_container': {
+        if (!Brain.getRoom(action.room)) return;
+        Brain.addContainer(action.room, action.container, action.name || action.container, action.typ || 'sonstiges');
+        const r = Brain.getRoom(action.room);
+        showSystemMessage(`✓ Neuer Behälter: ${action.name || action.container} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+    }
+  } catch { /* silent fail – don't break chat */ }
 }
 
 // ── PHOTO VIEW ─────────────────────────────────────────
