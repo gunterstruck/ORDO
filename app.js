@@ -23,9 +23,24 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./service-worker.js').catch(() => {});
-  }
+  if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.register('./service-worker.js').then(reg => {
+    // Wenn ein neuer SW wartet: Seite nach Aktivierung neu laden
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'activated') {
+          window.location.reload();
+        }
+      });
+    });
+  }).catch(() => {});
+
+  // Falls der SW-Controller wechselt (z.B. nach skipWaiting): Seite neu laden
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  });
 }
 
 // ── URL / NFC Params ───────────────────────────────────
