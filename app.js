@@ -23,6 +23,162 @@ let reviewState = null; // { roomId, containerId, containerName, items, mode }
 // Move container state
 let moveContainerState = null; // { roomId, containerId }
 
+// ── Helpers ─────────────────────────────────────────────
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Toast System ────────────────────────────────────────
+function showToast(message, type = 'success', duration = 3000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('toast--out');
+    toast.addEventListener('animationend', () => toast.remove());
+  }, duration);
+}
+
+// ── Modal System ────────────────────────────────────────
+// showInputModal({ title, description?, fields: [{ label, placeholder, defaultValue?, type? }] }) → Promise<string[]|null>
+function showInputModal({ title, description, fields }) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('ordo-modal');
+    const titleEl = document.getElementById('ordo-modal-title');
+    const descEl = document.getElementById('ordo-modal-desc');
+    const fieldsEl = document.getElementById('ordo-modal-fields');
+    const actionsEl = document.getElementById('ordo-modal-actions');
+
+    titleEl.textContent = title;
+    descEl.textContent = description || '';
+    fieldsEl.innerHTML = '';
+    actionsEl.innerHTML = '';
+
+    const inputs = [];
+    fields.forEach(f => {
+      if (f.label) {
+        const label = document.createElement('label');
+        label.className = 'ordo-modal-field-label';
+        label.textContent = f.label;
+        fieldsEl.appendChild(label);
+      }
+      if (f.type === 'select' && f.options) {
+        const select = document.createElement('select');
+        select.className = 'ordo-modal-select';
+        f.options.forEach(opt => {
+          const o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label;
+          if (opt.value === f.defaultValue) o.selected = true;
+          select.appendChild(o);
+        });
+        fieldsEl.appendChild(select);
+        inputs.push(select);
+      } else {
+        const input = document.createElement('input');
+        input.className = 'ordo-modal-input';
+        input.type = f.type || 'text';
+        input.placeholder = f.placeholder || '';
+        input.value = f.defaultValue || '';
+        fieldsEl.appendChild(input);
+        inputs.push(input);
+      }
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ordo-modal-btn ordo-modal-btn--cancel';
+    cancelBtn.textContent = 'Abbrechen';
+
+    const okBtn = document.createElement('button');
+    okBtn.className = 'ordo-modal-btn ordo-modal-btn--primary';
+    okBtn.textContent = 'OK';
+
+    actionsEl.appendChild(cancelBtn);
+    actionsEl.appendChild(okBtn);
+
+    function close(result) {
+      modal.style.display = 'none';
+      modal.removeEventListener('click', onBackdrop);
+      resolve(result);
+    }
+
+    function onBackdrop(e) {
+      if (e.target === modal) close(null);
+    }
+
+    cancelBtn.addEventListener('click', () => close(null));
+    okBtn.addEventListener('click', () => {
+      const values = inputs.map(i => i.value);
+      close(values);
+    });
+    modal.addEventListener('click', onBackdrop);
+
+    // Enter key submits
+    inputs.forEach(input => {
+      if (input.tagName === 'INPUT') {
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const values = inputs.map(i => i.value);
+            close(values);
+          }
+        });
+      }
+    });
+
+    modal.style.display = 'flex';
+    setTimeout(() => inputs[0]?.focus(), 50);
+  });
+}
+
+// showConfirmModal({ title, description, confirmLabel?, danger? }) → Promise<boolean>
+function showConfirmModal({ title, description, confirmLabel, danger }) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('ordo-modal');
+    const titleEl = document.getElementById('ordo-modal-title');
+    const descEl = document.getElementById('ordo-modal-desc');
+    const fieldsEl = document.getElementById('ordo-modal-fields');
+    const actionsEl = document.getElementById('ordo-modal-actions');
+
+    titleEl.textContent = title;
+    descEl.textContent = description || '';
+    fieldsEl.innerHTML = '';
+    actionsEl.innerHTML = '';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ordo-modal-btn ordo-modal-btn--cancel';
+    cancelBtn.textContent = 'Abbrechen';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = `ordo-modal-btn ${danger ? 'ordo-modal-btn--danger' : 'ordo-modal-btn--primary'}`;
+    confirmBtn.textContent = confirmLabel || 'Ja';
+
+    actionsEl.appendChild(cancelBtn);
+    actionsEl.appendChild(confirmBtn);
+
+    function close(result) {
+      modal.style.display = 'none';
+      modal.removeEventListener('click', onBackdrop);
+      resolve(result);
+    }
+
+    function onBackdrop(e) {
+      if (e.target === modal) close(false);
+    }
+
+    cancelBtn.addEventListener('click', () => close(false));
+    confirmBtn.addEventListener('click', () => close(true));
+    modal.addEventListener('click', onBackdrop);
+
+    modal.style.display = 'flex';
+    setTimeout(() => confirmBtn.focus(), 50);
+  });
+}
+
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   Brain.init();
@@ -98,7 +254,7 @@ function showView(name) {
   const navBtn = document.querySelector(`.nav-btn[data-view="${name}"]`);
   if (navBtn) navBtn.classList.add('active');
 
-  if (name === 'chat') initChat();
+  if (name === 'chat') { initChat(); maybeShowChatSuggestions(); }
   if (name === 'brain') renderBrainView();
   if (name === 'settings') renderSettings();
   if (name === 'nfc-context') renderNfcContextView();
@@ -158,16 +314,16 @@ function clearChatPhoto() {
   document.getElementById('chat-photo-thumb').src = '';
 }
 
-async function resizeImageForChat(file) {
+// Unified image resize: returnFormat 'base64' → {base64, mimeType}, 'blob' → Blob
+function resizeImage(file, maxWidth = 1200, { quality = 0.7, returnFormat = 'blob' } = {}) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const MAX = 1024;
       let { width, height } = img;
-      if (width > MAX || height > MAX) {
-        const ratio = Math.min(MAX / width, MAX / height);
+      if (width > maxWidth || height > maxWidth) {
+        const ratio = Math.min(maxWidth / width, maxWidth / height);
         width = Math.round(width * ratio);
         height = Math.round(height * ratio);
       }
@@ -176,41 +332,24 @@ async function resizeImageForChat(file) {
       canvas.height = height;
       canvas.getContext('2d').drawImage(img, 0, 0, width, height);
       canvas.toBlob(blob => {
-        const reader = new FileReader();
-        reader.onload = e => resolve({ base64: e.target.result.split(',')[1], mimeType: 'image/jpeg' });
-        reader.readAsDataURL(blob);
-      }, 'image/jpeg', 0.85);
+        if (!blob) { reject(new Error('Resize failed')); return; }
+        if (returnFormat === 'base64') {
+          const reader = new FileReader();
+          reader.onload = e => resolve({ base64: e.target.result.split(',')[1], mimeType: 'image/jpeg' });
+          reader.readAsDataURL(blob);
+        } else {
+          resolve(blob);
+        }
+      }, 'image/jpeg', quality);
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Ladefehler')); };
     img.src = url;
   });
 }
 
-// Resize a File/Blob to max maxWidth pixels and return a JPEG Blob
-function resizeImage(file, maxWidth = 1200) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { width, height } = img;
-      if (width > maxWidth) {
-        const ratio = maxWidth / width;
-        width = maxWidth;
-        height = Math.round(height * ratio);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-      canvas.toBlob(blob => {
-        if (blob) resolve(blob);
-        else reject(new Error('Resize failed'));
-      }, 'image/jpeg', 0.7);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Ladefehler')); };
-    img.src = url;
-  });
+// Convenience wrapper for chat image resizing
+function resizeImageForChat(file) {
+  return resizeImage(file, 1024, { quality: 0.85, returnFormat: 'base64' });
 }
 
 function initChat() {
@@ -250,12 +389,16 @@ async function sendChatMessage() {
 
   if (!text && !photo) return;
 
+  const sendBtn = document.getElementById('chat-send');
+  if (sendBtn.classList.contains('sending')) return; // Prevent double-send
+
   const apiKey = Brain.getApiKey();
   if (!apiKey) {
-    appendMessage('assistant', 'API Key nicht gesetzt. Bitte in den Einstellungen eintragen.');
+    showSystemMessage('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.');
     return;
   }
 
+  sendBtn.classList.add('sending');
   input.value = '';
   if (photo) clearChatPhoto();
   hideChatSuggestions();
@@ -370,7 +513,9 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
     }
   } catch (err) {
     thinking.remove();
-    appendMessage('assistant', getErrorMessage(err));
+    showSystemMessage(getErrorMessage(err));
+  } finally {
+    document.getElementById('chat-send').classList.remove('sending');
   }
 }
 
@@ -397,12 +542,7 @@ function handleSaveResponse(response) {
   saveBtn.className = 'chat-save-btn';
   saveBtn.textContent = '💾 Speichern';
   saveBtn.addEventListener('click', () => {
-    // Raum anlegen falls noch nicht vorhanden
-    if (!Brain.getRoom(roomId)) {
-      const presets = { kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'], schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'], keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges'] };
-      const p = presets[roomId] || ['🏠', roomId];
-      Brain.addRoom(roomId, p[1], p[0]);
-    }
+    ensureRoom(roomId);
     const count = Brain.applyPhotoAnalysis(roomId, analysis);
     saveBtn.textContent = `✓ ${count} Bereiche gespeichert`;
     saveBtn.disabled = true;
@@ -557,6 +697,19 @@ function ensureRoom(roomId) {
 // Unified action executor for all ORDO marker types
 function executeOrdoAction(action) {
   try {
+    // Validate destructive actions: target must exist
+    if (action.type === 'delete_room' && !Brain.getRoom(action.room)) {
+      debugLog(`Marker ignoriert: Raum "${action.room}" existiert nicht`);
+      return;
+    }
+    if (action.type === 'delete_container') {
+      const cId = resolveContainerFromPath(action.room, action.path);
+      if (!Brain.getRoom(action.room) || !cId || !Brain.getContainer(action.room, cId)) {
+        debugLog(`Marker ignoriert: Container "${cId}" in "${action.room}" existiert nicht`);
+        return;
+      }
+    }
+
     const containerId = resolveContainerFromPath(action.room, action.path);
 
     switch (action.type) {
@@ -685,7 +838,7 @@ function executeOrdoAction(action) {
         break;
       }
     }
-  } catch { /* silent fail – don't break chat */ }
+  } catch (err) { debugLog(`Aktion fehlgeschlagen: ${err.message}`); }
 }
 
 // Displays a small system confirmation message in the chat
@@ -852,10 +1005,12 @@ function setupPhoto() {
   // Both hidden inputs feed into the staging area
   document.getElementById('photo-input-camera').addEventListener('change', e => {
     if (e.target.files[0]) addFileToStaging(e.target.files[0]);
+    else if (stagedPhotos.length === 0) closeStagingOverlay();
     e.target.value = '';
   });
   document.getElementById('photo-input-gallery').addEventListener('change', e => {
     if (e.target.files[0]) addFileToStaging(e.target.files[0]);
+    else if (stagedPhotos.length === 0) closeStagingOverlay();
     e.target.value = '';
   });
 }
@@ -879,16 +1034,7 @@ function renderRoomDropdown(selectId) {
   });
 
   // Add predefined rooms if not present
-  const presets = [
-    ['kueche', '🍳', 'Küche'],
-    ['wohnzimmer', '🛋️', 'Wohnzimmer'],
-    ['schlafzimmer', '🛏️', 'Schlafzimmer'],
-    ['arbeitszimmer', '💻', 'Arbeitszimmer'],
-    ['keller', '📦', 'Keller'],
-    ['bad', '🚿', 'Bad'],
-    ['sonstiges', '🏠', 'Sonstiges']
-  ];
-  presets.forEach(([id, emoji, name]) => {
+  Object.entries(ROOM_PRESETS).forEach(([id, [emoji, name]]) => {
     if (!rooms[id] && !document.querySelector(`#${selectId} option[value="${id}"]`)) {
       const opt = document.createElement('option');
       opt.value = id;
@@ -963,11 +1109,7 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
 
     try {
       // Ensure room exists
-      const presets = { kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'], schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'], keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges'] };
-      if (!Brain.getRoom(roomId)) {
-        const p = presets[roomId] || ['🏠', roomId];
-        Brain.addRoom(roomId, p[1], p[0]);
-      }
+      ensureRoom(roomId);
 
       const systemPrompt = `Analysiere dieses Foto eines Raums oder Möbelstücks.
 Wenn du ein Möbelstück mit erkennbaren Unterteilungen siehst (Türen, Schubladen, Fächer, Regalböden), bilde die Hierarchie im JSON ab.
@@ -1461,6 +1603,7 @@ function setupStagingOverlay() {
   });
   document.getElementById('staging-photo-input').addEventListener('change', e => {
     if (e.target.files[0]) addFileToStaging(e.target.files[0]);
+    else if (stagedPhotos.length === 0) closeStagingOverlay();
     e.target.value = '';
   });
   document.getElementById('staging-analyze-btn').addEventListener('click', analyzeAllStagedPhotos);
@@ -1485,11 +1628,11 @@ function closeStagingOverlay() {
 async function addFileToStaging(file) {
   if (!file) return;
   if (stagedPhotos.length >= 5) {
-    alert('Maximal 5 Fotos möglich.');
+    showToast('Maximal 5 Fotos möglich.', 'warning');
     return;
   }
   if (file.size > 4 * 1024 * 1024) {
-    alert('Foto zu groß – bitte ein kleineres wählen.');
+    showToast('Foto zu groß – bitte ein kleineres wählen.', 'warning');
     return;
   }
   try {
@@ -1499,7 +1642,7 @@ async function addFileToStaging(file) {
     renderStagingThumbnails();
     document.getElementById('staging-analyze-btn').disabled = false;
   } catch {
-    alert('Foto konnte nicht geladen werden.');
+    showToast('Foto konnte nicht geladen werden.', 'error');
   }
 }
 
@@ -1535,7 +1678,7 @@ async function analyzeAllStagedPhotos() {
 
   const apiKey = Brain.getApiKey();
   if (!apiKey) {
-    alert('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.');
+    showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
     return;
   }
 
@@ -1602,26 +1745,19 @@ Regeln:
     } catch { /* photo save failed silently */ }
 
     const hint = (analysis.hinweis || '').trim();
+    const isOnboarding = stagingTarget?.onboardingFlow;
     closeStagingOverlay();
-    showReviewPopup(roomId, containerId, containerName, items, mode || 'add', hint || null);
+    showReviewPopup(roomId, containerId, containerName, items, mode || 'add', hint || null, isOnboarding);
 
   } catch (err) {
     analyzeBtn.disabled = false;
     analyzeBtn.textContent = 'Analysieren';
-    alert(getErrorMessage(err));
+    showToast(getErrorMessage(err), 'error');
   }
 }
 
-function ensureRoomExists(roomId) {
-  if (Brain.getRoom(roomId)) return;
-  const presets = {
-    kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'],
-    schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'],
-    keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges']
-  };
-  const p = presets[roomId] || ['🏠', roomId];
-  Brain.addRoom(roomId, p[1], p[0]);
-}
+// ensureRoomExists → alias for ensureRoom (backwards compat)
+function ensureRoomExists(roomId) { ensureRoom(roomId); }
 
 // ── REVIEW OVERLAY ─────────────────────────────────────
 function setupReviewOverlay() {
@@ -1630,8 +1766,8 @@ function setupReviewOverlay() {
   document.getElementById('review-add-manual').addEventListener('click', addManualReviewItem);
 }
 
-function showReviewPopup(roomId, containerId, containerName, items, mode, hinweis) {
-  reviewState = { roomId, containerId, containerName, items: items.map(i => ({ ...i })), mode };
+function showReviewPopup(roomId, containerId, containerName, items, mode, hinweis, onboardingFlow) {
+  reviewState = { roomId, containerId, containerName, items: items.map(i => ({ ...i })), mode, onboardingFlow };
   renderReviewList();
 
   const subtitleEl = document.getElementById('review-subtitle');
@@ -1711,6 +1847,7 @@ function closeReviewPopup() {
 function confirmReview() {
   if (!reviewState) return;
   const { roomId, containerId, containerName, items, mode } = reviewState;
+  const isOnboarding = reviewState.onboardingFlow;
 
   ensureRoomExists(roomId);
   if (!Brain.getContainer(roomId, containerId)) {
@@ -1733,7 +1870,9 @@ function confirmReview() {
   closeReviewPopup();
   renderBrainView();
 
-  if (currentView === 'brain') {
+  if (isOnboarding) {
+    showOnboardingDoneStep();
+  } else if (currentView === 'brain') {
     showBrainToast(`${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} übernommen`);
   } else {
     showPhotoStatus(
@@ -1743,13 +1882,16 @@ function confirmReview() {
   }
 }
 
-function addManualReviewItem() {
+async function addManualReviewItem() {
   if (!reviewState) return;
-  const name = prompt('Gegenstand hinzufügen:');
-  if (!name?.trim()) return;
+  const result = await showInputModal({
+    title: 'Gegenstand hinzufügen',
+    fields: [{ placeholder: 'Name des Gegenstands' }]
+  });
+  if (!result || !result[0]?.trim()) return;
   reviewState.items.push({
     id: `manual_${Date.now()}`,
-    name: name.trim(),
+    name: result[0].trim(),
     menge: 1,
     checked: true
   });
@@ -1789,10 +1931,14 @@ function renderBrainView() {
   if (Object.keys(rooms).length === 0) {
     const emptyEl = document.createElement('div');
     emptyEl.className = 'brain-empty-cta';
-    emptyEl.innerHTML = `
-      <span class="brain-empty-cta-icon">🏠</span>
-      <p class="brain-empty-cta-text">Dein Zuhause ist noch leer.<br>Starte mit einem Foto von einem Schrank, Regal oder einer Schublade.</p>
-    `;
+    const ctaIcon = document.createElement('span');
+    ctaIcon.className = 'brain-empty-cta-icon';
+    ctaIcon.textContent = '🏠';
+    const ctaText = document.createElement('p');
+    ctaText.className = 'brain-empty-cta-text';
+    ctaText.textContent = 'Dein Zuhause ist noch leer. Starte mit einem Foto von einem Schrank, Regal oder einer Schublade.';
+    emptyEl.appendChild(ctaIcon);
+    emptyEl.appendChild(ctaText);
     const btn = document.createElement('button');
     btn.className = 'brain-empty-cta-btn';
     btn.textContent = '📷 Erstes Foto machen';
@@ -1815,7 +1961,18 @@ function buildRoomNode(roomId, room) {
 
   const header = document.createElement('div');
   header.className = 'brain-room-header';
-  header.innerHTML = `<span class="brain-room-emoji">${room.emoji}</span><span class="brain-room-name">${room.name}</span><span class="brain-room-count">${totalContainers}</span>`;
+  const emojiSpanR = document.createElement('span');
+  emojiSpanR.className = 'brain-room-emoji';
+  emojiSpanR.textContent = room.emoji;
+  const nameSpanR = document.createElement('span');
+  nameSpanR.className = 'brain-room-name';
+  nameSpanR.textContent = room.name;
+  const countSpanR = document.createElement('span');
+  countSpanR.className = 'brain-room-count';
+  countSpanR.textContent = totalContainers;
+  header.appendChild(emojiSpanR);
+  header.appendChild(nameSpanR);
+  header.appendChild(countSpanR);
 
   let open = true;
   const body = document.createElement('div');
@@ -1959,10 +2116,13 @@ function buildContainerNode(roomId, cId, c, depth) {
   const addItemBtn = document.createElement('button');
   addItemBtn.className = 'brain-add-item-btn';
   addItemBtn.textContent = '+ Gegenstand';
-  addItemBtn.addEventListener('click', () => {
-    const name = prompt('Gegenstand hinzufügen:');
-    if (name?.trim()) {
-      Brain.addItem(roomId, cId, name.trim());
+  addItemBtn.addEventListener('click', async () => {
+    const result = await showInputModal({
+      title: 'Gegenstand hinzufügen',
+      fields: [{ placeholder: 'Name des Gegenstands' }]
+    });
+    if (result && result[0]?.trim()) {
+      Brain.addItem(roomId, cId, result[0].trim());
       renderBrainView();
     }
   });
@@ -2041,7 +2201,12 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
     // Placeholder
     const div = document.createElement('div');
     div.className = 'brain-thumbnail-empty';
-    div.innerHTML = '<span>📷</span><p>Noch kein Foto.<br>Tippe hier um zu scannen.</p>';
+    const emptyIcon = document.createElement('span');
+    emptyIcon.textContent = '📷';
+    const emptyText = document.createElement('p');
+    emptyText.textContent = 'Noch kein Foto. Tippe hier um zu scannen.';
+    div.appendChild(emptyIcon);
+    div.appendChild(emptyText);
     div.addEventListener('click', () => openCameraForContainer(roomId, cId));
     wrapper.appendChild(div);
   }
@@ -2382,12 +2547,21 @@ function closeMoveContainerOverlay() {
 }
 
 // ── ADD CHILD CONTAINER ────────────────────────────────
-function showAddChildContainerDialog(roomId, parentId) {
-  const name = prompt('Name des Unterbereichs (z.B. "Schublade oben", "Linke Tür"):');
-  if (!name?.trim()) return;
-  const typ = prompt('Typ (schublade/fach/tuer/kiste/regal/sonstiges):', 'sonstiges');
-  const id = Brain.slugify(name.trim());
-  Brain.addChildContainer(roomId, parentId, id, name.trim(), typ || 'sonstiges');
+async function showAddChildContainerDialog(roomId, parentId) {
+  const result = await showInputModal({
+    title: 'Unterbereich hinzufügen',
+    fields: [
+      { label: 'Name', placeholder: 'z.B. "Schublade oben", "Linke Tür"' },
+      { label: 'Typ', type: 'select', defaultValue: 'sonstiges', options: [
+        { value: 'schublade', label: 'Schublade' }, { value: 'fach', label: 'Fach' },
+        { value: 'tuer', label: 'Tür' }, { value: 'kiste', label: 'Kiste' },
+        { value: 'regal', label: 'Regal' }, { value: 'sonstiges', label: 'Sonstiges' }
+      ]}
+    ]
+  });
+  if (!result || !result[0]?.trim()) return;
+  const id = Brain.slugify(result[0].trim());
+  Brain.addChildContainer(roomId, parentId, id, result[0].trim(), result[1] || 'sonstiges');
   renderBrainView();
 }
 
@@ -2423,50 +2597,109 @@ function closeLightbox() {
   }, 200);
 }
 
-function showAddRoomDialog() {
-  const name = prompt('Name des Raums:');
-  if (!name?.trim()) return;
-  const emoji = prompt('Emoji für den Raum (z.B. 🍳):', '🏠');
-  const id = Brain.slugify(name.trim());
-  Brain.addRoom(id, name.trim(), emoji || '🏠');
+async function showAddRoomDialog() {
+  const result = await showInputModal({
+    title: 'Raum hinzufügen',
+    fields: [
+      { label: 'Name', placeholder: 'z.B. Küche, Schlafzimmer' },
+      { label: 'Emoji', placeholder: '🏠', defaultValue: '🏠' }
+    ]
+  });
+  if (!result || !result[0]?.trim()) return;
+  const id = Brain.slugify(result[0].trim());
+  Brain.addRoom(id, result[0].trim(), result[1] || '🏠');
   renderBrainView();
 }
 
-function showAddContainerDialog(roomId) {
-  const name = prompt('Name des Bereichs (z.B. "Schrank links neben Tür"):');
-  if (!name?.trim()) return;
-  const typ = prompt('Typ (schrank/regal/schublade/kiste/tisch/sonstiges):', 'sonstiges');
-  const id = Brain.slugify(name.trim());
-  Brain.addContainer(roomId, id, name.trim(), typ || 'sonstiges');
+async function showAddContainerDialog(roomId) {
+  const result = await showInputModal({
+    title: 'Bereich hinzufügen',
+    fields: [
+      { label: 'Name', placeholder: 'z.B. "Schrank links neben Tür"' },
+      { label: 'Typ', type: 'select', defaultValue: 'sonstiges', options: [
+        { value: 'schrank', label: 'Schrank' }, { value: 'regal', label: 'Regal' },
+        { value: 'schublade', label: 'Schublade' }, { value: 'kiste', label: 'Kiste' },
+        { value: 'tisch', label: 'Tisch' }, { value: 'sonstiges', label: 'Sonstiges' }
+      ]}
+    ]
+  });
+  if (!result || !result[0]?.trim()) return;
+  const id = Brain.slugify(result[0].trim());
+  Brain.addContainer(roomId, id, result[0].trim(), result[1] || 'sonstiges');
   renderBrainView();
 }
 
-function showRoomContextMenu(roomId, room) {
-  const action = prompt(`Raum: ${room.emoji} ${room.name}\n\nAktion:\n1 = Umbenennen\n2 = Löschen`);
-  if (action === '1') {
-    const newName = prompt('Neuer Name:', room.name);
-    if (newName?.trim()) Brain.renameRoom(roomId, newName.trim());
-    renderBrainView();
-  } else if (action === '2') {
-    if (confirm(`${room.name} wirklich löschen?`)) {
+async function showRoomContextMenu(roomId, room) {
+  const result = await showInputModal({
+    title: `${room.emoji} ${room.name}`,
+    description: 'Was möchtest du tun?',
+    fields: [
+      { type: 'select', defaultValue: '0', options: [
+        { value: '0', label: 'Aktion wählen…' },
+        { value: '1', label: 'Umbenennen' },
+        { value: '2', label: 'Löschen' }
+      ]}
+    ]
+  });
+  if (!result || result[0] === '0') return;
+  if (result[0] === '1') {
+    const nameResult = await showInputModal({
+      title: 'Raum umbenennen',
+      fields: [{ label: 'Neuer Name', defaultValue: room.name }]
+    });
+    if (nameResult && nameResult[0]?.trim()) {
+      Brain.renameRoom(roomId, nameResult[0].trim());
+      renderBrainView();
+    }
+  } else if (result[0] === '2') {
+    const ok = await showConfirmModal({
+      title: 'Raum löschen',
+      description: `"${room.name}" und alle Inhalte wirklich löschen?`,
+      confirmLabel: 'Löschen',
+      danger: true
+    });
+    if (ok) {
       Brain.deleteRoom(roomId);
       renderBrainView();
     }
   }
 }
 
-function showContainerContextMenu(roomId, cId, c) {
-  const action = prompt(`Bereich: ${c.name}\n\nAktion:\n1 = Umbenennen\n2 = Löschen\n3 = Verschieben`);
-  if (action === '1') {
-    const newName = prompt('Neuer Name:', c.name);
-    if (newName?.trim()) Brain.renameContainer(roomId, cId, newName.trim());
-    renderBrainView();
-  } else if (action === '2') {
-    if (confirm(`${c.name} wirklich löschen?`)) {
+async function showContainerContextMenu(roomId, cId, c) {
+  const result = await showInputModal({
+    title: c.name,
+    description: 'Was möchtest du tun?',
+    fields: [
+      { type: 'select', defaultValue: '0', options: [
+        { value: '0', label: 'Aktion wählen…' },
+        { value: '1', label: 'Umbenennen' },
+        { value: '2', label: 'Löschen' },
+        { value: '3', label: 'Verschieben' }
+      ]}
+    ]
+  });
+  if (!result || result[0] === '0') return;
+  if (result[0] === '1') {
+    const nameResult = await showInputModal({
+      title: 'Bereich umbenennen',
+      fields: [{ label: 'Neuer Name', defaultValue: c.name }]
+    });
+    if (nameResult && nameResult[0]?.trim()) {
+      Brain.renameContainer(roomId, cId, nameResult[0].trim());
+      renderBrainView();
+    }
+  } else if (result[0] === '2') {
+    const ok = await showConfirmModal({
+      title: 'Bereich löschen',
+      description: `"${c.name}" und alle Inhalte wirklich löschen?`,
+      confirmLabel: 'Löschen',
+      danger: true
+    });
+    if (ok) {
       Brain.deleteContainer(roomId, cId);
       renderBrainView();
     }
-  } else if (action === '3') {
+  } else if (result[0] === '3') {
     showMoveContainerOverlay(roomId, cId);
   }
 }
@@ -2482,21 +2715,32 @@ function setupSettings() {
   });
 
   document.getElementById('settings-export').addEventListener('click', async () => {
-    await Brain.exportData();
+    await Brain.exportData(async (sizeMB) => {
+      return showConfirmModal({
+        title: 'Große Export-Datei',
+        description: `Die Export-Datei ist ca. ${sizeMB} MB groß (Fotos enthalten). Trotzdem exportieren?`,
+        confirmLabel: 'Exportieren'
+      });
+    });
   });
 
   document.getElementById('settings-import').addEventListener('click', () => {
     document.getElementById('settings-import-file').click();
   });
 
-  document.getElementById('settings-import-file').addEventListener('change', e => {
+  document.getElementById('settings-import-file').addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!confirm('Vorhandene Daten werden überschrieben – fortfahren?')) return;
+    const ok = await showConfirmModal({
+      title: 'Daten importieren',
+      description: 'Vorhandene Daten werden überschrieben – fortfahren?',
+      confirmLabel: 'Importieren'
+    });
+    if (!ok) return;
     const reader = new FileReader();
     reader.onload = async ev => {
-      const ok = await Brain.importData(ev.target.result);
-      if (ok) {
+      const success = await Brain.importData(ev.target.result);
+      if (success) {
         showSettingsMsg('Haushalt erfolgreich geladen.', 'success');
         renderBrainView();
       } else {
@@ -2507,7 +2751,13 @@ function setupSettings() {
   });
 
   document.getElementById('settings-reset').addEventListener('click', async () => {
-    if (confirm('Wirklich alles zurücksetzen? Alle Daten gehen verloren.')) {
+    const ok = await showConfirmModal({
+      title: 'Alles zurücksetzen',
+      description: 'Wirklich alles zurücksetzen? Alle Daten gehen verloren.',
+      confirmLabel: 'Zurücksetzen',
+      danger: true
+    });
+    if (ok) {
       await Brain.resetAll();
       localStorage.removeItem('onboarding_completed');
       document.getElementById('chat-messages').innerHTML = '';
@@ -2570,10 +2820,12 @@ function setupSettings() {
 
   // Copy NFC URL
   document.getElementById('nfc-copy-btn')?.addEventListener('click', () => {
-    const url = document.getElementById('nfc-preview-url').textContent;
+    const url = document.getElementById('nfc-fallback-url').textContent;
     navigator.clipboard.writeText(url).then(() => showSettingsMsg('URL kopiert.', 'success'));
   });
 }
+
+let settingsInitialized = false;
 
 function renderSettings() {
   document.getElementById('settings-api-key').value = Brain.getApiKey();
@@ -2591,15 +2843,19 @@ function renderSettings() {
   newOpt.textContent = '+ Neuer Raum';
   sel.appendChild(newOpt);
 
-  sel.addEventListener('change', () => {
-    const newRoomInput = document.getElementById('nfc-new-room-group');
-    if (sel.value === '__new__') {
-      newRoomInput.style.display = 'block';
-    } else {
-      newRoomInput.style.display = 'none';
-    }
-    updateNfcPreview();
-  });
+  // Only register event listener once
+  if (!settingsInitialized) {
+    settingsInitialized = true;
+    sel.addEventListener('change', () => {
+      const newRoomInput = document.getElementById('nfc-new-room-group');
+      if (sel.value === '__new__') {
+        newRoomInput.style.display = 'block';
+      } else {
+        newRoomInput.style.display = 'none';
+      }
+      updateNfcPreview();
+    });
+  }
 }
 
 function updateNfcPreview() {
@@ -2644,12 +2900,7 @@ async function writeNfcTag() {
 
   // Register container in LocalStorage
   if (!Brain.getContainer(roomId, tagId)) {
-    const room = Brain.getRoom(roomId);
-    if (!room) {
-      const presets = { kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'], schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'], keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges'] };
-      const p = presets[roomId] || ['🏠', roomId];
-      Brain.addRoom(roomId, p[1], p[0]);
-    }
+    ensureRoom(roomId);
     Brain.addContainer(roomId, tagId, containerName, containerTyp);
   }
 
@@ -2892,28 +3143,26 @@ function setupOnboarding() {
     if (onboardingRoomId) {
       // Process through normal photo analysis flow
       ensureRoomExists(onboardingRoomId);
-      stagingTarget = { roomId: onboardingRoomId, containerId: 'inhalt', containerName: '', mode: 'add' };
+      stagingTarget = { roomId: onboardingRoomId, containerId: 'inhalt', containerName: '', mode: 'add', onboardingFlow: true };
       showStagingOverlay('📷 Fotos sammeln');
       addFileToStaging(file);
+      // Don't show done step here - it will be shown after review/staging closes
     }
-    showOnboardingDoneStep();
   });
   document.getElementById('onboarding-finish').addEventListener('click', finishOnboarding);
 
   // Build room tiles
   const tiles = document.getElementById('onboarding-room-tiles');
-  const rooms = [
-    ['kueche', '🍳', 'Küche'],
-    ['wohnzimmer', '🛋️', 'Wohnzimmer'],
-    ['schlafzimmer', '🛏️', 'Schlafzimmer'],
-    ['bad', '🚿', 'Bad'],
-    ['arbeitszimmer', '💻', 'Arbeitszimmer'],
-    ['keller', '📦', 'Keller']
-  ];
-  rooms.forEach(([id, emoji, name]) => {
+  const onboardingRooms = ['kueche', 'wohnzimmer', 'schlafzimmer', 'bad', 'arbeitszimmer', 'keller'];
+  onboardingRooms.forEach(id => {
+    const [emoji, name] = ROOM_PRESETS[id] || ['🏠', id];
     const tile = document.createElement('button');
     tile.className = 'onboarding-room-tile';
-    tile.innerHTML = `<span class="onboarding-room-tile-emoji">${emoji}</span>${name}`;
+    const emojiSpan = document.createElement('span');
+    emojiSpan.className = 'onboarding-room-tile-emoji';
+    emojiSpan.textContent = emoji;
+    tile.appendChild(emojiSpan);
+    tile.appendChild(document.createTextNode(name));
     tile.addEventListener('click', () => {
       onboardingRoomId = id;
       showOnboardingPhotoStep(name);
@@ -2963,6 +3212,20 @@ function finishOnboarding() {
 }
 
 // ── CHAT QUICK-SUGGESTIONS ─────────────────────────────
+function maybeShowChatSuggestions() {
+  const messages = document.getElementById('chat-messages');
+  const suggestions = document.getElementById('chat-suggestions');
+  // Show suggestions if chat is empty OR no children in suggestions
+  if (messages.children.length <= 1 || suggestions.children.length === 0) {
+    // Check if last message is old enough (>5 min)
+    const history = Brain.getChatHistory();
+    const lastMsg = history[history.length - 1];
+    if (!lastMsg || (Date.now() - lastMsg.ts > 5 * 60 * 1000) || messages.children.length <= 1) {
+      renderChatSuggestions();
+    }
+  }
+}
+
 function renderChatSuggestions() {
   const container = document.getElementById('chat-suggestions');
   container.innerHTML = '';
