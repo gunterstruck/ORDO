@@ -162,15 +162,58 @@ html, body {
 
 #chat-input-row {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
+  flex-direction: column;
+  gap: 0;
   background: var(--bg);
   border-top: 1px solid var(--border);
   position: sticky;
-  /* Klebt oberhalb von Footer + Nav, nicht unter ihnen */
   bottom: calc(var(--nav-h) + var(--footer-h));
   z-index: 50;
+}
+
+/* Foto-Vorschau oberhalb der Eingabe */
+#chat-photo-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 16px 0;
+  animation: fadeIn 0.2s ease;
+}
+
+#chat-photo-preview[hidden] { display: none; }
+
+#chat-photo-thumb {
+  height: 72px;
+  width: auto;
+  max-width: 110px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 2px solid var(--border);
+}
+
+#chat-photo-remove {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: var(--text);
+  color: white;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: -6px;
+  line-height: 1;
+}
+
+/* Horizontale Eingabe-Zeile */
+.chat-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
 }
 
 #chat-input {
@@ -191,7 +234,7 @@ html, body {
 
 #chat-input:focus { border-color: var(--accent); }
 
-#chat-send, #chat-mic {
+#chat-send, #chat-mic, #chat-camera {
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -212,10 +255,30 @@ html, body {
 
 #chat-send:active { background: var(--accent-dark); transform: scale(0.95); }
 
-#chat-mic {
+#chat-mic, #chat-camera {
   background: var(--surface);
   color: var(--text-muted);
 }
+
+#chat-camera:active { opacity: 0.7; }
+
+/* Speichern-Button in KI-Nachricht */
+.chat-save-btn {
+  display: inline-block;
+  margin-top: 8px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.chat-save-btn:active { opacity: 0.7; }
+.chat-save-btn--done { background: var(--success); cursor: default; opacity: 1; }
 
 #chat-mic.recording {
   background: #ffebee;

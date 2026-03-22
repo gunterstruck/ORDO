@@ -18,14 +18,24 @@
   <div id="view-chat" class="view active">
     <div id="chat-messages"></div>
     <div id="chat-input-row">
-      <button id="chat-mic" aria-label="Spracheingabe">🎤</button>
-      <textarea
-        id="chat-input"
-        placeholder="Schreib oder sprich…"
-        rows="1"
-        aria-label="Nachricht eingeben"
-      ></textarea>
-      <button id="chat-send" aria-label="Senden">↑</button>
+      <!-- Foto-Vorschau (versteckt bis Foto gewählt) -->
+      <div id="chat-photo-preview" hidden>
+        <img id="chat-photo-thumb" alt="Foto-Vorschau">
+        <button id="chat-photo-remove" aria-label="Foto entfernen">✕</button>
+      </div>
+      <!-- Eingabe-Zeile -->
+      <div class="chat-controls">
+        <button id="chat-mic" aria-label="Spracheingabe">🎤</button>
+        <button id="chat-camera" aria-label="Foto hinzufügen">📎</button>
+        <input type="file" id="chat-photo-input" accept="image/*" style="display:none" aria-label="Foto auswählen">
+        <textarea
+          id="chat-input"
+          placeholder="Schreib oder sprich…"
+          rows="1"
+          aria-label="Nachricht eingeben"
+        ></textarea>
+        <button id="chat-send" aria-label="Senden">↑</button>
+      </div>
     </div>
   </div>
 
