@@ -64,7 +64,7 @@ describe('Brain.init()', () => {
     resetBrain();
     const data = Brain.getData();
     assert(data !== null, 'Data sollte nicht null sein');
-    assertEqual(data.version, '1.2');
+    assertEqual(data.version, '1.3');
     assertDeepEqual(data.rooms, {});
     assertDeepEqual(data.chat_history, []);
     assert(data.created > 0, 'created timestamp fehlt');
@@ -598,6 +598,174 @@ describe('Brain – setContainerHasPhoto()', () => {
     Brain.setContainerHasPhoto('kueche', 'schrank', false);
     const c = Brain.getContainer('kueche', 'schrank');
     assertEqual(c.has_photo, false);
+  });
+});
+
+// ── Item Object Format (v1.3) ───────────────────────────
+describe('Brain – Item Object Format (v1.3)', () => {
+  it('addItem() erzeugt Item-Objekte mit Metadaten', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    const c = Brain.getContainer('kueche', 'schrank');
+    const item = c.items[0];
+    assertEqual(typeof item, 'object');
+    assertEqual(item.name, 'Teller');
+    assertEqual(item.status, 'aktiv');
+    assertEqual(item.menge, 1);
+    assertEqual(item.seen_count, 1);
+    assert(item.first_seen !== null, 'first_seen sollte gesetzt sein');
+    assert(item.last_seen !== null, 'last_seen sollte gesetzt sein');
+  });
+
+  it('getItemName() funktioniert mit String und Objekt', () => {
+    assertEqual(Brain.getItemName('Teller'), 'Teller');
+    assertEqual(Brain.getItemName({ name: 'Teller', status: 'aktiv' }), 'Teller');
+    assertEqual(Brain.getItemName(null), '');
+  });
+
+  it('migrateItem() wandelt String in Objekt um', () => {
+    const item = Brain.migrateItem('Teller', { 'Teller': 3 });
+    assertEqual(item.name, 'Teller');
+    assertEqual(item.status, 'aktiv');
+    assertEqual(item.menge, 3);
+    assertEqual(item.first_seen, null);
+    assertEqual(item.seen_count, 0);
+  });
+
+  it('migrateItem() gibt Objekte unverändert zurück', () => {
+    const original = { name: 'Teller', status: 'aktiv', menge: 1 };
+    const result = Brain.migrateItem(original);
+    assertEqual(result, original);
+  });
+
+  it('getContainer() migriert String-Items lazy', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    // Manuell altes Format einfügen
+    const data = Brain.getData();
+    data.rooms.kueche.containers = {
+      schrank: { name: 'Schrank', typ: 'schrank', items: ['Teller', 'Tasse'], quantities: { 'Teller': 3 } }
+    };
+    Brain.save(data);
+    Brain._cache = null;
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertEqual(typeof c.items[0], 'object');
+    assertEqual(c.items[0].name, 'Teller');
+    assertEqual(c.items[0].menge, 3);
+    assertEqual(c.items[1].name, 'Tasse');
+    assertEqual(c.items[1].menge, 1);
+  });
+});
+
+// ── Archive & Lifecycle ─────────────────────────────────
+describe('Brain – Archive & Lifecycle', () => {
+  it('archiveItem() setzt Status auf archiviert', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    Brain.archiveItem('kueche', 'schrank', 'Teller');
+    const c = Brain.getContainer('kueche', 'schrank');
+    const item = c.items[0];
+    assertEqual(item.status, 'archiviert');
+    assert(item.archived_at !== undefined, 'archived_at sollte gesetzt sein');
+  });
+
+  it('getActiveItems() filtert archivierte Items', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    Brain.addItem('kueche', 'schrank', 'Tasse');
+    Brain.archiveItem('kueche', 'schrank', 'Teller');
+    const active = Brain.getActiveItems('kueche', 'schrank');
+    assertEqual(active.length, 1);
+    assertEqual(active[0].name, 'Tasse');
+  });
+
+  it('getArchivedItems() gibt nur archivierte Items zurück', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    Brain.addItem('kueche', 'schrank', 'Tasse');
+    Brain.archiveItem('kueche', 'schrank', 'Teller');
+    const archived = Brain.getArchivedItems('kueche', 'schrank');
+    assertEqual(archived.length, 1);
+    assertEqual(archived[0].name, 'Teller');
+  });
+
+  it('restoreItem() stellt archiviertes Item wieder her', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    Brain.archiveItem('kueche', 'schrank', 'Teller');
+    Brain.restoreItem('kueche', 'schrank', 'Teller');
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertEqual(c.items[0].status, 'aktiv');
+    assertEqual(c.items[0].archived_at, undefined);
+  });
+
+  it('updateItemsLastSeen() aktualisiert Zeitstempel und Zähler', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    const before = Brain.getContainer('kueche', 'schrank').items[0].seen_count;
+    Brain.updateItemsLastSeen('kueche', 'schrank', ['Teller']);
+    const after = Brain.getContainer('kueche', 'schrank').items[0];
+    assertEqual(after.seen_count, before + 1);
+    assert(after.last_seen !== null);
+  });
+
+  it('addItemsFromReview() aktualisiert bestehende Items', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    const countBefore = Brain.getContainer('kueche', 'schrank').items[0].seen_count;
+    Brain.addItemsFromReview('kueche', 'schrank', [
+      { name: 'Teller', menge: 5, checked: true }
+    ]);
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertEqual(c.items[0].menge, 5);
+    assertEqual(c.items[0].seen_count, countBefore + 1);
+    assertEqual(c.items[0].status, 'aktiv');
+  });
+
+  it('buildContext() zeigt keine archivierten Items', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    Brain.addItem('kueche', 'schrank', 'Tasse');
+    Brain.archiveItem('kueche', 'schrank', 'Teller');
+    const ctx = Brain.buildContext();
+    assert(!ctx.includes('→ Teller') && !ctx.includes(', Teller'), 'Archiviertes Item sollte nicht in aktiver Liste stehen');
+    assert(ctx.includes('Tasse'), 'Aktives Item sollte angezeigt werden');
+    assert(ctx.includes('Archiviert'), 'Archiv-Sektion sollte sichtbar sein');
+  });
+});
+
+// ── Version Upgrade ─────────────────────────────────────
+describe('Brain – Version Upgrade', () => {
+  it('init() migriert v1.2 auf v1.3', () => {
+    localStorage.clear();
+    Brain._cache = null;
+    localStorage.setItem('haushalt_data', JSON.stringify({
+      version: '1.2',
+      created: Date.now(),
+      rooms: {},
+      chat_history: [],
+      last_updated: Date.now()
+    }));
+    Brain._cache = null;
+    Brain.init();
+    const data = Brain.getData();
+    assertEqual(data.version, '1.3');
   });
 });
 

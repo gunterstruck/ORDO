@@ -97,7 +97,7 @@ const Brain = {
         req.onerror = () => resolve();
       });
     }
-    const exportData = { ...data, version: '1.2', photos };
+    const exportData = { ...data, version: '1.3', photos };
     const sizeEstimate = JSON.stringify(exportData).length;
     return { exportData, sizeEstimate };
   },
@@ -150,14 +150,19 @@ const Brain = {
   },
 
   init() {
-    if (!this.getData()) {
+    const existing = this.getData();
+    if (!existing) {
       this.save({
-        version: '1.2',
+        version: '1.3',
         created: Date.now(),
         rooms: {},
         chat_history: [],
         last_updated: Date.now()
       });
+    } else if (existing.version === '1.2' || !existing.version) {
+      // Upgrade version marker (items migrated lazily on access)
+      existing.version = '1.3';
+      this.save(existing);
     }
     this.initPhotoDB().catch(() => {});
     // Listen for external changes (other tabs)
@@ -239,10 +244,17 @@ const Brain = {
   // --- Containers (recursive) ---
 
   // Get a container by ID – searches recursively through all levels
+  // Performs lazy migration of string items to objects
   getContainer(roomId, containerId) {
     const room = this.getRoom(roomId);
     if (!room) return null;
-    return this._findContainerInTree(room.containers, containerId);
+    const c = this._findContainerInTree(room.containers, containerId);
+    if (c && this._migrateContainerItems(c)) {
+      // Persist migration
+      const data = this.getData();
+      this.save(data);
+    }
+    return c;
   },
 
   // Recursive search through container tree
@@ -424,12 +436,62 @@ const Brain = {
     }
   },
 
+  // --- Item Helpers (v1.3 object format) ---
+
+  // Get item name regardless of format (string or object)
+  getItemName(item) {
+    return typeof item === 'string' ? item : (item?.name || '');
+  },
+
+  // Create a new item object
+  createItemObject(name, opts = {}) {
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    return {
+      name,
+      status: opts.status || 'aktiv',
+      first_seen: opts.first_seen !== undefined ? opts.first_seen : now,
+      last_seen: opts.last_seen !== undefined ? opts.last_seen : now,
+      seen_count: opts.seen_count || 1,
+      menge: opts.menge || 1
+    };
+  },
+
+  // Migrate a single string item to object format
+  migrateItem(item, quantities) {
+    if (typeof item !== 'string') return item;
+    return {
+      name: item,
+      status: 'aktiv',
+      first_seen: null,
+      last_seen: null,
+      seen_count: 0,
+      menge: (quantities && quantities[item] > 1) ? quantities[item] : 1
+    };
+  },
+
+  // Migrate all items in a container (lazy, in-place)
+  _migrateContainerItems(container) {
+    if (!container || !container.items) return;
+    let migrated = false;
+    container.items = container.items.map(item => {
+      if (typeof item === 'string') {
+        migrated = true;
+        return this.migrateItem(item, container.quantities);
+      }
+      return item;
+    });
+    return migrated;
+  },
+
   // --- Items (now works with recursive containers) ---
   addItem(roomId, containerId, item) {
     const data = this.getData();
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
-    if (c && !c.items.includes(item)) {
-      c.items.push(item);
+    if (!c) return;
+    this._migrateContainerItems(c);
+    const exists = c.items.some(i => this.getItemName(i) === item);
+    if (!exists) {
+      c.items.push(this.createItemObject(item));
       c.last_updated = Date.now();
       this.save(data);
     }
@@ -439,7 +501,8 @@ const Brain = {
     const data = this.getData();
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c) {
-      c.items = c.items.filter(i => i !== item);
+      this._migrateContainerItems(c);
+      c.items = c.items.filter(i => this.getItemName(i) !== item);
       if (c.quantities) delete c.quantities[item];
       c.last_updated = Date.now();
       this.save(data);
@@ -463,15 +526,25 @@ const Brain = {
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (!c) return 0;
     if (!c.quantities) c.quantities = {};
+    this._migrateContainerItems(c);
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
     let count = 0;
     (reviewItems || []).forEach(item => {
       if (!item.checked) return;
       const name = (item.name || '').trim();
       if (!name) return;
-      if (!c.items.includes(name)) {
-        c.items.push(name);
-      }
       const menge = Math.max(1, parseInt(item.menge) || 1);
+      const existingIdx = c.items.findIndex(i => this.getItemName(i) === name);
+      if (existingIdx >= 0) {
+        // Update existing item
+        c.items[existingIdx].last_seen = now;
+        c.items[existingIdx].seen_count = (c.items[existingIdx].seen_count || 0) + 1;
+        c.items[existingIdx].menge = menge;
+        c.items[existingIdx].status = 'aktiv';
+      } else {
+        c.items.push(this.createItemObject(name, { menge, first_seen: now, last_seen: now, seen_count: 1 }));
+      }
+      // Keep quantities as fallback for old code
       if (menge > 1) {
         c.quantities[name] = menge;
       } else {
@@ -616,8 +689,10 @@ const Brain = {
     const data = this.getData();
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c) {
+      this._migrateContainerItems(c);
       c.uncertain_items = (c.uncertain_items || []).filter(i => i !== item);
-      if (!c.items.includes(item)) c.items.push(item);
+      const exists = c.items.some(i => this.getItemName(i) === item);
+      if (!exists) c.items.push(this.createItemObject(item));
       c.last_updated = Date.now();
       this.save(data);
     }
@@ -718,6 +793,70 @@ const Brain = {
     return null;
   },
 
+  // --- Archive & Lifecycle ---
+
+  archiveItem(roomId, containerId, itemName) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (item && typeof item === 'object') {
+      item.status = 'archiviert';
+      item.archived_at = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+      c.last_updated = Date.now();
+      this.save(data);
+    }
+  },
+
+  getActiveItems(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    if (!c) return [];
+    return (c.items || []).filter(item => {
+      if (typeof item === 'string') return true;
+      return item.status === 'aktiv' || item.status === 'vermisst';
+    });
+  },
+
+  getArchivedItems(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    if (!c) return [];
+    return (c.items || []).filter(item => {
+      return typeof item !== 'string' && item.status === 'archiviert';
+    });
+  },
+
+  restoreItem(roomId, containerId, itemName) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (item && typeof item === 'object') {
+      item.status = 'aktiv';
+      delete item.archived_at;
+      c.last_updated = Date.now();
+      this.save(data);
+    }
+  },
+
+  updateItemsLastSeen(roomId, containerId, itemNames) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return;
+    this._migrateContainerItems(c);
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    (itemNames || []).forEach(name => {
+      const item = c.items.find(i => this.getItemName(i) === name);
+      if (item && typeof item === 'object') {
+        item.last_seen = now;
+        item.seen_count = (item.seen_count || 0) + 1;
+      }
+    });
+    c.last_updated = Date.now();
+    this.save(data);
+  },
+
   // --- Chat History ---
   getChatHistory() {
     return this.getData()?.chat_history || [];
@@ -762,15 +901,39 @@ const Brain = {
   _buildContainerContext(c, depth) {
     const indent = '  '.repeat(depth);
     let ctx = `\n${indent}${c.typ}: ${c.name}`;
-    if (c.items?.length > 0) {
-      const itemsStr = c.items.map(item => {
-        const qty = c.quantities?.[item];
-        return qty > 1 ? `${qty}x ${item}` : item;
+
+    // Filter: only show active and vermisst items
+    const activeItems = (c.items || []).filter(item => {
+      if (typeof item === 'string') return true;
+      return item.status !== 'archiviert';
+    });
+    const archivedItems = (c.items || []).filter(item => {
+      return typeof item !== 'string' && item.status === 'archiviert';
+    });
+
+    if (activeItems.length > 0) {
+      const itemsStr = activeItems.map(item => {
+        const name = this.getItemName(item);
+        const menge = typeof item === 'string' ? (c.quantities?.[item] || 1) : (item.menge || 1);
+        let str = menge > 1 ? `${menge}x ${name}` : name;
+        if (typeof item !== 'string' && item.status === 'vermisst') str += ' (vermisst)';
+        return str;
       }).join(', ');
       ctx += ` → ${itemsStr}`;
     } else {
       ctx += ' (leer)';
     }
+
+    // Show last 20 archived items as hint
+    if (archivedItems.length > 0) {
+      const archiveStr = archivedItems.slice(-20).map(item => {
+        let s = item.name;
+        if (item.archived_at) s += ` (entfernt am ${this.formatDate(new Date(item.archived_at).getTime())})`;
+        return s;
+      }).join(', ');
+      ctx += `\n${indent}  Archiviert: ${archiveStr}`;
+    }
+
     // Recurse into children
     if (c.containers) {
       for (const [childId, child] of Object.entries(c.containers)) {

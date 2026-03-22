@@ -780,7 +780,11 @@ function executeOrdoAction(action) {
         const data = Brain.getData();
         const cont = Brain._findContainerInTree(data.rooms[action.room].containers, containerId);
         if (cont) {
-          cont.items = (action.items || []).map(i => typeof i === 'string' ? i : i.name);
+          cont.items = (action.items || []).map(i => {
+            const name = typeof i === 'string' ? i : i.name;
+            const menge = typeof i === 'object' ? Math.max(1, parseInt(i.menge) || 1) : 1;
+            return Brain.createItemObject(name, { menge });
+          });
           cont.quantities = {};
           (action.items || []).forEach(i => {
             if (typeof i === 'object' && i.menge > 1) {
@@ -2012,7 +2016,9 @@ function buildRoomNode(roomId, room) {
 
 function buildContainerNode(roomId, cId, c, depth) {
   const el = document.createElement('div');
-  const hasItems = c.items?.length > 0;
+  const activeItems = (c.items || []).filter(item => typeof item === 'string' || item.status !== 'archiviert');
+  const archivedItems = (c.items || []).filter(item => typeof item !== 'string' && item.status === 'archiviert');
+  const hasItems = activeItems.length > 0;
   const hasChildren = c.containers && Object.keys(c.containers).length > 0;
   el.className = `brain-container ${hasItems ? 'has-items' : 'empty'}`;
   if (depth > 0) {
@@ -2074,19 +2080,55 @@ function buildContainerNode(roomId, cId, c, depth) {
   const chips = document.createElement('div');
   chips.className = 'brain-chips';
 
-  (c.items || []).forEach(item => {
+  activeItems.forEach(item => {
     const chip = document.createElement('span');
-    chip.className = 'brain-chip';
-    const qty = c.quantities?.[item];
-    chip.textContent = qty > 1 ? `${qty}x ${item}` : item;
+    const name = Brain.getItemName(item);
+    const menge = typeof item === 'string' ? (c.quantities?.[item] || 1) : (item.menge || 1);
+    const isVermisst = typeof item !== 'string' && item.status === 'vermisst';
+    chip.className = 'brain-chip' + (isVermisst ? ' brain-chip--vermisst' : '');
+    chip.textContent = (menge > 1 ? `${menge}x ` : '') + name + (isVermisst ? ' ⚠' : '');
     chip.addEventListener('click', () => {
       showView('chat');
       const input = document.getElementById('chat-input');
-      input.value = `Wo ist die ${item}?`;
+      input.value = `Wo ist die ${name}?`;
       setTimeout(() => sendChatMessage(), 100);
     });
+    setupLongPress(chip, () => showItemContextMenu(roomId, cId, name));
     chips.appendChild(chip);
   });
+
+  // Show archived items toggle
+  if (archivedItems.length > 0) {
+    const archiveToggle = document.createElement('div');
+    archiveToggle.className = 'brain-archive-toggle';
+    archiveToggle.textContent = `📦 ${archivedItems.length} archiviert`;
+    let archiveOpen = false;
+    const archiveChips = document.createElement('div');
+    archiveChips.className = 'brain-chips brain-chips--archived';
+    archiveChips.style.display = 'none';
+    archivedItems.forEach(item => {
+      const chip = document.createElement('span');
+      chip.className = 'brain-chip brain-chip--archived';
+      chip.textContent = item.name;
+      chip.title = item.archived_at ? `Archiviert am ${Brain.formatDate(new Date(item.archived_at).getTime())}` : 'Archiviert';
+      chip.addEventListener('click', () => {
+        if (confirm(`"${item.name}" wiederherstellen?`)) {
+          Brain.restoreItem(roomId, cId, item.name);
+          renderBrainView();
+        }
+      });
+      archiveChips.appendChild(chip);
+    });
+    archiveToggle.addEventListener('click', () => {
+      archiveOpen = !archiveOpen;
+      archiveChips.style.display = archiveOpen ? 'flex' : 'none';
+      archiveToggle.textContent = archiveOpen
+        ? `📦 ${archivedItems.length} archiviert ▲`
+        : `📦 ${archivedItems.length} archiviert`;
+    });
+    chips.appendChild(archiveToggle);
+    chips.appendChild(archiveChips);
+  }
 
   // Uncertain items (from inhalt_unsicher) shown with "?" badge
   (c.uncertain_items || []).forEach(item => {
@@ -2353,7 +2395,8 @@ async function renderNfcContextView() {
   itemsArea.style.display = 'none';
   childrenArea.style.display = 'none';
 
-  const hasItems = container?.items?.length > 0;
+  const nfcActiveItems = (container?.items || []).filter(item => typeof item === 'string' || item.status !== 'archiviert');
+  const hasItems = nfcActiveItems.length > 0;
   const hasChildren = container?.containers && Object.keys(container.containers).length > 0;
   const hasContent = hasItems || hasChildren;
 
@@ -2385,11 +2428,12 @@ async function renderNfcContextView() {
     itemsArea.style.display = 'block';
     const chipsEl = document.getElementById('nfc-ctx-item-chips');
     chipsEl.innerHTML = '';
-    container.items.forEach(item => {
+    nfcActiveItems.forEach(item => {
       const chip = document.createElement('span');
+      const name = Brain.getItemName(item);
+      const menge = typeof item === 'string' ? (container.quantities?.[item] || 1) : (item.menge || 1);
       chip.className = 'nfc-ctx-chip';
-      const qty = container.quantities?.[item];
-      chip.textContent = qty > 1 ? `${qty}x ${item}` : item;
+      chip.textContent = menge > 1 ? `${menge}x ${name}` : name;
       chipsEl.appendChild(chip);
     });
   }
@@ -2660,6 +2704,37 @@ async function showRoomContextMenu(roomId, room) {
     });
     if (ok) {
       Brain.deleteRoom(roomId);
+      renderBrainView();
+    }
+  }
+}
+
+async function showItemContextMenu(roomId, cId, itemName) {
+  const result = await showInputModal({
+    title: itemName,
+    description: 'Was möchtest du tun?',
+    fields: [
+      { type: 'select', defaultValue: '0', options: [
+        { value: '0', label: 'Aktion wählen…' },
+        { value: '1', label: 'Archivieren (entfernt)' },
+        { value: '2', label: 'Löschen (endgültig)' }
+      ]}
+    ]
+  });
+  if (!result || result[0] === '0') return;
+  if (result[0] === '1') {
+    Brain.archiveItem(roomId, cId, itemName);
+    showToast(`"${itemName}" archiviert`);
+    renderBrainView();
+  } else if (result[0] === '2') {
+    const ok = await showConfirmModal({
+      title: 'Gegenstand löschen',
+      description: `"${itemName}" unwiderruflich löschen?`,
+      confirmLabel: 'Löschen',
+      danger: true
+    });
+    if (ok) {
+      Brain.removeItem(roomId, cId, itemName);
       renderBrainView();
     }
   }
@@ -3265,18 +3340,19 @@ function renderChatSuggestions() {
   }
 
   // Pick an item-based suggestion
-  let foundItem = null;
+  let foundItemName = null;
   for (const [, room] of roomEntries) {
     for (const [, c] of Object.entries(room.containers || {})) {
-      if (c.items?.length > 0) {
-        foundItem = c.items[Math.floor(Math.random() * c.items.length)];
+      const active = (c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert');
+      if (active.length > 0) {
+        foundItemName = Brain.getItemName(active[Math.floor(Math.random() * active.length)]);
         break;
       }
     }
-    if (foundItem) break;
+    if (foundItemName) break;
   }
-  if (foundItem) {
-    suggestions.push(`Wo ist ${foundItem}?`);
+  if (foundItemName) {
+    suggestions.push(`Wo ist ${foundItemName}?`);
   } else {
     suggestions.push('Wo ist die Schere?');
   }
