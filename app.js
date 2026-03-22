@@ -134,7 +134,7 @@ Antworte immer auf Deutsch.`;
     // ensure alternating roles
     const messages = buildMessages(history, text);
 
-    const response = await callClaude(apiKey, systemPrompt, messages);
+    const response = await callGemini(apiKey, systemPrompt, messages);
     thinking.remove();
     appendMessage('assistant', response);
     Brain.addChatMessage('assistant', response);
@@ -293,7 +293,7 @@ Antworte NUR mit diesem JSON, nichts anderes:
         ]
       }];
 
-      const raw = await callClaude(apiKey, systemPrompt, messages);
+      const raw = await callGemini(apiKey, systemPrompt, messages);
 
       // Extract JSON from response
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -547,7 +547,7 @@ function setupSettings() {
     }
     debugLog('Starte Testanfrage …');
     try {
-      const result = await callClaude(apiKey, 'Du bist ein Testassistent.', [
+      const result = await callGemini(apiKey, 'Du bist ein Testassistent.', [
         { role: 'user', content: 'Sag nur "OK".' }
       ]);
       debugLog(`TEST ERFOLGREICH: Antwort = "${result}"`);
@@ -745,7 +745,7 @@ function debugLog(msg) {
 }
 
 // ── GEMINI API ─────────────────────────────────────────
-async function callClaude(apiKey, systemPrompt, messages) {
+async function callGemini(apiKey, systemPrompt, messages) {
   if (!navigator.onLine) {
     debugLog('FEHLER: Gerät ist offline (navigator.onLine = false)');
     throw new Error('offline');
