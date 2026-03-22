@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#E8A87C">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Haushalt">
+  <title>Haushaltsassistent</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── CHAT VIEW ──────────────────────────────── -->
+  <div id="view-chat" class="view active">
+    <div id="chat-messages"></div>
+    <div id="chat-input-row">
+      <button id="chat-mic" aria-label="Spracheingabe">🎤</button>
+      <textarea
+        id="chat-input"
+        placeholder="Schreib oder sprich…"
+        rows="1"
+        aria-label="Nachricht eingeben"
+      ></textarea>
+      <button id="chat-send" aria-label="Senden">↑</button>
+    </div>
+  </div>
+
+  <!-- ── PHOTO VIEW ─────────────────────────────── -->
+  <div id="view-photo" class="view">
+    <p class="photo-section-title">Raum auswählen</p>
+    <select id="photo-room-select" aria-label="Raum auswählen"></select>
+
+    <p class="photo-section-title">Ort (optional)</p>
+    <input
+      type="text"
+      id="photo-custom-name"
+      class="settings-input"
+      placeholder='z.B. "Schrank links neben Tür"'
+      aria-label="Name des Ortes"
+    >
+
+    <p class="photo-section-title">Foto aufnehmen</p>
+    <div class="photo-btn-group">
+      <button id="photo-camera-btn" aria-label="Kamera öffnen">📷</button>
+      <button id="photo-gallery-btn" aria-label="Galerie öffnen">🖼️</button>
+    </div>
+
+    <!-- Hidden file inputs -->
+    <input type="file" id="photo-input-camera" accept="image/*" capture="environment" style="display:none" aria-label="Kamerafoto">
+    <input type="file" id="photo-input-gallery" accept="image/*" style="display:none" aria-label="Bild aus Galerie">
+
+    <img id="photo-preview" alt="Vorschau" aria-live="polite">
+    <div id="photo-status" class="photo-status" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- ── BRAIN VIEW ──────────────────────────────── -->
+  <div id="view-brain" class="view">
+    <div class="brain-view-header">
+      <span class="brain-view-title">🧠 Mein Haushalt</span>
+      <button id="brain-add-room">+ Raum</button>
+    </div>
+    <div id="brain-tree"></div>
+  </div>
+
+  <!-- ── SETTINGS VIEW ──────────────────────────── -->
+  <div id="view-settings" class="view">
+    <h1 style="font-size:22px;font-weight:700;margin-bottom:4px;">Einstellungen</h1>
+
+    <div id="settings-msg" class="settings-msg" role="status" aria-live="polite"></div>
+
+    <!-- API -->
+    <div class="settings-section">
+      <div class="settings-section-title">API</div>
+      <label class="settings-label" for="settings-api-key">Claude API Key</label>
+      <input
+        type="password"
+        id="settings-api-key"
+        class="settings-input"
+        placeholder="sk-ant-…"
+        autocomplete="off"
+        aria-label="API Key"
+      >
+      <button id="settings-save-key" class="settings-btn settings-btn--primary">Speichern</button>
+    </div>
+
+    <!-- NFC Tag schreiben -->
+    <div class="settings-section">
+      <div class="settings-section-title">NFC Tag beschreiben</div>
+
+      <div class="nfc-step">
+        <div class="nfc-step-num">1</div>
+        <div class="nfc-step-body">
+          <label class="settings-label" for="nfc-room-select">Raum wählen</label>
+          <select id="nfc-room-select" class="settings-input" aria-label="Raum für NFC Tag"></select>
+          <div id="nfc-new-room-group" style="display:none;flex-direction:column;gap:8px;">
+            <input type="text" id="nfc-new-room-name" class="settings-input" placeholder="Raumname" aria-label="Neuer Raumname">
+            <input type="text" id="nfc-new-room-emoji" class="settings-input" placeholder="Emoji (z.B. 🛏️)" maxlength="4" aria-label="Emoji für neuen Raum">
+          </div>
+        </div>
+      </div>
+
+      <div class="nfc-step">
+        <div class="nfc-step-num">2</div>
+        <div class="nfc-step-body">
+          <label class="settings-label" for="nfc-container-name">Behälter benennen</label>
+          <input type="text" id="nfc-container-name" class="settings-input" placeholder='z.B. "Schrank links neben Tür"' aria-label="Behältername">
+          <label class="settings-label" for="nfc-container-typ">Typ</label>
+          <select id="nfc-container-typ" class="settings-input" aria-label="Behältertyp">
+            <option value="schrank">Schrank</option>
+            <option value="regal">Regal</option>
+            <option value="schublade">Schublade</option>
+            <option value="kiste">Kiste</option>
+            <option value="tisch">Tisch</option>
+            <option value="sonstiges">Sonstiges</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="nfc-step">
+        <div class="nfc-step-num">3</div>
+        <div class="nfc-step-body">
+          <p class="settings-label">Vorschau der URL</p>
+          <div class="nfc-preview-box" id="nfc-preview-url">–</div>
+        </div>
+      </div>
+
+      <div class="nfc-step">
+        <div class="nfc-step-num">4</div>
+        <div class="nfc-step-body">
+          <button id="nfc-write-btn" class="settings-btn settings-btn--primary">NFC Tag jetzt beschreiben</button>
+        </div>
+      </div>
+
+      <div id="nfc-fallback" style="display:none;flex-direction:column;gap:10px;">
+        <p style="font-size:14px;">NFC Schreiben nicht verfügbar auf diesem Gerät.<br>Bitte diese URL manuell in "NFC Tools" eintragen:</p>
+        <div class="nfc-fallback-url nfc-preview-box" id="nfc-fallback-url"></div>
+        <button id="nfc-copy-btn" class="settings-btn settings-btn--secondary">URL kopieren</button>
+      </div>
+    </div>
+
+    <!-- Daten -->
+    <div class="settings-section">
+      <div class="settings-section-title">Daten</div>
+      <button id="settings-export" class="settings-btn settings-btn--secondary">Haushalt exportieren</button>
+      <button id="settings-import" class="settings-btn settings-btn--secondary">Haushalt importieren</button>
+      <input type="file" id="settings-import-file" accept=".json" style="display:none" aria-label="Import-Datei">
+      <button id="settings-reset" class="settings-btn settings-btn--danger">Alles zurücksetzen</button>
+    </div>
+
+    <!-- Info -->
+    <div class="settings-section">
+      <div class="settings-section-title">Info</div>
+      <p class="app-version">App Version: 1.0</p>
+      <button class="nfc-info-toggle" id="nfc-info-toggle">Wie funktioniert NFC? ▾</button>
+      <div class="nfc-info-body" id="nfc-info-body" style="display:none;">
+        NFC Tags sind kleine Aufkleber mit einem Chip. Wenn du dein Handy daran hältst öffnet sich diese App automatisch – ohne suchen, ohne tippen.<br><br>
+        <strong>Android:</strong> funktioniert direkt im Chrome Browser.<br>
+        <strong>iPhone:</strong> zum Beschreiben bitte "NFC Tools" verwenden.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── IMPRESSUM VIEW ─────────────────────────── -->
+  <div id="view-impressum" class="view">
+    <div class="impressum-block">
+      <p class="impressum-title">Impressum</p>
+      <address>
+        <p class="impressum-placeholder">[Vor- und Nachname]</p>
+        <p class="impressum-placeholder">[Straße und Hausnummer]</p>
+        <p class="impressum-placeholder">[PLZ Ort]</p>
+        <p class="impressum-placeholder">[E-Mail Adresse]</p>
+      </address>
+    </div>
+
+    <div class="impressum-note">
+      <strong>NFC Tags beschreiben:</strong><br>
+      Auf iPhone bitte die App "NFC Tools" verwenden und die URL manuell eintragen.
+    </div>
+  </div>
+
+  <!-- ── FOOTER ──────────────────────────────────── -->
+  <div id="footer">
+    <button id="footer-settings">Einstellungen</button>
+    <button id="footer-impressum">Impressum</button>
+  </div>
+
+  <!-- ── BOTTOM NAV ─────────────────────────────── -->
+  <nav id="nav" role="navigation" aria-label="Hauptnavigation">
+    <button class="nav-btn active" data-view="chat" aria-label="Chat">
+      <span class="nav-icon">💬</span>
+      Fragen
+    </button>
+    <button class="nav-btn" data-view="photo" aria-label="Foto einlernen">
+      <span class="nav-icon">📷</span>
+      Einlernen
+    </button>
+    <button class="nav-btn" data-view="brain" aria-label="Wissen">
+      <span class="nav-icon">🧠</span>
+      Gehirn
+    </button>
+  </nav>
+
+</div>
+
+<script src="brain.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
