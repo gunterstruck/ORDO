@@ -8,6 +8,7 @@ let currentView = 'chat';
 let recognition = null;
 let isRecording = false;
 let nfcContext = null; // { room, tag } from URL params
+let chatPendingPhoto = null; // { base64, mimeType } – Foto im Chat-Eingabefeld
 
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -82,6 +83,75 @@ function setupChat() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
   });
   document.getElementById('chat-mic').addEventListener('click', toggleMic);
+  setupChatCamera();
+}
+
+// ── CHAT KAMERA ────────────────────────────────────────
+function setupChatCamera() {
+  const btn = document.getElementById('chat-camera');
+  const input = document.getElementById('chat-photo-input');
+  const removeBtn = document.getElementById('chat-photo-remove');
+
+  btn.addEventListener('click', () => input.click());
+
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    input.value = ''; // Reset, damit dieselbe Datei erneut ausgewählt werden kann
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      appendMessage('assistant', 'Foto zu groß – bitte ein kleineres wählen.');
+      return;
+    }
+
+    try {
+      const { base64, mimeType } = await resizeImageForChat(file);
+      chatPendingPhoto = { base64, mimeType };
+
+      const thumb = document.getElementById('chat-photo-thumb');
+      thumb.src = `data:${mimeType};base64,${base64}`;
+      document.getElementById('chat-photo-preview').hidden = false;
+      document.getElementById('chat-input').focus();
+    } catch {
+      appendMessage('assistant', 'Foto konnte nicht geladen werden.');
+    }
+  });
+
+  removeBtn.addEventListener('click', clearChatPhoto);
+}
+
+function clearChatPhoto() {
+  chatPendingPhoto = null;
+  document.getElementById('chat-photo-preview').hidden = true;
+  document.getElementById('chat-photo-thumb').src = '';
+}
+
+async function resizeImageForChat(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1024;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        const ratio = Math.min(MAX / width, MAX / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => {
+        const reader = new FileReader();
+        reader.onload = e => resolve({ base64: e.target.result.split(',')[1], mimeType: 'image/jpeg' });
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Ladefehler')); };
+    img.src = url;
+  });
 }
 
 function initChat() {
@@ -116,7 +186,9 @@ function appendMessage(role, text, thinking = false) {
 async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
-  if (!text) return;
+  const photo = chatPendingPhoto; // vor dem Löschen sichern
+
+  if (!text && !photo) return;
 
   const apiKey = Brain.getApiKey();
   if (!apiKey) {
@@ -125,37 +197,110 @@ async function sendChatMessage() {
   }
 
   input.value = '';
-  appendMessage('user', text);
-  Brain.addChatMessage('user', text);
+  if (photo) clearChatPhoto();
+
+  // Nutzernachricht anzeigen (mit Kamera-Icon wenn Foto dabei)
+  const displayText = photo ? (text ? `📷 ${text}` : '📷 Foto') : text;
+  appendMessage('user', displayText);
+  Brain.addChatMessage('user', displayText);
 
   const thinking = appendMessage('assistant', '…', true);
 
   try {
     const context = Brain.buildContext();
-    const systemPrompt = `Du bist ein stiller Haushaltsassistent.
+
+    // Basis-System-Prompt
+    let systemPrompt = `Du bist ein stiller Haushaltsassistent.
 Hier ist was du über diesen Haushalt weißt:
 ${context}
 
 Antworte immer in maximal 2 kurzen Sätzen.
 Wenn du etwas nicht weißt, sag es direkt und bitte den Nutzer ein Foto zu machen.
 Wenn der Nutzer einen Gegenstand erwähnt den du noch nicht kennst, frage kurz nach wo er ist und speichere es.
-Antworte immer auf Deutsch.`;
+Antworte immer auf Deutsch.
+Wenn du nach ausdrücklicher Bestätigung des Nutzers Haushaltsdaten speichern sollst, hänge am Ende deiner Antwort diesen Block an (sonst nie):
+##SAVE## {"raumId":"raum_slug","behaelter":[{"id":"id","name":"Name","typ":"schrank","position":"Ort","inhalt":["Gegenstand"]}],"lose_gegenstaende":[],"raumhinweis":"kurz"}`;
+
+    // Erweiterung für Foto-Nachrichten
+    if (photo) {
+      const knownRooms = Object.entries(Brain.getRooms())
+        .map(([id, r]) => `${id} (${r.name})`).join(', ') || 'noch keine Räume bekannt';
+
+      systemPrompt += `
+
+Auf diesem Foto: Analysiere es im Kontext des Haushalts.
+A) Zeigt es einen Raum, Schrank, Regal oder Möbelstück → schlage vor, den Inhalt zu speichern. Frage nach dem Raum falls unklar.
+B) Zeigt es einen einzelnen Gegenstand → frage wo er liegt und biete an ihn zu merken.
+C) Allgemeine Frage → beantworte sie einfach ohne zu speichern.
+Bekannte Räume: ${knownRooms}
+Füge ##SAVE## nur hinzu wenn der Nutzer explizit zugestimmt hat (z.B. "ja", "speichern", "ok").`;
+    }
 
     const history = Brain.getChatHistory().slice(-20).map(m => ({ role: m.role, content: m.content }));
-    // ensure alternating roles
-    const messages = buildMessages(history, text);
+    const messages = buildMessages(history, text || 'Was siehst du auf diesem Foto?');
+
+    // Letztes User-Msg mit Bild anreichern wenn Foto vorhanden
+    if (photo) {
+      const lastMsg = messages[messages.length - 1];
+      lastMsg.content = [
+        { type: 'image', source: { type: 'base64', media_type: photo.mimeType, data: photo.base64 } },
+        { type: 'text', text: text || 'Was siehst du auf diesem Foto?' }
+      ];
+    }
 
     const response = await callGemini(apiKey, systemPrompt, messages);
     thinking.remove();
-    appendMessage('assistant', response);
-    Brain.addChatMessage('assistant', response);
 
-    // Check if AI asks for location → could trigger info extraction later
-    checkForItemExtraction(text, response);
+    // ##SAVE##-Marker prüfen
+    if (response.includes('##SAVE##')) {
+      handleSaveResponse(response);
+    } else {
+      appendMessage('assistant', response);
+      Brain.addChatMessage('assistant', response);
+      if (!photo) checkForItemExtraction(text, response);
+    }
   } catch (err) {
     thinking.remove();
     appendMessage('assistant', getErrorMessage(err));
   }
+}
+
+function handleSaveResponse(response) {
+  const [displayText, jsonPart] = response.split('##SAVE##');
+  const msgEl = appendMessage('assistant', displayText.trim());
+  Brain.addChatMessage('assistant', displayText.trim());
+
+  // JSON parsen
+  let analysis = null;
+  let roomId = 'sonstiges';
+  try {
+    const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      analysis = JSON.parse(jsonMatch[0]);
+      roomId = analysis.raumId || 'sonstiges';
+    }
+  } catch { /* JSON nicht parsebar → kein Speichern-Button */ }
+
+  if (!analysis) return;
+
+  // Speichern-Button an die KI-Nachricht anhängen
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'chat-save-btn';
+  saveBtn.textContent = '💾 Speichern';
+  saveBtn.addEventListener('click', () => {
+    // Raum anlegen falls noch nicht vorhanden
+    if (!Brain.getRoom(roomId)) {
+      const presets = { kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'], schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'], keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges'] };
+      const p = presets[roomId] || ['🏠', roomId];
+      Brain.addRoom(roomId, p[1], p[0]);
+    }
+    const count = Brain.applyPhotoAnalysis(roomId, analysis);
+    saveBtn.textContent = `✓ ${count} Bereiche gespeichert`;
+    saveBtn.disabled = true;
+    saveBtn.classList.add('chat-save-btn--done');
+    renderBrainView();
+  });
+  msgEl.appendChild(saveBtn);
 }
 
 function buildMessages(history, newUserText) {
