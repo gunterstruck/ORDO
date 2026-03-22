@@ -49,13 +49,20 @@ function assertThrows(fn, msg) {
 }
 
 function assertIncludes(arr, item, msg) {
-  if (!arr.includes(item)) {
+  // Support v1.3 item objects: match by name if searching for a string in an array of objects
+  const found = arr.some(el =>
+    el === item || (typeof el === 'object' && el !== null && el.name === item)
+  );
+  if (!found) {
     throw new Error(msg || `Expected array to include ${JSON.stringify(item)}`);
   }
 }
 
 function assertNotIncludes(arr, item, msg) {
-  if (arr.includes(item)) {
+  const found = arr.some(el =>
+    el === item || (typeof el === 'object' && el !== null && el.name === item)
+  );
+  if (found) {
     throw new Error(msg || `Expected array not to include ${JSON.stringify(item)}`);
   }
 }

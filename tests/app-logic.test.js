@@ -1,7 +1,7 @@
 // app-logic.test.js – Tests für app.js Logik-Funktionen
 // Ausführen: node tests/app-logic.test.js
 
-const { describe, it, assert, assertEqual, assertDeepEqual, printResults } = require('./test-runner');
+const { describe, it, assert, assertEqual, assertDeepEqual, assertIncludes, assertNotIncludes, printResults } = require('./test-runner');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -326,7 +326,7 @@ describe('executeOrdoAction() – Integration', () => {
     Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
     executeOrdoAction({ type: 'add_item', room: 'kueche', path: ['schrank'], item: 'Teller', menge: 1 });
     const c = Brain.getContainer('kueche', 'schrank');
-    assert(c.items.includes('Teller'));
+    assertIncludes(c.items, 'Teller');
   });
 
   it('add_item erstellt Raum und Container automatisch', () => {
@@ -334,7 +334,7 @@ describe('executeOrdoAction() – Integration', () => {
     executeOrdoAction({ type: 'add_item', room: 'kueche', path: ['schrank'], item: 'Teller', menge: 1 });
     assert(Brain.getRoom('kueche') !== null, 'Raum sollte erstellt werden');
     assert(Brain.getContainer('kueche', 'schrank') !== null, 'Container sollte erstellt werden');
-    assert(Brain.getContainer('kueche', 'schrank').items.includes('Teller'));
+    assertIncludes(Brain.getContainer('kueche', 'schrank').items, 'Teller');
   });
 
   it('add_item speichert Menge > 1', () => {
@@ -343,7 +343,7 @@ describe('executeOrdoAction() – Integration', () => {
     Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
     executeOrdoAction({ type: 'add_item', room: 'kueche', path: ['schrank'], item: 'Teller', menge: 5 });
     const c = Brain.getContainer('kueche', 'schrank');
-    assert(c.items.includes('Teller'));
+    assertIncludes(c.items, 'Teller');
     assertEqual(c.quantities['Teller'], 5);
   });
 
@@ -354,7 +354,7 @@ describe('executeOrdoAction() – Integration', () => {
     Brain.addItem('kueche', 'schrank', 'Teller');
     executeOrdoAction({ type: 'remove_item', room: 'kueche', path: ['schrank'], item: 'Teller' });
     const c = Brain.getContainer('kueche', 'schrank');
-    assert(!c.items.includes('Teller'));
+    assertNotIncludes(c.items, 'Teller');
   });
 
   it('remove_items entfernt mehrere Items', () => {
@@ -366,9 +366,9 @@ describe('executeOrdoAction() – Integration', () => {
     Brain.addItem('kueche', 'schrank', 'Glas');
     executeOrdoAction({ type: 'remove_items', room: 'kueche', path: ['schrank'], items: ['Teller', 'Tasse'] });
     const c = Brain.getContainer('kueche', 'schrank');
-    assert(!c.items.includes('Teller'));
-    assert(!c.items.includes('Tasse'));
-    assert(c.items.includes('Glas'));
+    assertNotIncludes(c.items, 'Teller');
+    assertNotIncludes(c.items, 'Tasse');
+    assertIncludes(c.items, 'Glas');
   });
 
   it('replace_items ersetzt alle Items', () => {
@@ -378,7 +378,9 @@ describe('executeOrdoAction() – Integration', () => {
     Brain.addItem('kueche', 'schrank', 'Alter Teller');
     executeOrdoAction({ type: 'replace_items', room: 'kueche', path: ['schrank'], items: [{ name: 'Neuer Teller', menge: 1 }, { name: 'Neue Tasse', menge: 1 }] });
     const c = Brain.getContainer('kueche', 'schrank');
-    assertDeepEqual(c.items, ['Neuer Teller', 'Neue Tasse']);
+    assertEqual(c.items.length, 2);
+    assertIncludes(c.items, 'Neuer Teller');
+    assertIncludes(c.items, 'Neue Tasse');
   });
 
   it('delete_container löscht Container', () => {
@@ -423,8 +425,8 @@ describe('executeOrdoAction() – Integration', () => {
     Brain.addContainer('wohnzimmer', 'regal', 'Regal', 'regal');
 
     executeOrdoAction({ type: 'move_item', from_room: 'kueche', from_path: ['schrank'], to_room: 'wohnzimmer', to_path: ['regal'], item: 'Vase' });
-    assert(!Brain.getContainer('kueche', 'schrank').items.includes('Vase'));
-    assert(Brain.getContainer('wohnzimmer', 'regal').items.includes('Vase'));
+    assertNotIncludes(Brain.getContainer('kueche', 'schrank').items, 'Vase');
+    assertIncludes(Brain.getContainer('wohnzimmer', 'regal').items, 'Vase');
   });
 
   it('unbekannter Action-Typ crasht nicht', () => {

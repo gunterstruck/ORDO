@@ -584,6 +584,42 @@ html, body {
   opacity: 0.8;
 }
 
+.brain-chip--vermisst {
+  background: #e67e22;
+  color: white;
+  animation: pulse-vermisst 2s infinite;
+}
+
+@keyframes pulse-vermisst {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.brain-chip--archived {
+  background: var(--bg-secondary, #e9ecef);
+  color: var(--text-muted);
+  font-size: 12px;
+  opacity: 0.7;
+  text-decoration: line-through;
+  cursor: pointer;
+}
+
+.brain-chips--archived {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.brain-archive-toggle {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+  margin-top: 4px;
+}
+
 .brain-add-btn, .brain-add-item-btn {
   background: none;
   border: 1px dashed var(--border);

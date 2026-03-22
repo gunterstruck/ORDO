@@ -385,9 +385,10 @@ describe('Review – Overlay', () => {
     context.confirmReview();
     const c = context.Brain.getContainer('kueche', 'schrank');
     assert(c !== null, 'Container sollte erstellt worden sein');
-    assert(c.items.includes('Teller'));
-    assert(!c.items.includes('Tasse'), 'Unchecked items sollten nicht gespeichert werden');
-    assert(c.items.includes('Glas'));
+    const hasItem = (arr, name) => arr.some(i => i === name || (typeof i === 'object' && i.name === name));
+    assert(hasItem(c.items, 'Teller'));
+    assert(!hasItem(c.items, 'Tasse'), 'Unchecked items sollten nicht gespeichert werden');
+    assert(hasItem(c.items, 'Glas'));
     assertEqual(c.quantities['Teller'], 3);
   });
 
@@ -403,8 +404,9 @@ describe('Review – Overlay', () => {
     context.showReviewPopup('kueche', 'schrank', 'Schrank', items, 'replace', null);
     context.confirmReview();
     const c = context.Brain.getContainer('kueche', 'schrank');
-    assert(!c.items.includes('Alter Teller'), 'Alter Teller sollte weg sein');
-    assert(c.items.includes('Neuer Teller'));
+    const hasItem2 = (arr, name) => arr.some(i => i === name || (typeof i === 'object' && i.name === name));
+    assert(!hasItem2(c.items, 'Alter Teller'), 'Alter Teller sollte weg sein');
+    assert(hasItem2(c.items, 'Neuer Teller'));
   });
 });
 
