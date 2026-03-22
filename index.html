@@ -260,6 +260,28 @@
   <img id="lightbox-img" alt="Vollbild">
 </div>
 
+<!-- ── PICKING OVERLAY ───────────────────────────────── -->
+<div id="picking-overlay" class="picking-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Gegenstände markieren">
+  <div class="picking-header">
+    <button id="picking-close" class="picking-close-btn" aria-label="Schließen">✕</button>
+    <span class="picking-header-title">Gegenstände markieren</span>
+    <button id="picking-done" class="picking-done-btn">Fertig</button>
+  </div>
+  <div id="picking-photo-wrapper" class="picking-photo-wrapper">
+    <img id="picking-photo" alt="Foto analysieren">
+  </div>
+  <div id="picking-summary" class="picking-summary"></div>
+  <div id="picking-panel" class="picking-panel" style="display:none">
+    <div id="picking-panel-label" class="picking-panel-label"></div>
+    <input type="text" id="picking-panel-input" class="picking-panel-input" placeholder="Name eingeben…" aria-label="Gegenstandsname">
+    <div class="picking-panel-actions">
+      <button id="picking-panel-mic" class="picking-panel-mic" aria-label="Diktieren">🎤</button>
+      <button id="picking-panel-confirm" class="picking-panel-confirm">Stimmt ✓</button>
+      <button id="picking-panel-skip" class="picking-panel-skip">Überspringen</button>
+    </div>
+  </div>
+</div>
+
 <script src="brain.js"></script>
 <script src="app.js"></script>
 </body>

@@ -10,6 +10,11 @@ let isRecording = false;
 let nfcContext = null; // { room, tag } from URL params
 let chatPendingPhoto = null; // { base64, mimeType } – Foto im Chat-Eingabefeld
 
+// Picking view state
+let pickingState = null; // { roomId, containerId, hotspots, confirmed, activeId }
+let pickingRecognition = null;
+let pickingIsRecording = false;
+
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   Brain.init();
@@ -20,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPhoto();
   setupBrain();
   setupSettings();
+  setupPickingView();
   setupPullToRefresh();
   showView('chat');
 });
@@ -808,24 +814,47 @@ Antworte NUR mit diesem JSON, nichts anderes:
 
       const count = Brain.applyPhotoAnalysis(roomId, analysis);
 
+      // Determine primary container ID for photo saving and picking view
+      let primaryContainerId = targetContainerId;
+      if (!primaryContainerId && analysis.behaelter?.length > 0) {
+        primaryContainerId = Brain.slugify(analysis.behaelter[0].id || analysis.behaelter[0].name);
+      } else if (!primaryContainerId && customName) {
+        primaryContainerId = Brain.slugify(customName);
+      } else if (!primaryContainerId) {
+        primaryContainerId = 'inhalt';
+      }
+
       // Save resized photo to IndexedDB for the first (main) container
-      if (analysis.behaelter?.length > 0) {
-        try {
-          const resized = await resizeImage(file, 1200);
-          const primaryId = targetContainerId || Brain.slugify(analysis.behaelter[0].id || analysis.behaelter[0].name);
-          const photoKey = `${roomId}_${primaryId}`;
-          await Brain.savePhoto(photoKey, resized);
-          Brain.setContainerHasPhoto(roomId, primaryId, true);
-        } catch { /* photo save failed silently */ }
-      }
+      try {
+        const resized = await resizeImage(file, 1200);
+        const photoKey = `${roomId}_${primaryContainerId}`;
+        await Brain.savePhoto(photoKey, resized);
+        Brain.setContainerHasPhoto(roomId, primaryContainerId, true);
+      } catch { /* photo save failed silently */ }
 
-      // Feature 1: process three confidence levels and generate chat messages
+      // New flow (main photo view only): hotspot picking view
       if (!targetRoomId) {
-        processPhotoAnalysisResult(roomId, analysis);
+        const photoDataUrl = e.target.result;
+        showPhotoStatus('Erkenne Gegenstände im Foto…', 'loading');
+        try {
+          const hotspotsData = await analyzeHotspots(apiKey, base64, mimeType);
+          // Ensure container exists for items to be saved into
+          if (!Brain.getContainer(roomId, primaryContainerId)) {
+            const containerName = customName || analysis.behaelter?.[0]?.name || 'Inhalt';
+            Brain.addContainer(roomId, primaryContainerId, containerName, 'sonstiges', [], true);
+          }
+          showPickingView(roomId, primaryContainerId, photoDataUrl, hotspotsData);
+          document.getElementById('photo-status').style.display = 'none';
+        } catch {
+          // Fallback: old behavior with chat follow-up questions
+          processPhotoAnalysisResult(roomId, analysis);
+          showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
+          renderBrainView();
+        }
+      } else {
+        showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
+        renderBrainView();
       }
-
-      showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
-      renderBrainView();
     } catch (err) {
       showPhotoStatus(getErrorMessage(err), 'error');
     }
@@ -878,6 +907,315 @@ function processPhotoAnalysisResult(roomId, analysis) {
     appendMessage('assistant', msg);
     Brain.addChatMessage('assistant', msg);
   }
+}
+
+// ── HOTSPOT ANALYSIS ────────────────────────────────────
+async function analyzeHotspots(apiKey, base64, mimeType) {
+  const systemPrompt = `Analysiere dieses Foto eines Aufbewahrungsorts. Identifiziere einzelne, klar unterscheidbare Gegenstände.
+WICHTIG: Versuche NICHT alles zu erkennen. Nur Dinge die du mit Sicherheit als einzelnes Objekt identifizieren kannst.
+Antworte NUR mit JSON:
+{
+  "hotspots": [
+    {
+      "id": "obj_1",
+      "vermutung": "menschlicher Name, z.B. weißes USB-Netzteil",
+      "konfidenz": "hoch",
+      "position": { "x": 0.5, "y": 0.3 }
+    }
+  ],
+  "zusammenfassung": "kurze Beschreibung was du siehst",
+  "erkannt": 3,
+  "geschaetzt": 10,
+  "hinweis": "z.B. Viele Kabel überlappen sich"
+}
+Regeln:
+- position x,y ist der ungefähre Mittelpunkt des Objekts (0=links/oben, 1=rechts/unten)
+- Nur Objekte mit mindestens mittlerer Konfidenz aufnehmen
+- Lieber 5 sichere Hotspots als 15 unsichere
+- Bei komplettem Chaos: Wenige markante Dinge rauspicken`;
+
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+      { type: 'text', text: 'Analysiere die Gegenstände in diesem Foto.' }
+    ]
+  }];
+
+  const raw = await callGemini(apiKey, systemPrompt, messages);
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+  return JSON.parse(jsonMatch[0]);
+}
+
+// ── PICKING VIEW ─────────────────────────────────────────
+function setupPickingView() {
+  document.getElementById('picking-close').addEventListener('click', closePickingView);
+  document.getElementById('picking-done').addEventListener('click', finishPicking);
+  document.getElementById('picking-panel-confirm').addEventListener('click', confirmHotspotItem);
+  document.getElementById('picking-panel-skip').addEventListener('click', skipHotspotItem);
+  document.getElementById('picking-panel-mic').addEventListener('click', togglePickingMic);
+  document.getElementById('picking-photo-wrapper').addEventListener('click', addFreeHotspot);
+  document.getElementById('picking-panel-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmHotspotItem(); }
+  });
+}
+
+function showPickingView(roomId, containerId, photoDataUrl, hotspotsData) {
+  pickingState = {
+    roomId,
+    containerId,
+    hotspots: (hotspotsData.hotspots || []).filter(h => h.position?.x != null && h.position?.y != null),
+    summary: hotspotsData,
+    confirmed: {},
+    activeId: null
+  };
+
+  const overlay = document.getElementById('picking-overlay');
+  const photo = document.getElementById('picking-photo');
+  photo.src = photoDataUrl;
+  overlay.style.display = 'flex';
+  document.getElementById('picking-panel').style.display = 'none';
+
+  const erkannt = hotspotsData.erkannt || pickingState.hotspots.length;
+  const geschaetzt = hotspotsData.geschaetzt || erkannt;
+  const hinweis = hotspotsData.hinweis ? ` ${hotspotsData.hinweis}.` : '';
+  const summaryEl = document.getElementById('picking-summary');
+
+  if (erkannt > 0) {
+    summaryEl.textContent = `Ich habe ${erkannt} ${erkannt === 1 ? 'Ding' : 'Dinge'} erkannt, schätze aber ca. ${geschaetzt} Sachen.${hinweis} Tippe auf eine Markierung zum Bestätigen oder auf das Foto um eigene zu setzen.`;
+  } else {
+    summaryEl.textContent = `Hier ist einiges durcheinander.${hinweis} Ich habe wenig erkannt – tippe direkt auf das Foto um Dinge zu markieren.`;
+  }
+
+  if (photo.complete && photo.naturalWidth > 0) {
+    renderPickingHotspots();
+  } else {
+    photo.onload = () => renderPickingHotspots();
+  }
+}
+
+function getImageRenderRect() {
+  const photo = document.getElementById('picking-photo');
+  const wrapper = document.getElementById('picking-photo-wrapper');
+  const wRect = wrapper.getBoundingClientRect();
+  const imgAspect = photo.naturalWidth / photo.naturalHeight;
+  const wrapperAspect = wRect.width / wRect.height;
+
+  let renderW, renderH, offsetX, offsetY;
+  if (imgAspect > wrapperAspect) {
+    renderW = wRect.width;
+    renderH = wRect.width / imgAspect;
+    offsetX = 0;
+    offsetY = (wRect.height - renderH) / 2;
+  } else {
+    renderH = wRect.height;
+    renderW = wRect.height * imgAspect;
+    offsetX = (wRect.width - renderW) / 2;
+    offsetY = 0;
+  }
+  return { renderW, renderH, offsetX, offsetY };
+}
+
+function renderPickingHotspots() {
+  if (!pickingState) return;
+  const wrapper = document.getElementById('picking-photo-wrapper');
+  wrapper.querySelectorAll('.picking-hotspot').forEach(h => h.remove());
+
+  const { hotspots, confirmed, activeId } = pickingState;
+  const { renderW, renderH, offsetX, offsetY } = getImageRenderRect();
+
+  hotspots.forEach(hs => {
+    const dot = document.createElement('button');
+    dot.className = 'picking-hotspot';
+    dot.dataset.id = hs.id;
+
+    const isConfirmed = !!confirmed[hs.id];
+    if (isConfirmed) dot.classList.add('picking-hotspot--confirmed');
+    if (activeId === hs.id) dot.classList.add('picking-hotspot--active');
+
+    dot.style.left = `${offsetX + hs.position.x * renderW}px`;
+    dot.style.top = `${offsetY + hs.position.y * renderH}px`;
+
+    const label = document.createElement('span');
+    label.className = 'picking-hotspot-label';
+    label.textContent = isConfirmed ? confirmed[hs.id].name : hs.vermutung;
+    dot.appendChild(label);
+
+    dot.addEventListener('click', e => { e.stopPropagation(); openHotspotPanel(hs.id); });
+    wrapper.appendChild(dot);
+  });
+}
+
+function openHotspotPanel(hotspotId) {
+  if (!pickingState) return;
+  pickingState.activeId = hotspotId;
+  renderPickingHotspots();
+
+  const hs = pickingState.hotspots.find(h => h.id === hotspotId);
+  const existing = pickingState.confirmed[hotspotId];
+
+  const panel = document.getElementById('picking-panel');
+  const labelEl = document.getElementById('picking-panel-label');
+  const input = document.getElementById('picking-panel-input');
+
+  labelEl.textContent = existing
+    ? 'Bestätigt – Name ändern:'
+    : (hs?.vermutung ? `KI-Vorschlag: "${hs.vermutung}"` : 'Was ist das?');
+  input.value = existing ? existing.name : (hs?.vermutung || '');
+
+  panel.style.display = 'flex';
+  input.focus();
+  input.select();
+}
+
+async function confirmHotspotItem() {
+  if (!pickingState) return;
+  const input = document.getElementById('picking-panel-input');
+  const name = input.value.trim();
+  if (!name) return;
+
+  const hotspotId = pickingState.activeId;
+  if (!hotspotId) return;
+
+  const { roomId, containerId } = pickingState;
+  const hs = pickingState.hotspots.find(h => h.id === hotspotId);
+
+  // Create and save crop
+  let cropId = null;
+  if (hs) {
+    try {
+      const photo = document.getElementById('picking-photo');
+      const cropBlob = await createCropFromHotspot(photo, hs.position);
+      cropId = `${roomId}_${containerId}_${hotspotId}`;
+      await Brain.savePhoto(`crop_${cropId}`, cropBlob);
+    } catch { /* crop failed silently */ }
+  }
+
+  // Save item to brain
+  Brain.addItem(roomId, containerId, name);
+
+  // Mark confirmed
+  pickingState.confirmed[hotspotId] = { name, cropId };
+  pickingState.activeId = null;
+
+  document.getElementById('picking-panel').style.display = 'none';
+  renderPickingHotspots();
+}
+
+function skipHotspotItem() {
+  if (!pickingState) return;
+  pickingState.activeId = null;
+  document.getElementById('picking-panel').style.display = 'none';
+  renderPickingHotspots();
+}
+
+function addFreeHotspot(e) {
+  if (!pickingState) return;
+  const wrapper = document.getElementById('picking-photo-wrapper');
+  const photo = document.getElementById('picking-photo');
+  if (e.target !== wrapper && e.target !== photo) return;
+
+  const wRect = wrapper.getBoundingClientRect();
+  const { renderW, renderH, offsetX, offsetY } = getImageRenderRect();
+
+  const clickX = e.clientX - wRect.left;
+  const clickY = e.clientY - wRect.top;
+  const x = (clickX - offsetX) / renderW;
+  const y = (clickY - offsetY) / renderH;
+
+  if (x < 0 || x > 1 || y < 0 || y > 1) return;
+
+  const newId = `custom_${Date.now()}`;
+  pickingState.hotspots.push({ id: newId, vermutung: '', konfidenz: 'mittel', position: { x, y } });
+  renderPickingHotspots();
+  openHotspotPanel(newId);
+}
+
+async function createCropFromHotspot(photoImg, position) {
+  const CROP_SIZE = 200;
+  const canvas = document.createElement('canvas');
+  canvas.width = CROP_SIZE;
+  canvas.height = CROP_SIZE;
+  const ctx = canvas.getContext('2d');
+
+  const imgW = photoImg.naturalWidth;
+  const imgH = photoImg.naturalHeight;
+  const halfSize = Math.min(imgW, imgH) * 0.2;
+  const centerX = position.x * imgW;
+  const centerY = position.y * imgH;
+  const srcX = Math.max(0, centerX - halfSize);
+  const srcY = Math.max(0, centerY - halfSize);
+  const srcW = Math.min(halfSize * 2, imgW - srcX);
+  const srcH = Math.min(halfSize * 2, imgH - srcY);
+
+  ctx.drawImage(photoImg, srcX, srcY, srcW, srcH, 0, 0, CROP_SIZE, CROP_SIZE);
+  return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.85));
+}
+
+function finishPicking() {
+  if (!pickingState) return;
+  const { confirmed, roomId, containerId } = pickingState;
+  const count = Object.keys(confirmed).length;
+  const container = Brain.getContainer(roomId, containerId);
+  const containerName = container?.name || containerId;
+
+  closePickingView();
+  renderBrainView();
+
+  if (count > 0) {
+    showPhotoStatus(
+      `Du hast ${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} in "${containerName}" gespeichert.\nDu kannst jederzeit ein neues Foto machen um mehr zu erfassen.`,
+      'success'
+    );
+  } else {
+    showPhotoStatus('Nichts gespeichert. Du kannst jederzeit ein neues Foto machen.', 'success');
+  }
+}
+
+function closePickingView() {
+  document.getElementById('picking-overlay').style.display = 'none';
+  if (pickingIsRecording && pickingRecognition) {
+    pickingRecognition.stop();
+    pickingIsRecording = false;
+  }
+  document.getElementById('picking-panel-mic').classList.remove('recording');
+  pickingState = null;
+}
+
+function togglePickingMic() {
+  const btn = document.getElementById('picking-panel-mic');
+
+  if (pickingIsRecording) {
+    if (pickingRecognition) pickingRecognition.stop();
+    pickingIsRecording = false;
+    btn.classList.remove('recording');
+    return;
+  }
+
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return;
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  pickingRecognition = new SpeechRecognition();
+  pickingRecognition.lang = 'de-DE';
+  pickingRecognition.continuous = false;
+  pickingRecognition.interimResults = false;
+
+  pickingRecognition.onresult = e => {
+    document.getElementById('picking-panel-input').value = e.results[0][0].transcript;
+  };
+  pickingRecognition.onend = () => {
+    pickingIsRecording = false;
+    btn.classList.remove('recording');
+  };
+  pickingRecognition.onerror = () => {
+    pickingIsRecording = false;
+    btn.classList.remove('recording');
+  };
+
+  pickingRecognition.start();
+  pickingIsRecording = true;
+  btn.classList.add('recording');
 }
 
 // ── BRAIN VIEW ─────────────────────────────────────────
