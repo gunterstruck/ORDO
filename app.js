@@ -798,7 +798,7 @@ async function callGemini(apiKey, systemPrompt, messages) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: geminiContents,
-        generationConfig: { maxOutputTokens: 2048 }
+        generationConfig: { maxOutputTokens: 8192 }
       })
     });
   } catch (fetchErr) {
@@ -821,8 +821,8 @@ async function callGemini(apiKey, systemPrompt, messages) {
   const finishReason = candidate?.finishReason ?? 'UNKNOWN';
   const text = candidate?.content?.parts?.[0]?.text ?? '';
   debugLog(`Antwort OK – ${text.length} Zeichen, finishReason: ${finishReason}`);
-  if (!text && finishReason === 'SAFETY') throw new Error('safety_block');
-  if (!text && finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
+  if (finishReason === 'SAFETY') throw new Error('safety_block');
+  if (finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
   if (!text) debugLog(`Warnung: Leere Antwort. Volle Antwort: ${JSON.stringify(data).slice(0, 500)}`);
   return text;
 }
@@ -835,6 +835,7 @@ function getErrorMessage(err) {
   if (err.message === 'max_tokens') return 'Antwort zu lang – bitte ein übersichtlicheres Foto wählen.';
   if (err.message === 'Kein JSON in Antwort') return 'Die KI hat keine auswertbare Antwort geliefert. Bitte nochmal versuchen.';
   if (err.message?.includes('too large') || err.message?.includes('size')) return 'Foto zu groß – bitte ein kleineres wählen oder Auflösung reduzieren.';
+  if (err instanceof SyntaxError || err.message?.includes('JSON')) return 'Antwort war unvollständig – bitte nochmal versuchen.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
 }
 
