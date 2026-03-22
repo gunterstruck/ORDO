@@ -157,6 +157,33 @@ async function resizeImageForChat(file) {
   });
 }
 
+// Resize a File/Blob to max maxWidth pixels and return a JPEG Blob
+function resizeImage(file, maxWidth = 1200) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxWidth) {
+        const ratio = maxWidth / width;
+        width = maxWidth;
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error('Resize failed'));
+      }, 'image/jpeg', 0.7);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Ladefehler')); };
+    img.src = url;
+  });
+}
+
 function initChat() {
   const messages = document.getElementById('chat-messages');
   if (messages.children.length === 0) {
@@ -516,7 +543,7 @@ function applyNfcContextToPhotoView() {
   }
 }
 
-async function handlePhotoFile(file) {
+async function handlePhotoFile(file, targetRoomId = null, targetContainerId = null) {
   if (!file) return;
 
   const apiKey = Brain.getApiKey();
@@ -530,13 +557,15 @@ async function handlePhotoFile(file) {
     return;
   }
 
-  const roomId = document.getElementById('photo-room-select').value;
+  const roomId = targetRoomId || document.getElementById('photo-room-select').value;
   if (!roomId) {
     showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error');
     return;
   }
 
-  const customName = document.getElementById('photo-custom-name').value.trim();
+  const customName = targetContainerId
+    ? (Brain.getContainer(roomId, targetContainerId)?.name || '')
+    : document.getElementById('photo-custom-name').value.trim();
 
   // Show preview
   const reader = new FileReader();
@@ -544,10 +573,12 @@ async function handlePhotoFile(file) {
     const base64 = e.target.result.split(',')[1];
     const mimeType = file.type || 'image/jpeg';
 
-    // Show preview image
-    const preview = document.getElementById('photo-preview');
-    preview.src = e.target.result;
-    preview.style.display = 'block';
+    // Show preview image (only in photo view context)
+    if (!targetRoomId) {
+      const preview = document.getElementById('photo-preview');
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+    }
 
     showPhotoStatus('Analysiere Foto…', 'loading');
 
@@ -609,16 +640,35 @@ Antworte NUR mit diesem JSON, nichts anderes:
 
       const analysis = JSON.parse(jsonMatch[0]);
 
-      // If custom name given, rename/add main container
-      if (customName && analysis.behaelter?.length > 0) {
+      // If targeting a specific container, force its name/id
+      if (targetContainerId && analysis.behaelter?.length > 0) {
+        const c = Brain.getContainer(roomId, targetContainerId);
+        if (c) {
+          analysis.behaelter[0].name = c.name;
+          analysis.behaelter[0].id = targetContainerId;
+        }
+      } else if (customName && analysis.behaelter?.length > 0) {
         analysis.behaelter[0].name = customName;
         analysis.behaelter[0].id = Brain.slugify(customName);
       }
 
       const count = Brain.applyPhotoAnalysis(roomId, analysis);
 
+      // Save resized photo to IndexedDB for the first (main) container
+      if (analysis.behaelter?.length > 0) {
+        try {
+          const resized = await resizeImage(file, 1200);
+          const primaryId = targetContainerId || Brain.slugify(analysis.behaelter[0].id || analysis.behaelter[0].name);
+          const photoKey = `${roomId}_${primaryId}`;
+          await Brain.savePhoto(photoKey, resized);
+          Brain.setContainerHasPhoto(roomId, primaryId, true);
+        } catch { /* photo save failed silently */ }
+      }
+
       // Feature 1: process three confidence levels and generate chat messages
-      processPhotoAnalysisResult(roomId, analysis);
+      if (!targetRoomId) {
+        processPhotoAnalysisResult(roomId, analysis);
+      }
 
       showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
       renderBrainView();
@@ -679,6 +729,11 @@ function processPhotoAnalysisResult(roomId, analysis) {
 // ── BRAIN VIEW ─────────────────────────────────────────
 function setupBrain() {
   document.getElementById('brain-add-room').addEventListener('click', showAddRoomDialog);
+
+  // Lightbox close
+  const lb = document.getElementById('lightbox');
+  document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
+  lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
 }
 
 function renderBrainView() {
@@ -761,9 +816,14 @@ function buildContainerNode(roomId, cId, c) {
   header.addEventListener('click', () => {
     open = !open;
     body.style.display = open ? 'block' : 'none';
+    if (open) loadThumbnail(roomId, cId, c, thumbnailWrapper);
   });
 
   setupLongPress(header, () => showContainerContextMenu(roomId, cId, c));
+
+  // Thumbnail area
+  const thumbnailWrapper = document.createElement('div');
+  thumbnailWrapper.className = 'brain-thumbnail-wrapper';
 
   // Items as chips
   const chips = document.createElement('div');
@@ -809,11 +869,84 @@ function buildContainerNode(roomId, cId, c) {
     }
   });
 
+  body.appendChild(thumbnailWrapper);
   body.appendChild(chips);
   body.appendChild(addItemBtn);
   el.appendChild(header);
   el.appendChild(body);
   return el;
+}
+
+async function loadThumbnail(roomId, cId, c, wrapper) {
+  // Only render once
+  if (wrapper.dataset.loaded) return;
+  wrapper.dataset.loaded = '1';
+
+  const photoKey = `${roomId}_${cId}`;
+  let blob = null;
+  try {
+    blob = await Brain.getPhoto(photoKey);
+  } catch { /* IndexedDB not available */ }
+
+  if (blob) {
+    const objectUrl = URL.createObjectURL(blob);
+    const div = document.createElement('div');
+    div.className = 'brain-thumbnail';
+    const img = document.createElement('img');
+    img.src = objectUrl;
+    img.alt = c.name;
+    img.addEventListener('click', () => showLightbox(objectUrl));
+    div.appendChild(img);
+    wrapper.appendChild(div);
+  } else {
+    // Placeholder
+    const div = document.createElement('div');
+    div.className = 'brain-thumbnail-empty';
+    div.innerHTML = '<span>📷</span><p>Noch kein Foto.<br>Tippe hier um zu scannen.</p>';
+    div.addEventListener('click', () => openCameraForContainer(roomId, cId));
+    wrapper.appendChild(div);
+  }
+}
+
+// Hidden file input for brain-view per-container photo capture
+let _brainPhotoInput = null;
+let _brainPhotoTarget = null; // { roomId, cId }
+
+function openCameraForContainer(roomId, cId) {
+  if (!_brainPhotoInput) {
+    _brainPhotoInput = document.createElement('input');
+    _brainPhotoInput.type = 'file';
+    _brainPhotoInput.accept = 'image/*';
+    _brainPhotoInput.style.display = 'none';
+    document.body.appendChild(_brainPhotoInput);
+    _brainPhotoInput.addEventListener('change', async e => {
+      const file = e.target.files[0];
+      _brainPhotoInput.value = '';
+      if (!file || !_brainPhotoTarget) return;
+      await handlePhotoFile(file, _brainPhotoTarget.roomId, _brainPhotoTarget.cId);
+    });
+  }
+  _brainPhotoTarget = { roomId, cId };
+  _brainPhotoInput.click();
+}
+
+function showLightbox(src) {
+  const lb = document.getElementById('lightbox');
+  const img = document.getElementById('lightbox-img');
+  img.src = src;
+  lb.style.display = 'flex';
+  requestAnimationFrame(() => lb.classList.add('lightbox--visible'));
+}
+
+function closeLightbox() {
+  const lb = document.getElementById('lightbox');
+  lb.classList.remove('lightbox--visible');
+  setTimeout(() => {
+    lb.style.display = 'none';
+    const img = document.getElementById('lightbox-img');
+    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+    img.src = '';
+  }, 200);
 }
 
 function showAddRoomDialog() {
@@ -872,8 +1005,8 @@ function setupSettings() {
     }
   });
 
-  document.getElementById('settings-export').addEventListener('click', () => {
-    Brain.exportData();
+  document.getElementById('settings-export').addEventListener('click', async () => {
+    await Brain.exportData();
   });
 
   document.getElementById('settings-import').addEventListener('click', () => {
@@ -885,8 +1018,8 @@ function setupSettings() {
     if (!file) return;
     if (!confirm('Vorhandene Daten werden überschrieben – fortfahren?')) return;
     const reader = new FileReader();
-    reader.onload = ev => {
-      const ok = Brain.importData(ev.target.result);
+    reader.onload = async ev => {
+      const ok = await Brain.importData(ev.target.result);
       if (ok) {
         showSettingsMsg('Haushalt erfolgreich geladen.', 'success');
         renderBrainView();
@@ -897,9 +1030,9 @@ function setupSettings() {
     reader.readAsText(file);
   });
 
-  document.getElementById('settings-reset').addEventListener('click', () => {
+  document.getElementById('settings-reset').addEventListener('click', async () => {
     if (confirm('Wirklich alles zurücksetzen? Alle Daten gehen verloren.')) {
-      Brain.resetAll();
+      await Brain.resetAll();
       document.getElementById('chat-messages').innerHTML = '';
       showSettingsMsg('App zurückgesetzt.', 'success');
     }

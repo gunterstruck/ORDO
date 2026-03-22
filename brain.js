@@ -1,8 +1,125 @@
 // brain.js – LocalStorage management and knowledge base
 
 const STORAGE_KEY = 'haushalt_data';
+const PHOTO_DB_NAME = 'haushalt_photos';
+const PHOTO_DB_VERSION = 1;
+const PHOTO_STORE = 'photos';
 
 const Brain = {
+
+  // --- IndexedDB Photo Storage ---
+  _photoDB: null,
+
+  async initPhotoDB() {
+    if (!('indexedDB' in window)) return;
+    return new Promise((resolve) => {
+      const req = indexedDB.open(PHOTO_DB_NAME, PHOTO_DB_VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(PHOTO_STORE)) {
+          db.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = e => {
+        this._photoDB = e.target.result;
+        resolve(this._photoDB);
+      };
+      req.onerror = () => resolve(null);
+    });
+  },
+
+  async savePhoto(photoId, blob) {
+    if (!this._photoDB) return;
+    return new Promise((resolve, reject) => {
+      const tx = this._photoDB.transaction(PHOTO_STORE, 'readwrite');
+      const store = tx.objectStore(PHOTO_STORE);
+      store.put({ id: photoId, blob, ts: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(new Error('Foto konnte nicht gespeichert werden. Bitte Speicherplatz freigeben.'));
+    });
+  },
+
+  async getPhoto(photoId) {
+    if (!this._photoDB) return null;
+    return new Promise((resolve) => {
+      const tx = this._photoDB.transaction(PHOTO_STORE, 'readonly');
+      const req = tx.objectStore(PHOTO_STORE).get(photoId);
+      req.onsuccess = e => resolve(e.target.result?.blob || null);
+      req.onerror = () => resolve(null);
+    });
+  },
+
+  async deletePhoto(photoId) {
+    if (!this._photoDB) return;
+    return new Promise((resolve) => {
+      const tx = this._photoDB.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).delete(photoId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  },
+
+  async deleteAllPhotos() {
+    if (!this._photoDB) return;
+    return new Promise((resolve) => {
+      const tx = this._photoDB.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  },
+
+  async exportWithPhotos() {
+    const data = this.getData();
+    const photos = {};
+    if (this._photoDB) {
+      await new Promise((resolve) => {
+        const tx = this._photoDB.transaction(PHOTO_STORE, 'readonly');
+        const req = tx.objectStore(PHOTO_STORE).getAll();
+        req.onsuccess = e => {
+          const entries = e.target.result || [];
+          let pending = entries.length;
+          if (pending === 0) return resolve();
+          entries.forEach(entry => {
+            const reader = new FileReader();
+            reader.onload = ev => {
+              photos[entry.id] = ev.target.result;
+              pending--;
+              if (pending === 0) resolve();
+            };
+            reader.readAsDataURL(entry.blob);
+          });
+        };
+        req.onerror = () => resolve();
+      });
+    }
+    const exportData = { ...data, version: '1.1', photos };
+    const sizeEstimate = JSON.stringify(exportData).length;
+    return { exportData, sizeEstimate };
+  },
+
+  async importWithPhotos(jsonData) {
+    try {
+      const data = JSON.parse(jsonData);
+      if (!data.version || !data.rooms) throw new Error('Ungültiges Format');
+      const photos = data.photos || {};
+      const dataWithoutPhotos = { ...data };
+      delete dataWithoutPhotos.photos;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataWithoutPhotos));
+      if (this._photoDB && Object.keys(photos).length > 0) {
+        for (const [id, dataUrl] of Object.entries(photos)) {
+          try {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            await this.savePhoto(id, blob);
+          } catch { /* skip failed photos */ }
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  },
   // --- Core Data ---
   getData() {
     try {
@@ -19,13 +136,14 @@ const Brain = {
   init() {
     if (!this.getData()) {
       this.save({
-        version: '1.0',
+        version: '1.1',
         created: Date.now(),
         rooms: {},
         chat_history: [],
         last_updated: Date.now()
       });
     }
+    this.initPhotoDB().catch(() => {});
     return this.getData();
   },
 
@@ -69,6 +187,12 @@ const Brain = {
 
   deleteRoom(roomId) {
     const data = this.getData();
+    const room = data.rooms[roomId];
+    if (room?.containers) {
+      for (const cId of Object.keys(room.containers)) {
+        this.deletePhoto(`${roomId}_${cId}`).catch(() => {});
+      }
+    }
     delete data.rooms[roomId];
     this.save(data);
   },
@@ -107,6 +231,7 @@ const Brain = {
     if (data.rooms?.[roomId]?.containers) {
       delete data.rooms[roomId].containers[containerId];
       this.save(data);
+      this.deletePhoto(`${roomId}_${containerId}`).catch(() => {});
     }
   },
 
@@ -127,6 +252,16 @@ const Brain = {
     if (c) {
       c.items = c.items.filter(i => i !== item);
       c.last_updated = Date.now();
+      this.save(data);
+    }
+  },
+
+  // Mark a container as having a stored photo
+  setContainerHasPhoto(roomId, containerId, value) {
+    const data = this.getData();
+    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    if (c) {
+      c.has_photo = value;
       this.save(data);
     }
   },
@@ -238,12 +373,16 @@ const Brain = {
   },
 
   // --- Export / Import ---
-  exportData() {
-    const data = this.getData();
-    const json = JSON.stringify(data, null, 2);
+  async exportData() {
+    const date = new Date().toISOString().slice(0, 10);
+    const { exportData, sizeEstimate } = await this.exportWithPhotos();
+    const sizeMB = (sizeEstimate / 1024 / 1024).toFixed(1);
+    if (sizeEstimate > 10 * 1024 * 1024) {
+      if (!confirm(`Die Export-Datei ist ca. ${sizeMB} MB groß (Fotos enthalten). Trotzdem exportieren?`)) return;
+    }
+    const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const date = new Date().toISOString().slice(0, 10);
     const a = document.createElement('a');
     a.href = url;
     a.download = `haushalt_export_${date}.json`;
@@ -251,19 +390,13 @@ const Brain = {
     URL.revokeObjectURL(url);
   },
 
-  importData(jsonString) {
-    try {
-      const data = JSON.parse(jsonString);
-      if (!data.version || !data.rooms) throw new Error('Ungültiges Format');
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      return true;
-    } catch {
-      return false;
-    }
+  async importData(jsonString) {
+    return this.importWithPhotos(jsonString);
   },
 
   resetAll() {
     localStorage.removeItem(STORAGE_KEY);
+    this.deleteAllPhotos().catch(() => {});
     this.init();
   },
 
