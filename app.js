@@ -19,26 +19,22 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPhoto();
   setupBrain();
   setupSettings();
+  setupPullToRefresh();
   showView('chat');
 });
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
 
-  navigator.serviceWorker.register('./service-worker.js').then(reg => {
-    // Wenn ein neuer SW wartet: Seite nach Aktivierung neu laden
-    reg.addEventListener('updatefound', () => {
-      const newWorker = reg.installing;
-      newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'activated') {
-          window.location.reload();
-        }
-      });
-    });
-  }).catch(() => {});
+  navigator.serviceWorker.register('./service-worker.js').catch(() => {});
 
-  // Falls der SW-Controller wechselt (z.B. nach skipWaiting): Seite neu laden
+  // Guard gegen doppelten Reload (controllerchange + statechange können gleichzeitig feuern)
+  let reloading = false;
+
+  // Nur auf controllerchange reagieren – feuert einmalig wenn neuer SW übernimmt
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
     window.location.reload();
   });
 }
@@ -837,6 +833,58 @@ function getErrorMessage(err) {
   if (err.message?.includes('too large') || err.message?.includes('size')) return 'Foto zu groß – bitte ein kleineres wählen oder Auflösung reduzieren.';
   if (err instanceof SyntaxError || err.message?.includes('JSON')) return 'Antwort war unvollständig – bitte nochmal versuchen.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
+}
+
+// ── PULL TO REFRESH ────────────────────────────────────
+function setupPullToRefresh() {
+  // Indikator-Element erzeugen
+  const indicator = document.createElement('div');
+  indicator.id = 'ptr-indicator';
+  indicator.textContent = '↓ Zum Aktualisieren ziehen';
+  document.body.appendChild(indicator);
+
+  let touchStartY = 0;
+  let ptrActive = false;
+
+  function getActiveScrollTop() {
+    // Im Chat-View scrollt #chat-messages, in allen anderen Views das View selbst
+    if (currentView === 'chat') {
+      const msgs = document.getElementById('chat-messages');
+      return msgs ? msgs.scrollTop : 0;
+    }
+    const activeView = document.querySelector('.view.active');
+    return activeView ? activeView.scrollTop : 0;
+  }
+
+  document.addEventListener('touchstart', e => {
+    touchStartY = e.touches[0].clientY;
+    ptrActive = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (getActiveScrollTop() > 5) return; // Nicht am oberen Rand
+
+    const dy = e.touches[0].clientY - touchStartY;
+    if (dy <= 0) return;
+
+    ptrActive = true;
+    const progress = Math.min(dy / 80, 1);
+    indicator.style.transform = `translateY(${(progress - 1) * 100}%)`;
+    indicator.textContent = dy > 80 ? '↑ Loslassen zum Aktualisieren' : '↓ Zum Aktualisieren ziehen';
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    if (!ptrActive) return;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (dy > 80) {
+      indicator.style.transform = 'translateY(0)';
+      indicator.textContent = '↻ Wird aktualisiert…';
+      setTimeout(() => window.location.reload(true), 400);
+    } else {
+      indicator.style.transform = 'translateY(-100%)';
+    }
+    ptrActive = false;
+  }, { passive: true });
 }
 
 // ── LONG PRESS ─────────────────────────────────────────

@@ -2,10 +2,10 @@
 const BASE_URL = new URL('./', self.location.href).href;
 
 // Version hochzählen bei jedem Deploy → löscht automatisch alten Cache
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `haushalt-${CACHE_VERSION}`;
 
-// App-Shell-Dateien: immer zuerst Netzwerk, dann Cache-Fallback
+// App-Shell-Dateien
 const APP_SHELL = [
   BASE_URL,
   BASE_URL + 'index.html',
@@ -43,17 +43,22 @@ self.addEventListener('fetch', event => {
   const isAppShell = APP_SHELL.some(asset => url === asset || url.startsWith(asset + '?'));
 
   if (isAppShell) {
-    // NETWORK FIRST: immer frische Version holen, Cache nur als Fallback
+    // STALE-WHILE-REVALIDATE: sofort aus Cache liefern, im Hintergrund aktualisieren
     event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+      caches.open(CACHE_NAME).then(async cache => {
+        const cached = await cache.match(event.request);
+
+        // Im Hintergrund neu laden und Cache aktualisieren
+        const networkFetch = fetch(event.request).then(response => {
+          if (response && response.ok) {
+            cache.put(event.request, response.clone());
           }
           return response;
-        })
-        .catch(() => caches.match(event.request))
+        }).catch(() => null);
+
+        // Sofort aus Cache liefern, falls vorhanden – sonst auf Netzwerk warten
+        return cached || networkFetch;
+      })
     );
   } else {
     // CACHE FIRST für alles andere (Bilder, Fonts, etc.)
@@ -61,7 +66,7 @@ self.addEventListener('fetch', event => {
       caches.match(event.request).then(cached => {
         if (cached) return cached;
         return fetch(event.request).then(response => {
-          if (response.ok) {
+          if (response && response.ok) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
           }

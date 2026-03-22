@@ -168,7 +168,9 @@ html, body {
   background: var(--bg);
   border-top: 1px solid var(--border);
   position: sticky;
-  bottom: 0;
+  /* Klebt oberhalb von Footer + Nav, nicht unter ihnen */
+  bottom: calc(var(--nav-h) + var(--footer-h));
+  z-index: 50;
 }
 
 #chat-input {
@@ -611,4 +613,25 @@ select.settings-input { appearance: none; }
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   #nav { padding-bottom: env(safe-area-inset-bottom); height: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
   #footer { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+  #chat-input-row { bottom: calc(var(--nav-h) + var(--footer-h) + env(safe-area-inset-bottom)); }
+}
+
+/* ── Pull-to-Refresh Indikator ────────────────────── */
+#ptr-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 9999;
+  transform: translateY(-100%);
+  transition: transform 0.15s ease;
+  pointer-events: none;
 }
