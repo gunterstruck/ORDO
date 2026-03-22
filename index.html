@@ -14,9 +14,54 @@
 <body>
 <div id="app">
 
+  <!-- ── ONBOARDING VIEW (einmalig beim allerersten Start) ── -->
+  <div id="view-onboarding" class="view" style="display:none">
+    <div class="onboarding-screen">
+      <div class="onboarding-hero">
+        <span class="onboarding-icon">🏠</span>
+        <h1 class="onboarding-title">Willkommen bei ORDO</h1>
+        <p class="onboarding-subtitle">Dein Haushalt bekommt ein Gedächtnis.</p>
+      </div>
+      <div class="onboarding-steps">
+        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Wähle einen Raum</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">2</span> Mach ein Foto</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">3</span> Frag später einfach</div>
+      </div>
+      <button id="onboarding-start" class="onboarding-btn-primary">Los geht's →</button>
+      <button id="onboarding-skip" class="onboarding-btn-skip">Überspringen</button>
+    </div>
+
+    <!-- Schritt 1: Raum wählen -->
+    <div id="onboarding-step-room" class="onboarding-screen" style="display:none">
+      <h2 class="onboarding-step-title">Wähle deinen ersten Raum</h2>
+      <div id="onboarding-room-tiles" class="onboarding-room-tiles"></div>
+    </div>
+
+    <!-- Schritt 2: Foto machen -->
+    <div id="onboarding-step-photo" class="onboarding-screen" style="display:none">
+      <h2 class="onboarding-step-title">Mach ein Foto</h2>
+      <p class="onboarding-step-desc" id="onboarding-photo-desc">Fotografiere einen Schrank, ein Regal oder eine Schublade.</p>
+      <button id="onboarding-photo-btn" class="onboarding-camera-btn">📷</button>
+      <p class="onboarding-step-hint">Kamera öffnet sich</p>
+      <input type="file" id="onboarding-photo-input" accept="image/*" capture="environment" style="display:none">
+    </div>
+
+    <!-- Schritt 3: Fertig -->
+    <div id="onboarding-step-done" class="onboarding-screen" style="display:none">
+      <span class="onboarding-icon">✨</span>
+      <h2 class="onboarding-step-title">Perfekt!</h2>
+      <p class="onboarding-step-desc">Ich kenne jetzt deinen ersten Bereich. Frag mich einfach, z.B. „Was liegt im Schrank?"</p>
+      <button id="onboarding-finish" class="onboarding-btn-primary">Jetzt loslegen</button>
+    </div>
+  </div>
+
   <!-- ── CHAT VIEW ──────────────────────────────── -->
   <div id="view-chat" class="view active">
+    <!-- Zahnrad-Icon für Einstellungen -->
+    <button id="settings-gear" class="settings-gear" aria-label="Einstellungen">⚙️</button>
     <div id="chat-messages"></div>
+    <!-- Quick-Suggestion Buttons -->
+    <div id="chat-suggestions" class="chat-suggestions"></div>
     <div id="chat-input-row">
       <!-- Foto-Vorschau (versteckt bis Foto gewählt) -->
       <div id="chat-photo-preview" hidden>
@@ -30,7 +75,7 @@
         <input type="file" id="chat-photo-input" accept="image/*" style="display:none" aria-label="Foto auswählen">
         <textarea
           id="chat-input"
-          placeholder="Schreib oder sprich…"
+          placeholder="Wo ist die Schere?"
           rows="1"
           aria-label="Nachricht eingeben"
         ></textarea>
@@ -88,7 +133,7 @@
   <!-- ── BRAIN VIEW ──────────────────────────────── -->
   <div id="view-brain" class="view">
     <div class="brain-view-header">
-      <span class="brain-view-title">🧠 Mein Haushalt</span>
+      <span class="brain-view-title">🏠 Mein Zuhause</span>
       <button id="brain-add-room">+ Raum</button>
     </div>
     <div id="brain-tree"></div>
@@ -179,76 +224,69 @@
       <button id="settings-reset" class="settings-btn settings-btn--danger">Alles zurücksetzen</button>
     </div>
 
-    <!-- Debug -->
-    <div class="settings-section">
-      <div class="settings-section-title">Debug / API-Status</div>
-      <button id="debug-test-btn" class="settings-btn settings-btn--secondary">API-Verbindung testen</button>
-      <button id="debug-clear-btn" class="settings-btn settings-btn--secondary">Log leeren</button>
-      <pre id="debug-log" style="
-        margin-top:10px;
-        background:#1a1a1a;
-        color:#e0e0e0;
-        font-size:11px;
-        padding:10px;
-        border-radius:10px;
-        max-height:260px;
-        overflow-y:auto;
-        white-space:pre-wrap;
-        word-break:break-all;
-        font-family:monospace;
-      ">— noch kein Log —</pre>
-    </div>
-
     <!-- Info -->
     <div class="settings-section">
       <div class="settings-section-title">Info</div>
       <p class="app-version">App Version: 1.0</p>
-      <button class="nfc-info-toggle" id="nfc-info-toggle">Wie funktioniert NFC? ▾</button>
-      <div class="nfc-info-body" id="nfc-info-body" style="display:none;">
-        NFC Tags sind kleine Aufkleber mit einem Chip. Wenn du dein Handy daran hältst öffnet sich diese App automatisch – ohne suchen, ohne tippen.<br><br>
-        <strong>Android:</strong> funktioniert direkt im Chrome Browser.<br>
-        <strong>iPhone:</strong> zum Beschreiben bitte "NFC Tools" verwenden.
+    </div>
+
+    <!-- Impressum (aus Footer hierher verschoben) -->
+    <div class="settings-section">
+      <div class="settings-section-title">Impressum</div>
+      <div class="impressum-inline">
+        <address>
+          <p class="impressum-placeholder">[Vor- und Nachname]</p>
+          <p class="impressum-placeholder">[Straße und Hausnummer]</p>
+          <p class="impressum-placeholder">[PLZ Ort]</p>
+          <p class="impressum-placeholder">[E-Mail Adresse]</p>
+        </address>
+      </div>
+    </div>
+
+    <!-- Erweitert (aufklappbar) -->
+    <div class="settings-section">
+      <button id="settings-advanced-toggle" class="settings-advanced-toggle">Erweitert ▾</button>
+      <div id="settings-advanced-body" class="settings-advanced-body" style="display:none">
+        <button class="nfc-info-toggle" id="nfc-info-toggle">Wie funktioniert NFC? ▾</button>
+        <div class="nfc-info-body" id="nfc-info-body" style="display:none;">
+          NFC Tags sind kleine Aufkleber mit einem Chip. Wenn du dein Handy daran hältst öffnet sich diese App automatisch – ohne suchen, ohne tippen.<br><br>
+          <strong>Android:</strong> funktioniert direkt im Chrome Browser.<br>
+          <strong>iPhone:</strong> zum Beschreiben bitte "NFC Tools" verwenden.
+        </div>
+        <div class="settings-section-title" style="margin-top:16px">Debug / API-Status</div>
+        <button id="debug-test-btn" class="settings-btn settings-btn--secondary">API-Verbindung testen</button>
+        <button id="debug-clear-btn" class="settings-btn settings-btn--secondary">Log leeren</button>
+        <pre id="debug-log" style="
+          margin-top:10px;
+          background:#1a1a1a;
+          color:#e0e0e0;
+          font-size:11px;
+          padding:10px;
+          border-radius:10px;
+          max-height:260px;
+          overflow-y:auto;
+          white-space:pre-wrap;
+          word-break:break-all;
+          font-family:monospace;
+        ">— noch kein Log —</pre>
       </div>
     </div>
   </div>
 
-  <!-- ── IMPRESSUM VIEW ─────────────────────────── -->
-  <div id="view-impressum" class="view">
-    <div class="impressum-block">
-      <p class="impressum-title">Impressum</p>
-      <address>
-        <p class="impressum-placeholder">[Vor- und Nachname]</p>
-        <p class="impressum-placeholder">[Straße und Hausnummer]</p>
-        <p class="impressum-placeholder">[PLZ Ort]</p>
-        <p class="impressum-placeholder">[E-Mail Adresse]</p>
-      </address>
-    </div>
-
-    <div class="impressum-note">
-      <strong>NFC Tags beschreiben:</strong><br>
-      Auf iPhone bitte die App "NFC Tools" verwenden und die URL manuell eintragen.
-    </div>
-  </div>
-
-  <!-- ── FOOTER ──────────────────────────────────── -->
-  <div id="footer">
-    <button id="footer-settings">Einstellungen</button>
-    <button id="footer-impressum">Impressum</button>
-  </div>
 
   <!-- ── BOTTOM NAV ─────────────────────────────── -->
   <nav id="nav" role="navigation" aria-label="Hauptnavigation">
-    <button class="nav-btn active" data-view="chat" aria-label="Chat">
-      <span class="nav-icon">💬</span>
-      Fragen
+    <button class="nav-btn active" data-view="chat" aria-label="Finden">
+      <span class="nav-icon">🔍</span>
+      Finden
     </button>
-    <button class="nav-btn" data-view="photo" aria-label="Foto einlernen">
+    <button class="nav-btn" data-view="photo" aria-label="Foto erfassen">
       <span class="nav-icon">📷</span>
-      Einlernen
+      Erfassen
     </button>
-    <button class="nav-btn" data-view="brain" aria-label="Wissen">
-      <span class="nav-icon">🧠</span>
-      Gehirn
+    <button class="nav-btn" data-view="brain" aria-label="Mein Zuhause">
+      <span class="nav-icon">🏠</span>
+      Mein Zuhause
     </button>
   </nav>
 

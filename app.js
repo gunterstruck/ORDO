@@ -34,7 +34,14 @@ document.addEventListener('DOMContentLoaded', () => {
   setupStagingOverlay();
   setupReviewOverlay();
   setupPullToRefresh();
-  showView('chat');
+  setupOnboarding();
+
+  // Show onboarding on very first start (no data, no flag)
+  if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {
+    showOnboarding();
+  } else {
+    showView('chat');
+  }
 });
 
 function registerServiceWorker() {
@@ -68,8 +75,7 @@ function setupNavigation() {
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => showView(btn.dataset.view));
   });
-  document.getElementById('footer-settings').addEventListener('click', () => showView('settings'));
-  document.getElementById('footer-impressum').addEventListener('click', () => showView('impressum'));
+  document.getElementById('settings-gear').addEventListener('click', () => showView('settings'));
 }
 
 function showView(name) {
@@ -214,6 +220,7 @@ function initChat() {
       appendMessage('assistant', 'Hallo! Was kann ich für dich tun?');
     }
   }
+  renderChatSuggestions();
 }
 
 function appendMessage(role, text, thinking = false) {
@@ -241,6 +248,7 @@ async function sendChatMessage() {
 
   input.value = '';
   if (photo) clearChatPhoto();
+  hideChatSuggestions();
 
   // Nutzernachricht anzeigen (mit Kamera-Icon wenn Foto dabei)
   const displayText = photo ? (text ? `📷 ${text}` : '📷 Foto') : text;
@@ -1575,7 +1583,18 @@ function renderBrainView() {
   container.innerHTML = '';
 
   if (Object.keys(rooms).length === 0) {
-    container.innerHTML = '<p class="brain-empty">Noch keine Räume erfasst.<br>Mach ein Foto zum Einlernen.</p>';
+    const emptyEl = document.createElement('div');
+    emptyEl.className = 'brain-empty-cta';
+    emptyEl.innerHTML = `
+      <span class="brain-empty-cta-icon">🏠</span>
+      <p class="brain-empty-cta-text">Dein Zuhause ist noch leer.<br>Starte mit einem Foto von einem Schrank, Regal oder einer Schublade.</p>
+    `;
+    const btn = document.createElement('button');
+    btn.className = 'brain-empty-cta-btn';
+    btn.textContent = '📷 Erstes Foto machen';
+    btn.addEventListener('click', () => showView('photo'));
+    emptyEl.appendChild(btn);
+    container.appendChild(emptyEl);
     return;
   }
 
@@ -1610,7 +1629,7 @@ function buildRoomNode(roomId, room) {
   if (!hasContainers) {
     const empty = document.createElement('p');
     empty.className = 'brain-empty-room';
-    empty.textContent = 'Noch keine Bereiche – mach ein Foto.';
+    empty.textContent = 'Noch nichts erfasst – mach ein Foto.';
     body.appendChild(empty);
   } else {
     for (const [cId, c] of Object.entries(room.containers)) {
@@ -1868,6 +1887,7 @@ function setupSettings() {
   document.getElementById('settings-reset').addEventListener('click', async () => {
     if (confirm('Wirklich alles zurücksetzen? Alle Daten gehen verloren.')) {
       await Brain.resetAll();
+      localStorage.removeItem('onboarding_completed');
       document.getElementById('chat-messages').innerHTML = '';
       showSettingsMsg('App zurückgesetzt.', 'success');
     }
@@ -1900,6 +1920,19 @@ function setupSettings() {
   document.getElementById('nfc-write-btn').addEventListener('click', writeNfcTag);
   document.getElementById('nfc-room-select').addEventListener('change', updateNfcPreview);
   document.getElementById('nfc-container-name').addEventListener('input', updateNfcPreview);
+
+  // Settings advanced toggle
+  document.getElementById('settings-advanced-toggle').addEventListener('click', () => {
+    const body = document.getElementById('settings-advanced-body');
+    const toggle = document.getElementById('settings-advanced-toggle');
+    if (body.style.display === 'none') {
+      body.style.display = 'flex';
+      toggle.textContent = 'Erweitert ▴';
+    } else {
+      body.style.display = 'none';
+      toggle.textContent = 'Erweitert ▾';
+    }
+  });
 
   // NFC info toggle
   document.getElementById('nfc-info-toggle').addEventListener('click', () => {
@@ -2209,6 +2242,170 @@ function setupPullToRefresh() {
     }
     ptrActive = false;
   }, { passive: true });
+}
+
+// ── ONBOARDING ─────────────────────────────────────────
+let onboardingRoomId = null;
+
+function setupOnboarding() {
+  document.getElementById('onboarding-start').addEventListener('click', showOnboardingRoomStep);
+  document.getElementById('onboarding-skip').addEventListener('click', finishOnboarding);
+  document.getElementById('onboarding-photo-btn').addEventListener('click', () => {
+    document.getElementById('onboarding-photo-input').click();
+  });
+  document.getElementById('onboarding-photo-input').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (onboardingRoomId) {
+      // Process through normal photo analysis flow
+      ensureRoomExists(onboardingRoomId);
+      stagingTarget = { roomId: onboardingRoomId, containerId: 'inhalt', containerName: '', mode: 'add' };
+      showStagingOverlay('📷 Fotos sammeln');
+      addFileToStaging(file);
+    }
+    showOnboardingDoneStep();
+  });
+  document.getElementById('onboarding-finish').addEventListener('click', finishOnboarding);
+
+  // Build room tiles
+  const tiles = document.getElementById('onboarding-room-tiles');
+  const rooms = [
+    ['kueche', '🍳', 'Küche'],
+    ['wohnzimmer', '🛋️', 'Wohnzimmer'],
+    ['schlafzimmer', '🛏️', 'Schlafzimmer'],
+    ['bad', '🚿', 'Bad'],
+    ['arbeitszimmer', '💻', 'Arbeitszimmer'],
+    ['keller', '📦', 'Keller']
+  ];
+  rooms.forEach(([id, emoji, name]) => {
+    const tile = document.createElement('button');
+    tile.className = 'onboarding-room-tile';
+    tile.innerHTML = `<span class="onboarding-room-tile-emoji">${emoji}</span>${name}`;
+    tile.addEventListener('click', () => {
+      onboardingRoomId = id;
+      showOnboardingPhotoStep(name);
+    });
+    tiles.appendChild(tile);
+  });
+}
+
+function showOnboarding() {
+  // Hide nav during onboarding
+  document.getElementById('nav').style.display = 'none';
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const onb = document.getElementById('view-onboarding');
+  onb.style.display = 'flex';
+  onb.classList.add('active');
+  // Show welcome, hide steps
+  onb.querySelector('.onboarding-screen').style.display = 'flex';
+  document.getElementById('onboarding-step-room').style.display = 'none';
+  document.getElementById('onboarding-step-photo').style.display = 'none';
+  document.getElementById('onboarding-step-done').style.display = 'none';
+}
+
+function showOnboardingRoomStep() {
+  const onb = document.getElementById('view-onboarding');
+  onb.querySelector('.onboarding-screen').style.display = 'none';
+  document.getElementById('onboarding-step-room').style.display = 'flex';
+}
+
+function showOnboardingPhotoStep(roomName) {
+  document.getElementById('onboarding-step-room').style.display = 'none';
+  document.getElementById('onboarding-photo-desc').textContent =
+    `Mach ein Foto von einem Schrank, Regal oder einer Schublade in deiner ${roomName}.`;
+  document.getElementById('onboarding-step-photo').style.display = 'flex';
+}
+
+function showOnboardingDoneStep() {
+  document.getElementById('onboarding-step-photo').style.display = 'none';
+  document.getElementById('onboarding-step-done').style.display = 'flex';
+}
+
+function finishOnboarding() {
+  localStorage.setItem('onboarding_completed', 'true');
+  document.getElementById('view-onboarding').style.display = 'none';
+  document.getElementById('view-onboarding').classList.remove('active');
+  document.getElementById('nav').style.display = 'flex';
+  showView('chat');
+}
+
+// ── CHAT QUICK-SUGGESTIONS ─────────────────────────────
+function renderChatSuggestions() {
+  const container = document.getElementById('chat-suggestions');
+  container.innerHTML = '';
+
+  if (Brain.isEmpty()) {
+    // Empty household suggestions
+    const suggestions = [
+      { text: '📷 Erstes Foto machen', action: () => showView('photo') },
+      { text: 'Wie funktioniert das?', action: () => sendSuggestion('Wie funktioniert diese App?') }
+    ];
+    suggestions.forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = 'chat-suggestion-btn';
+      btn.textContent = s.text;
+      btn.addEventListener('click', () => {
+        hideChatSuggestions();
+        s.action();
+      });
+      container.appendChild(btn);
+    });
+    return;
+  }
+
+  // Generate context-aware suggestions from existing data
+  const rooms = Brain.getRooms();
+  const roomEntries = Object.entries(rooms);
+  const suggestions = [];
+
+  // Pick room-based suggestions
+  if (roomEntries.length > 0) {
+    const [, firstRoom] = roomEntries[0];
+    suggestions.push(`Was liegt in der ${firstRoom.name}?`);
+  }
+  if (roomEntries.length > 1) {
+    const [, secondRoom] = roomEntries[1];
+    suggestions.push(`Zeig mir ${secondRoom.name}`);
+  }
+
+  // Pick an item-based suggestion
+  let foundItem = null;
+  for (const [, room] of roomEntries) {
+    for (const [, c] of Object.entries(room.containers || {})) {
+      if (c.items?.length > 0) {
+        foundItem = c.items[Math.floor(Math.random() * c.items.length)];
+        break;
+      }
+    }
+    if (foundItem) break;
+  }
+  if (foundItem) {
+    suggestions.push(`Wo ist ${foundItem}?`);
+  } else {
+    suggestions.push('Wo ist die Schere?');
+  }
+
+  suggestions.slice(0, 3).forEach(text => {
+    const btn = document.createElement('button');
+    btn.className = 'chat-suggestion-btn';
+    btn.textContent = text;
+    btn.addEventListener('click', () => {
+      hideChatSuggestions();
+      sendSuggestion(text);
+    });
+    container.appendChild(btn);
+  });
+}
+
+function sendSuggestion(text) {
+  const input = document.getElementById('chat-input');
+  input.value = text;
+  sendChatMessage();
+}
+
+function hideChatSuggestions() {
+  document.getElementById('chat-suggestions').innerHTML = '';
 }
 
 // ── LONG PRESS ─────────────────────────────────────────
