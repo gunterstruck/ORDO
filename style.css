@@ -15,7 +15,7 @@
   --error: #E53935;
   --radius: 16px;
   --nav-h: 64px;
-  --footer-h: 36px;
+  --footer-h: 0px;
 }
 
 html, body {
@@ -48,35 +48,27 @@ html, body {
 
 .view.active { display: flex; flex-direction: column; }
 
-/* ── Footer ───────────────────────────────────────── */
-#footer {
-  position: fixed;
-  bottom: var(--nav-h);
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
-  max-width: 480px;
-  height: var(--footer-h);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 20px;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-  z-index: 90;
-}
-
-#footer button {
-  background: none;
+/* ── Settings Gear Icon ───────────────────────────── */
+.settings-gear {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 50;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   border: none;
-  color: var(--text-muted);
-  font-size: 12px;
+  background: var(--surface);
+  font-size: 18px;
   cursor: pointer;
-  padding: 4px 8px;
-  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  line-height: 1;
 }
 
-#footer button:hover { color: var(--accent); }
+.settings-gear:active { opacity: 0.7; }
 
 /* ── Bottom Nav ───────────────────────────────────── */
 #nav {
@@ -120,6 +112,7 @@ html, body {
   flex-direction: column;
   overflow: hidden;   /* constrain height so inner scroll works */
   padding: 0;         /* override .view bottom-padding; handled by input-row */
+  position: relative;
 }
 
 #view-chat.active { display: flex; }
@@ -1421,3 +1414,250 @@ select.settings-input { appearance: none; }
   white-space: nowrap;
   pointer-events: none;
 }
+
+/* ── Onboarding ──────────────────────────────────── */
+#view-onboarding {
+  padding: 0;
+  overflow-y: auto;
+}
+
+#view-onboarding.active { display: flex; flex-direction: column; }
+
+.onboarding-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  flex: 1;
+  min-height: 100%;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.onboarding-hero { margin-bottom: 32px; }
+
+.onboarding-icon { font-size: 64px; display: block; margin-bottom: 16px; }
+
+.onboarding-title {
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.onboarding-subtitle {
+  font-size: 17px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.onboarding-steps {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 32px;
+  width: 100%;
+  max-width: 300px;
+  text-align: left;
+}
+
+.onboarding-step {
+  font-size: 16px;
+  padding: 8px 0;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.onboarding-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.onboarding-btn-primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  padding: 16px 40px;
+  font-size: 18px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  margin-bottom: 16px;
+}
+
+.onboarding-btn-primary:active { opacity: 0.85; }
+
+.onboarding-btn-skip {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 8px 16px;
+}
+
+.onboarding-step-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.onboarding-step-desc {
+  font-size: 16px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 24px;
+  max-width: 300px;
+}
+
+.onboarding-step-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 12px;
+}
+
+.onboarding-room-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.onboarding-room-tile {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 12px;
+  text-align: center;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 15px;
+  transition: all 0.15s;
+  color: var(--text);
+}
+
+.onboarding-room-tile:active,
+.onboarding-room-tile:hover { border-color: var(--accent); background: #fef3ec; }
+
+.onboarding-room-tile-emoji { font-size: 32px; display: block; margin-bottom: 6px; }
+
+.onboarding-camera-btn {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  border: 3px dashed var(--accent);
+  background: var(--surface);
+  font-size: 44px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboarding-camera-btn:active { background: #fef3ec; border-style: solid; }
+
+/* ── Chat Quick-Suggestions ──────────────────────── */
+.chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 8px;
+  flex-shrink: 0;
+}
+
+.chat-suggestions:empty { display: none; }
+
+.chat-suggestion-btn {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.chat-suggestion-btn:active,
+.chat-suggestion-btn:hover { border-color: var(--accent); background: #fef3ec; color: var(--accent-dark); }
+
+/* ── Brain Empty State (motivierend) ─────────────── */
+.brain-empty-cta {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+}
+
+.brain-empty-cta-icon { font-size: 48px; display: block; margin-bottom: 12px; }
+
+.brain-empty-cta-text {
+  font-size: 17px;
+  line-height: 1.6;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+
+.brain-empty-cta-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px 24px;
+  font-size: 16px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.brain-empty-cta-btn:active { opacity: 0.85; }
+
+/* ── Settings Advanced Toggle ────────────────────── */
+.settings-advanced-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+
+.settings-advanced-toggle:hover { color: var(--accent); }
+
+.settings-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Impressum inline in settings */
+.impressum-inline {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-muted);
+}
+
+.impressum-inline address { font-style: normal; }
