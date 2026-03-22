@@ -1,7 +1,7 @@
 // app.js – Main application logic
 
-const MODEL = 'claude-sonnet-4-20250514';
-const API_URL = 'https://api.anthropic.com/v1/messages';
+const MODEL = 'gemini-2.0-flash';
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
@@ -738,31 +738,46 @@ function debugLog(msg) {
   el.textContent = `[${ts}] ${msg}\n${current}`;
 }
 
-// ── CLAUDE API ─────────────────────────────────────────
+// ── GEMINI API ─────────────────────────────────────────
 async function callClaude(apiKey, systemPrompt, messages) {
   if (!navigator.onLine) {
     debugLog('FEHLER: Gerät ist offline (navigator.onLine = false)');
     throw new Error('offline');
   }
 
-  const keyPreview = apiKey ? apiKey.slice(0, 12) + '…' : '(leer)';
+  const keyPreview = apiKey ? apiKey.slice(0, 8) + '…' : '(leer)';
   debugLog(`Anfrage starten → Modell: ${MODEL}, Key: ${keyPreview}`);
+
+  // Convert Anthropic-style messages to Gemini format
+  const geminiContents = messages.map(msg => {
+    const role = msg.role === 'assistant' ? 'model' : 'user';
+    let parts;
+    if (typeof msg.content === 'string') {
+      parts = [{ text: msg.content }];
+    } else if (Array.isArray(msg.content)) {
+      parts = msg.content.map(item => {
+        if (item.type === 'image') {
+          return { inlineData: { mimeType: item.source.media_type, data: item.source.data } };
+        } else if (item.type === 'text') {
+          return { text: item.text };
+        }
+        return { text: '' };
+      });
+    } else {
+      parts = [{ text: String(msg.content) }];
+    }
+    return { role, parts };
+  });
 
   let response;
   try {
-    response = await fetch(API_URL, {
+    response = await fetch(`${API_URL}?key=${apiKey}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: geminiContents,
+        generationConfig: { maxOutputTokens: 1024 }
       })
     });
   } catch (fetchErr) {
@@ -773,17 +788,16 @@ async function callClaude(apiKey, systemPrompt, messages) {
   debugLog(`HTTP Status: ${response.status} ${response.statusText}`);
 
   if (!response.ok) {
-    let errBody = {};
     const rawText = await response.text().catch(() => '');
-    try { errBody = JSON.parse(rawText); } catch (_) { /* ignore */ }
     debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
-    if (response.status === 401) throw new Error('api_key');
-    throw new Error(errBody.error?.message || `HTTP ${response.status}`);
+    if (response.status === 400 || response.status === 403) throw new Error('api_key');
+    throw new Error(`HTTP ${response.status}`);
   }
 
   const data = await response.json();
-  debugLog(`Antwort OK – ${data.content?.[0]?.text?.length ?? 0} Zeichen`);
-  return data.content[0].text;
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  debugLog(`Antwort OK – ${text.length} Zeichen`);
+  return text;
 }
 
 function getErrorMessage(err) {

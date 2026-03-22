@@ -250,10 +250,10 @@ const Brain = {
 
   // --- API Key ---
   getApiKey() {
-    return localStorage.getItem('claude_api_key') || '';
+    return localStorage.getItem('gemini_api_key') || '';
   },
 
   setApiKey(key) {
-    localStorage.setItem('claude_api_key', key.trim());
+    localStorage.setItem('gemini_api_key', key.trim());
   }
 };
