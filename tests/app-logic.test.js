@@ -131,63 +131,81 @@ function resetAll() {
 
 console.log('⚙️  App Logic Tests\n' + '═'.repeat(50));
 
-// ── processSaveMarkers ──────────────────────────────────
-describe('processSaveMarkers()', () => {
-  const processSaveMarkers = context.processSaveMarkers;
+// ── processMarkers (Unified ORDO Marker System) ─────────
+describe('processMarkers() – ORDO Marker', () => {
+  const processMarkers = context.processMarkers;
 
-  it('extrahiert SAVE-Marker aus Text', () => {
-    const input = 'Ich habe das gespeichert.<!--SAVE:{"action":"add_item","room":"kueche","container":"schrank","item":"Teller"}-->';
-    const result = processSaveMarkers(input);
+  it('extrahiert ORDO-Marker aus Text', () => {
+    const input = 'Ich habe das gespeichert.<!--ORDO:{"type":"add_item","room":"kueche","path":["schrank"],"item":"Teller","menge":1}-->';
+    const result = processMarkers(input);
     assertEqual(result.cleanText, 'Ich habe das gespeichert.');
     assertEqual(result.actions.length, 1);
-    assertEqual(result.actions[0].action, 'add_item');
+    assertEqual(result.actions[0].type, 'add_item');
     assertEqual(result.actions[0].item, 'Teller');
   });
 
   it('extrahiert mehrere Marker', () => {
-    const input = 'Text<!--SAVE:{"action":"add_item","room":"a","container":"b","item":"X"}-->Mehr<!--SAVE:{"action":"add_item","room":"a","container":"b","item":"Y"}-->';
-    const result = processSaveMarkers(input);
+    const input = 'Text<!--ORDO:{"type":"add_item","room":"a","path":["b"],"item":"X","menge":1}-->Mehr<!--ORDO:{"type":"add_item","room":"a","path":["b"],"item":"Y","menge":1}-->';
+    const result = processMarkers(input);
     assertEqual(result.actions.length, 2);
     assertEqual(result.actions[0].item, 'X');
     assertEqual(result.actions[1].item, 'Y');
   });
 
   it('ignoriert ungültige JSON-Marker', () => {
-    const input = 'Text<!--SAVE:not valid json-->';
-    const result = processSaveMarkers(input);
+    const input = 'Text<!--ORDO:not valid json-->';
+    const result = processMarkers(input);
     assertEqual(result.actions.length, 0);
     assertEqual(result.cleanText, 'Text');
   });
 
   it('gibt leere Actions bei Text ohne Marker', () => {
-    const result = processSaveMarkers('Einfacher Text ohne Marker');
+    const result = processMarkers('Einfacher Text ohne Marker');
     assertEqual(result.actions.length, 0);
     assertEqual(result.cleanText, 'Einfacher Text ohne Marker');
   });
+
+  it('trennt found-Marker in foundItems', () => {
+    const input = 'Die Schere liegt in der Küche.<!--ORDO:{"type":"found","room":"kueche","path":["schrank"],"item":"Schere"}-->';
+    const result = processMarkers(input);
+    assertEqual(result.actions.length, 0);
+    assertEqual(result.foundItems.length, 1);
+    assertEqual(result.foundItems[0].item, 'Schere');
+  });
 });
 
-// ── processActions ──────────────────────────────────────
-describe('processActions()', () => {
-  const processActions = context.processActions;
+// ── processMarkers – Legacy Kompatibilität ─────────────
+describe('processMarkers() – Legacy Marker', () => {
+  const processMarkers = context.processMarkers;
 
-  it('extrahiert ACTION-Marker', () => {
+  it('extrahiert legacy SAVE-Marker', () => {
+    const input = 'Erledigt.<!--SAVE:{"action":"add_item","room":"kueche","container":"schrank","item":"Teller"}-->';
+    const result = processMarkers(input);
+    assertEqual(result.cleanText, 'Erledigt.');
+    assertEqual(result.actions.length, 1);
+    assertEqual(result.actions[0].type, 'add_item');
+    assertEqual(result.actions[0].item, 'Teller');
+  });
+
+  it('extrahiert legacy ACTION-Marker', () => {
     const input = 'Erledigt.<!--ACTION:{"type":"remove_item","room":"kueche","container":"schrank","item":"Teller"}-->';
-    const result = processActions(input);
+    const result = processMarkers(input);
     assertEqual(result.cleanText, 'Erledigt.');
     assertEqual(result.actions.length, 1);
     assertEqual(result.actions[0].type, 'remove_item');
   });
 
-  it('handhabt delete_room Action', () => {
-    const input = 'Raum gelöscht.<!--ACTION:{"type":"delete_room","room":"kueche"}-->';
-    const result = processActions(input);
-    assertEqual(result.actions[0].type, 'delete_room');
-    assertEqual(result.actions[0].room, 'kueche');
+  it('extrahiert legacy FOUND-Marker', () => {
+    const input = 'Gefunden.<!--FOUND:{"room":"kueche","container":"schrank","item":"Schere"}-->';
+    const result = processMarkers(input);
+    assertEqual(result.cleanText, 'Gefunden.');
+    assertEqual(result.foundItems.length, 1);
+    assertEqual(result.foundItems[0].item, 'Schere');
   });
 
-  it('handhabt move_item Action', () => {
+  it('handhabt legacy move_item ACTION', () => {
     const input = 'Verschoben.<!--ACTION:{"type":"move_item","from_room":"kueche","from_container":"schrank","to_room":"wohnzimmer","to_container":"regal","item":"Vase"}-->';
-    const result = processActions(input);
+    const result = processMarkers(input);
     const action = result.actions[0];
     assertEqual(action.type, 'move_item');
     assertEqual(action.from_room, 'kueche');
@@ -195,11 +213,12 @@ describe('processActions()', () => {
     assertEqual(action.item, 'Vase');
   });
 
-  it('handhabt replace_items Action', () => {
+  it('handhabt legacy replace_items ACTION', () => {
     const input = 'Aktualisiert.<!--ACTION:{"type":"replace_items","room":"kueche","container":"schrank","items":["Teller","Tasse"]}-->';
-    const result = processActions(input);
+    const result = processMarkers(input);
     assertEqual(result.actions[0].type, 'replace_items');
-    assertDeepEqual(result.actions[0].items, ['Teller', 'Tasse']);
+    // Legacy format gets converted – items become objects
+    assert(result.actions[0].items.length === 2);
   });
 });
 
@@ -296,25 +315,36 @@ describe('getErrorMessage()', () => {
   });
 });
 
-// ── executeAction (Integration mit Brain) ───────────────
-describe('executeAction() – Integration', () => {
-  const executeAction = context.executeAction;
+// ── executeOrdoAction (Integration mit Brain) ───────────
+describe('executeOrdoAction() – Integration', () => {
+  const executeOrdoAction = context.executeOrdoAction;
   const Brain = context.Brain;
 
   it('add_item fügt Item hinzu', () => {
     resetAll();
     Brain.addRoom('kueche', 'Küche', '🍳');
     Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
-    executeAction({ type: 'add_item', room: 'kueche', container: 'schrank', item: 'Teller' });
+    executeOrdoAction({ type: 'add_item', room: 'kueche', path: ['schrank'], item: 'Teller', menge: 1 });
     const c = Brain.getContainer('kueche', 'schrank');
     assert(c.items.includes('Teller'));
   });
 
-  it('add_item ignoriert fehlenden Raum', () => {
+  it('add_item erstellt Raum und Container automatisch', () => {
     resetAll();
-    executeAction({ type: 'add_item', room: 'gibts_nicht', container: 'schrank', item: 'Teller' });
-    // Kein Crash
-    assert(true);
+    executeOrdoAction({ type: 'add_item', room: 'kueche', path: ['schrank'], item: 'Teller', menge: 1 });
+    assert(Brain.getRoom('kueche') !== null, 'Raum sollte erstellt werden');
+    assert(Brain.getContainer('kueche', 'schrank') !== null, 'Container sollte erstellt werden');
+    assert(Brain.getContainer('kueche', 'schrank').items.includes('Teller'));
+  });
+
+  it('add_item speichert Menge > 1', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    executeOrdoAction({ type: 'add_item', room: 'kueche', path: ['schrank'], item: 'Teller', menge: 5 });
+    const c = Brain.getContainer('kueche', 'schrank');
+    assert(c.items.includes('Teller'));
+    assertEqual(c.quantities['Teller'], 5);
   });
 
   it('remove_item entfernt Item', () => {
@@ -322,7 +352,7 @@ describe('executeAction() – Integration', () => {
     Brain.addRoom('kueche', 'Küche', '🍳');
     Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
     Brain.addItem('kueche', 'schrank', 'Teller');
-    executeAction({ type: 'remove_item', room: 'kueche', container: 'schrank', item: 'Teller' });
+    executeOrdoAction({ type: 'remove_item', room: 'kueche', path: ['schrank'], item: 'Teller' });
     const c = Brain.getContainer('kueche', 'schrank');
     assert(!c.items.includes('Teller'));
   });
@@ -334,7 +364,7 @@ describe('executeAction() – Integration', () => {
     Brain.addItem('kueche', 'schrank', 'Teller');
     Brain.addItem('kueche', 'schrank', 'Tasse');
     Brain.addItem('kueche', 'schrank', 'Glas');
-    executeAction({ type: 'remove_items', room: 'kueche', container: 'schrank', items: ['Teller', 'Tasse'] });
+    executeOrdoAction({ type: 'remove_items', room: 'kueche', path: ['schrank'], items: ['Teller', 'Tasse'] });
     const c = Brain.getContainer('kueche', 'schrank');
     assert(!c.items.includes('Teller'));
     assert(!c.items.includes('Tasse'));
@@ -346,7 +376,7 @@ describe('executeAction() – Integration', () => {
     Brain.addRoom('kueche', 'Küche', '🍳');
     Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
     Brain.addItem('kueche', 'schrank', 'Alter Teller');
-    executeAction({ type: 'replace_items', room: 'kueche', container: 'schrank', items: ['Neuer Teller', 'Neue Tasse'] });
+    executeOrdoAction({ type: 'replace_items', room: 'kueche', path: ['schrank'], items: [{ name: 'Neuer Teller', menge: 1 }, { name: 'Neue Tasse', menge: 1 }] });
     const c = Brain.getContainer('kueche', 'schrank');
     assertDeepEqual(c.items, ['Neuer Teller', 'Neue Tasse']);
   });
@@ -355,7 +385,7 @@ describe('executeAction() – Integration', () => {
     resetAll();
     Brain.addRoom('kueche', 'Küche', '🍳');
     Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
-    executeAction({ type: 'delete_container', room: 'kueche', container: 'schrank' });
+    executeOrdoAction({ type: 'delete_container', room: 'kueche', path: ['schrank'] });
     assertEqual(Brain.getContainer('kueche', 'schrank'), null);
   });
 
@@ -363,45 +393,25 @@ describe('executeAction() – Integration', () => {
     resetAll();
     Brain.addRoom('kueche', 'Küche', '🍳');
     Brain.addContainer('kueche', 'schrank', 'Alter Schrank', 'schrank');
-    executeAction({ type: 'rename_container', room: 'kueche', container: 'schrank', new_name: 'Neuer Schrank' });
+    executeOrdoAction({ type: 'rename_container', room: 'kueche', path: ['schrank'], new_name: 'Neuer Schrank' });
     assertEqual(Brain.getContainer('kueche', 'schrank').name, 'Neuer Schrank');
   });
 
   it('delete_room löscht Raum', () => {
     resetAll();
     Brain.addRoom('kueche', 'Küche', '🍳');
-    executeAction({ type: 'delete_room', room: 'kueche' });
+    executeOrdoAction({ type: 'delete_room', room: 'kueche' });
     assertEqual(Brain.getRoom('kueche'), null);
   });
 
   it('add_container erstellt Container', () => {
     resetAll();
     Brain.addRoom('kueche', 'Küche', '🍳');
-    executeAction({ type: 'add_container', room: 'kueche', container: 'neues_regal', name: 'Neues Regal', typ: 'regal' });
+    executeOrdoAction({ type: 'add_container', room: 'kueche', path: [], id: 'neues_regal', name: 'Neues Regal', typ: 'regal' });
     const c = Brain.getContainer('kueche', 'neues_regal');
     assert(c !== null);
     assertEqual(c.name, 'Neues Regal');
     assertEqual(c.typ, 'regal');
-  });
-
-  it('unbekannter Action-Typ crasht nicht', () => {
-    resetAll();
-    executeAction({ type: 'unknown_type', room: 'test' });
-    assert(true);
-  });
-});
-
-// ── executeSaveAction (Integration mit Brain) ───────────
-describe('executeSaveAction() – Integration', () => {
-  const executeSaveAction = context.executeSaveAction;
-  const Brain = context.Brain;
-
-  it('add_item erstellt Raum und Container automatisch', () => {
-    resetAll();
-    executeSaveAction({ action: 'add_item', room: 'kueche', container: 'schrank', item: 'Teller' });
-    assert(Brain.getRoom('kueche') !== null, 'Raum sollte erstellt werden');
-    assert(Brain.getContainer('kueche', 'schrank') !== null, 'Container sollte erstellt werden');
-    assert(Brain.getContainer('kueche', 'schrank').items.includes('Teller'));
   });
 
   it('move_item verschiebt Item zwischen Containern', () => {
@@ -412,18 +422,15 @@ describe('executeSaveAction() – Integration', () => {
     Brain.addRoom('wohnzimmer', 'Wohnzimmer', '🛋️');
     Brain.addContainer('wohnzimmer', 'regal', 'Regal', 'regal');
 
-    executeSaveAction({ action: 'move_item', from_room: 'kueche', from_container: 'schrank', room: 'wohnzimmer', container: 'regal', item: 'Vase' });
+    executeOrdoAction({ type: 'move_item', from_room: 'kueche', from_path: ['schrank'], to_room: 'wohnzimmer', to_path: ['regal'], item: 'Vase' });
     assert(!Brain.getContainer('kueche', 'schrank').items.includes('Vase'));
     assert(Brain.getContainer('wohnzimmer', 'regal').items.includes('Vase'));
   });
 
-  it('remove_item entfernt Item', () => {
+  it('unbekannter Action-Typ crasht nicht', () => {
     resetAll();
-    Brain.addRoom('kueche', 'Küche', '🍳');
-    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
-    Brain.addItem('kueche', 'schrank', 'Teller');
-    executeSaveAction({ action: 'remove_item', room: 'kueche', container: 'schrank', item: 'Teller' });
-    assert(!Brain.getContainer('kueche', 'schrank').items.includes('Teller'));
+    executeOrdoAction({ type: 'unknown_type', room: 'test' });
+    assert(true);
   });
 });
 

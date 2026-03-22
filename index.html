@@ -140,6 +140,44 @@
     <div id="brain-tree"></div>
   </div>
 
+  <!-- ── NFC CONTEXT VIEW ────────────────────────── -->
+  <div id="view-nfc-context" class="view">
+    <div class="nfc-ctx-header">
+      <button id="nfc-ctx-back" class="nfc-ctx-back-btn" aria-label="Zurück">← Zurück</button>
+      <span id="nfc-ctx-room-label" class="nfc-ctx-room-label"></span>
+    </div>
+    <div id="nfc-ctx-container-name" class="nfc-ctx-container-name"></div>
+
+    <div id="nfc-ctx-photo-area" class="nfc-ctx-photo-area" style="display:none">
+      <img id="nfc-ctx-photo" class="nfc-ctx-photo" alt="Foto des Behälters">
+      <div id="nfc-ctx-photo-date" class="nfc-ctx-photo-date"></div>
+    </div>
+
+    <div id="nfc-ctx-empty" class="nfc-ctx-empty" style="display:none">
+      <p class="nfc-ctx-empty-text">Dieser Bereich ist noch leer.</p>
+    </div>
+
+    <div id="nfc-ctx-items" class="nfc-ctx-items" style="display:none">
+      <p class="nfc-ctx-section-title">Inhalt:</p>
+      <div id="nfc-ctx-item-chips" class="nfc-ctx-item-chips"></div>
+    </div>
+
+    <div id="nfc-ctx-children" class="nfc-ctx-children" style="display:none">
+      <p class="nfc-ctx-section-title">Bereiche:</p>
+      <div id="nfc-ctx-children-list" class="nfc-ctx-children-list"></div>
+    </div>
+
+    <div class="nfc-ctx-actions">
+      <button id="nfc-ctx-photo-btn" class="nfc-ctx-action-btn nfc-ctx-action-btn--primary">
+        <span id="nfc-ctx-photo-btn-label">📷 Foto aktualisieren</span>
+      </button>
+      <button id="nfc-ctx-chat-btn" class="nfc-ctx-action-btn nfc-ctx-action-btn--secondary">
+        💬 Frage stellen
+      </button>
+    </div>
+    <input type="file" id="nfc-ctx-photo-input" accept="image/*" capture="environment" style="display:none" aria-label="Foto aufnehmen">
+  </div>
+
   <!-- ── PHOTO TIMELINE OVERLAY ────────────────────── -->
   <div id="photo-timeline-overlay" class="photo-timeline-overlay" style="display:none">
     <div class="photo-timeline-header">
@@ -251,7 +289,7 @@
     <!-- Info -->
     <div class="settings-section">
       <div class="settings-section-title">Info</div>
-      <p class="app-version">App Version: 1.2</p>
+      <p class="app-version">App Version: 2.0</p>
     </div>
 
     <!-- Impressum (aus Footer hierher verschoben) -->

@@ -40,10 +40,14 @@ document.addEventListener('DOMContentLoaded', () => {
   setupOnboarding();
   setupPhotoTimeline();
   setupMoveContainerOverlay();
+  setupNfcContextView();
 
   // Show onboarding on very first start (no data, no flag)
   if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {
     showOnboarding();
+  } else if (nfcContext && nfcContext.tag) {
+    // NFC tag scanned → show contextual view
+    showView('nfc-context');
   } else {
     showView('chat');
   }
@@ -97,6 +101,7 @@ function showView(name) {
   if (name === 'chat') initChat();
   if (name === 'brain') renderBrainView();
   if (name === 'settings') renderSettings();
+  if (name === 'nfc-context') renderNfcContextView();
   if (name === 'photo') {
     renderRoomDropdown('photo-room-select');
     applyNfcContextToPhotoView();
@@ -265,51 +270,44 @@ async function sendChatMessage() {
   try {
     const context = Brain.buildContext();
 
-    // Basis-System-Prompt
-    let systemPrompt = `Du bist ein stiller Haushaltsassistent.
-Hier ist was du über diesen Haushalt weißt:
+    // Unified ORDO System-Prompt
+    let systemPrompt = `Du bist ORDO, ein stiller Haushaltsassistent. Hier ist was du über diesen Haushalt weißt:
 ${context}
 
-Antworte immer in maximal 2 kurzen Sätzen.
-Wenn du etwas nicht weißt, sag es direkt und bitte den Nutzer ein Foto zu machen.
-Antworte immer auf Deutsch.
+REGELN:
+- Antworte immer in maximal 2 kurzen Sätzen.
+- Wenn du etwas nicht weißt, bitte um ein Foto.
 
-Wenn der Nutzer einen Gegenstand erwähnt und du weißt wo er hingehört (weil er es gesagt hat oder weil ein NFC-Kontext gesetzt ist), speichere ihn automatisch.
-Füge dafür am Ende deiner Antwort diesen Marker ein (der Nutzer sieht ihn nicht):
-<!--SAVE:{"action":"add_item","room":"raum_slug","container":"container_slug","item":"Name"}-->
+AKTIONEN:
+Du kannst die Datenbank verändern über Marker. Der Nutzer sieht die Marker nicht.
+Format: <!--ORDO:{"type":"...","room":"...","path":[...],...}-->
 
-Mögliche SAVE-Aktionen: add_item, move_item (mit "from_room","from_container" zusätzlich), remove_item, add_container.
-
-Du kannst die Haushaltsdatenbank aktiv verändern. Wenn der Nutzer sagt dass etwas nicht mehr existiert, verschoben wurde, aufgebraucht ist oder sich geändert hat, führe die passende Aktion aus.
-Füge am Ende deiner Antwort einen unsichtbaren ACTION-Marker ein. Format: <!--ACTION:{"type":"...", ...}-->
-
-Verfügbare ACTION-Typen:
-- add_item: {"type":"add_item","room":"...","container":"...","item":"..."}
-- remove_item: {"type":"remove_item","room":"...","container":"...","item":"..."}
-- move_item: {"type":"move_item","from_room":"...","from_container":"...","to_room":"...","to_container":"...","item":"..."}
-- remove_items: {"type":"remove_items","room":"...","container":"...","items":["...",  "..."]}
-- replace_items: {"type":"replace_items","room":"...","container":"...","items":["...","..."]}
-- delete_container: {"type":"delete_container","room":"...","container":"..."}
-- rename_container: {"type":"rename_container","room":"...","container":"...","new_name":"..."}
-- delete_room: {"type":"delete_room","room":"..."}
-- add_container: {"type":"add_container","room":"...","container":"...","name":"...","typ":"..."}
+Verfügbare Typen:
+- add_item: Gegenstand hinzufügen (mit menge). {"type":"add_item","room":"...","path":["container_id"],"item":"...","menge":1}
+- remove_item: Gegenstand entfernen. {"type":"remove_item","room":"...","path":["container_id"],"item":"..."}
+- remove_items: Mehrere entfernen. {"type":"remove_items","room":"...","path":["container_id"],"items":["...","..."]}
+- move_item: Gegenstand verschieben. {"type":"move_item","from_room":"...","from_path":["container_id"],"to_room":"...","to_path":["container_id"],"item":"..."}
+- replace_items: Alle Items ersetzen. {"type":"replace_items","room":"...","path":["container_id"],"items":[{"name":"...","menge":1}]}
+- add_container: Neuen Behälter anlegen. {"type":"add_container","room":"...","path":["parent_id"],"id":"...","name":"...","typ":"..."}
+- delete_container: Behälter löschen. {"type":"delete_container","room":"...","path":["container_id"]}
+- rename_container: Behälter umbenennen. {"type":"rename_container","room":"...","path":["container_id"],"new_name":"..."}
+- delete_room: Raum löschen. {"type":"delete_room","room":"..."}
+- found: Gegenstand in Datenbank gefunden. {"type":"found","room":"...","path":["container_id"],"item":"..."}
 
 WICHTIG:
-- Verwende als room und container IDs die slugifizierten Namen aus der Datenbank (siehe Kontext oben).
-- Wenn du nicht sicher bist WELCHER Gegenstand oder Behälter gemeint ist, frage ERST nach. Füge dann KEINEN Marker ein.
-- Bei destruktiven Aktionen (delete_container, delete_room): Frage IMMER kurz nach bevor du den Marker einfügst. Erst wenn der Nutzer bestätigt → Marker einfügen.
-- Bei einfachen Änderungen (remove_item, move_item): Direkt ausführen, nur kurz bestätigen.
-- Nutze die exakten IDs aus dem Kontext.
+- Bei destruktiven Aktionen (delete_container, delete_room): IMMER erst nachfragen, dann erst beim nächsten Turn den Marker einfügen.
+- Bei einfachen Änderungen: Direkt ausführen + bestätigen.
+- Verwende path als Array von Container-IDs. Für flache Container: ["container_id"].
+- Wenn du unsicher bist welcher Behälter gemeint ist: Frage nach, kein Marker.
+- Bei found: Nenne den Ort UND füge den found-Marker ein. Die App zeigt dann automatisch einen Foto-Button falls ein Foto existiert.
+- Verwende slugifizierte IDs: Kleinbuchstaben, Umlaute umschreiben (ä→ae, ö→oe, ü→ue, ß→ss), Leerzeichen zu Unterstrichen.
+- Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"
 
-Wenn du Raum oder Behälter nicht kennst, frage zuerst nach. Füge dann KEINEN Marker ein.
-Verwende slugifizierte IDs: Kleinbuchstaben, Umlaute umschreiben (ä→ae, ö→oe, ü→ue, ß→ss), Leerzeichen zu Unterstrichen.
-Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"
-
-Wenn du einen Gegenstand in der Datenbank findest und seinen Ort nennst, füge am Ende deiner Antwort einen FOUND-Marker ein:
-<!--FOUND:{"room":"raum_id","container":"container_id","item":"Name des Gegenstands"}-->
-Du kannst mehrere FOUND-Marker einfügen wenn der Gegenstand an mehreren Orten liegt.
-Der Marker ist unsichtbar für den Nutzer. Die App zeigt darunter automatisch einen Foto-Button falls ein Foto für diesen Ort existiert.
-Füge den Marker NUR ein wenn du einen konkreten Ort in der Datenbank nennen kannst. Nicht bei Vermutungen oder allgemeinen Antworten.`;
+FOTOS IM CHAT:
+Wenn der Nutzer ein Foto schickt, analysiere es:
+A) Aufbewahrungsort erkannt → Schlage vor, Inhalt zu speichern.
+B) Einzelner Gegenstand → Frage wo er liegt, biete Speichern an.
+C) Allgemeine Frage → Beantworte ohne Speichern.`;
 
     // NFC-Kontext in System-Prompt einbetten
     if (nfcContext) {
@@ -319,8 +317,8 @@ Füge den Marker NUR ein wenn du einen konkreten Ort in der Datenbank nennen kan
       const nfcContainerName = nfcContainer?.name || nfcContext.tag || '';
       if (nfcContainerName) {
         const nfcPath = Brain.getContainerPath(nfcContext.room, nfcContext.tag);
-        const pathStr = nfcPath.length > 1 ? ` (Pfad: ${nfcPath.join(' > ')})` : '';
-        systemPrompt += `\n\nDer Nutzer steht gerade vor: ${nfcContainerName} im Raum ${nfcRoomName}${pathStr}. Wenn er ein Foto schickt oder Gegenstände erwähnt, ordne sie diesem Behälter zu (room: "${nfcContext.room}", container: "${nfcContext.tag}") – außer er sagt ausdrücklich etwas anderes. Wenn das Foto einen Teil dieses Möbelstücks zeigt (z.B. eine Schublade), ordne das Ergebnis ALS KIND dieses Behälters ein.`;
+        const pathStr = nfcPath.length > 0 ? JSON.stringify(nfcPath) : `["${nfcContext.tag}"]`;
+        systemPrompt += `\n\nDer Nutzer steht gerade vor: ${nfcContainerName} im Raum ${nfcRoomName}. Wenn er Gegenstände erwähnt, ordne sie diesem Behälter zu (room: "${nfcContext.room}", path: ${pathStr}) – außer er sagt ausdrücklich etwas anderes.`;
       } else {
         systemPrompt += `\n\nDer Nutzer befindet sich gerade im Raum: ${nfcRoomName}. Ordne erwähnte Gegenstände diesem Raum zu – außer er sagt ausdrücklich etwas anderes.`;
       }
@@ -331,19 +329,14 @@ Füge den Marker NUR ein wenn du einen konkreten Ort in der Datenbank nennen kan
       const knownRooms = Object.entries(Brain.getRooms())
         .map(([id, r]) => `${id} (${r.name})`).join(', ') || 'noch keine Räume bekannt';
 
-      systemPrompt += `
+      systemPrompt += `\nBekannte Räume: ${knownRooms}`;
 
-Auf diesem Foto: Analysiere es im Kontext des Haushalts.
-A) Zeigt es einen Raum, Schrank, Regal oder Möbelstück → erkenne was drin liegt und füge <!--SAVE:...--> Marker für jeden erkannten Gegenstand ein.
-B) Zeigt es einen einzelnen Gegenstand → frage wo er liegt und speichere ihn mit <!--SAVE:...--> wenn der Nutzer antwortet.
-C) Allgemeine Frage → beantworte sie einfach.
-Bekannte Räume: ${knownRooms}`;
-
-      // Bei NFC-Kontext: KI weiß schon wo sie ist
       if (nfcContext) {
         const nfcRoom = Brain.getRoom(nfcContext.room);
         const nfcContainer = nfcContext.tag ? Brain.getContainer(nfcContext.room, nfcContext.tag) : null;
-        systemPrompt += `\nDer Nutzer steht vor "${nfcContainer?.name || nfcContext.tag || nfcRoom?.name}" – ordne erkannte Gegenstände direkt diesem Behälter zu (room: "${nfcContext.room}", container: "${nfcContext.tag || ''}").`;
+        const nfcPath = nfcContext.tag ? Brain.getContainerPath(nfcContext.room, nfcContext.tag) : [];
+        const pathStr = nfcPath.length > 0 ? JSON.stringify(nfcPath) : `["${nfcContext.tag || ''}"]`;
+        systemPrompt += `\nDer Nutzer steht vor "${nfcContainer?.name || nfcContext.tag || nfcRoom?.name}" – ordne erkannte Gegenstände direkt diesem Behälter zu (room: "${nfcContext.room}", path: ${pathStr}).`;
       }
     }
 
@@ -362,21 +355,15 @@ Bekannte Räume: ${knownRooms}`;
     const response = await callGemini(apiKey, systemPrompt, messages);
     thinking.remove();
 
-    // Legacy ##SAVE##-Marker prüfen (Rückwärtskompatibilität)
+    // Legacy ##SAVE##-Marker (very old format)
     if (response.includes('##SAVE##')) {
       handleSaveResponse(response);
     } else {
-      // <!--SAVE:...--> Marker-System (add/move/remove items, add container)
-      const { cleanText: afterSave, actions: saveActions } = processSaveMarkers(response);
-      // <!--ACTION:...--> Marker-System (alle Aktionen inkl. delete/rename)
-      const { cleanText: afterAction, actions: actionActions } = processActions(afterSave);
-      // <!--FOUND:...--> Marker-System (photo proof buttons)
-      const { cleanText, foundItems } = processFoundMarkers(afterAction);
+      // Unified ORDO marker system (also handles legacy SAVE/ACTION/FOUND markers)
+      const { cleanText, actions, foundItems } = processMarkers(response);
       const msgDiv = appendMessage('assistant', cleanText);
       Brain.addChatMessage('assistant', cleanText);
-      saveActions.forEach(action => executeSaveAction(action));
-      actionActions.forEach(action => executeAction(action));
-      // Render photo proof buttons (async, non-blocking)
+      actions.forEach(action => executeOrdoAction(action));
       if (foundItems.length > 0) {
         renderFoundPhotoButtons(msgDiv, foundItems);
       }
@@ -447,79 +434,256 @@ function checkForItemExtraction(userText, assistantResponse) {
   // Handled via <!--SAVE:--> markers in the AI response
 }
 
-// ── SAVE MARKER SYSTEM ─────────────────────────────────
+// ── UNIFIED ORDO MARKER SYSTEM ─────────────────────────
 
-// Extracts all <!--SAVE:{...}--> markers from AI response text
-// Returns { cleanText, actions[] }
-function processSaveMarkers(text) {
+// Extracts all <!--ORDO:{...}--> markers from AI response text
+// Also handles legacy <!--SAVE:...-->, <!--ACTION:...-->, <!--FOUND:...--> for backwards compat
+// Returns { cleanText, actions[], foundItems[] }
+function processMarkers(text) {
   const actions = [];
-  const cleanText = text.replace(/<!--SAVE:([\s\S]*?)-->/g, (_, jsonStr) => {
+  const foundItems = [];
+
+  // Process unified ORDO markers
+  let cleanText = text.replace(/<!--ORDO:([\s\S]*?)-->/g, (_, jsonStr) => {
     try {
-      const action = JSON.parse(jsonStr.trim());
-      actions.push(action);
+      const marker = JSON.parse(jsonStr.trim());
+      if (marker.type === 'found') {
+        foundItems.push(marker);
+      } else {
+        actions.push(marker);
+      }
     } catch { /* ignore malformed markers */ }
     return '';
-  }).trim();
-  return { cleanText, actions };
+  });
+
+  // Legacy: <!--SAVE:...-->
+  cleanText = cleanText.replace(/<!--SAVE:([\s\S]*?)-->/g, (_, jsonStr) => {
+    try {
+      const action = JSON.parse(jsonStr.trim());
+      // Convert legacy SAVE format to ORDO format
+      const converted = convertLegacySaveToOrdo(action);
+      if (converted) actions.push(converted);
+    } catch { /* ignore */ }
+    return '';
+  });
+
+  // Legacy: <!--ACTION:...-->
+  cleanText = cleanText.replace(/<!--ACTION:([\s\S]*?)-->/g, (_, jsonStr) => {
+    try {
+      const action = JSON.parse(jsonStr.trim());
+      // Convert legacy ACTION format to ORDO format
+      const converted = convertLegacyActionToOrdo(action);
+      if (converted) actions.push(converted);
+    } catch { /* ignore */ }
+    return '';
+  });
+
+  // Legacy: <!--FOUND:...-->
+  cleanText = cleanText.replace(/<!--FOUND:([\s\S]*?)-->/g, (_, jsonStr) => {
+    try {
+      const item = JSON.parse(jsonStr.trim());
+      if (item.room && item.container) {
+        foundItems.push({ type: 'found', room: item.room, path: [item.container], item: item.item });
+      }
+    } catch { /* ignore */ }
+    return '';
+  });
+
+  return { cleanText: cleanText.trim(), actions, foundItems };
 }
 
-// Executes a parsed save action from the AI
-function executeSaveAction(action) {
-  const presets = {
-    kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'],
-    schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'],
-    keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges']
-  };
-
-  function ensureRoom(roomId) {
-    if (roomId && !Brain.getRoom(roomId)) {
-      const p = presets[roomId] || ['🏠', roomId];
-      Brain.addRoom(roomId, p[1], p[0]);
-    }
+// Convert legacy SAVE marker to ORDO format
+function convertLegacySaveToOrdo(action) {
+  switch (action.action) {
+    case 'add_item':
+      return { type: 'add_item', room: action.room, path: [action.container], item: action.item, menge: 1 };
+    case 'move_item':
+      return { type: 'move_item', from_room: action.from_room || action.room, from_path: [action.from_container || action.container], to_room: action.room, to_path: [action.container], item: action.item };
+    case 'remove_item':
+      return { type: 'remove_item', room: action.room, path: [action.container], item: action.item };
+    case 'add_container':
+      return { type: 'add_container', room: action.room, path: [], id: action.container, name: action.name || action.container, typ: action.typ || 'sonstiges' };
+    default: return null;
   }
+}
 
+// Convert legacy ACTION marker to ORDO format
+function convertLegacyActionToOrdo(action) {
+  switch (action.type) {
+    case 'add_item':
+      return { type: 'add_item', room: action.room, path: [action.container], item: action.item, menge: 1 };
+    case 'remove_item':
+      return { type: 'remove_item', room: action.room, path: [action.container], item: action.item };
+    case 'move_item':
+      return { type: 'move_item', from_room: action.from_room, from_path: [action.from_container], to_room: action.to_room, to_path: [action.to_container], item: action.item };
+    case 'remove_items':
+      return { type: 'remove_items', room: action.room, path: [action.container], items: action.items };
+    case 'replace_items':
+      return { type: 'replace_items', room: action.room, path: [action.container], items: (action.items || []).map(i => typeof i === 'string' ? { name: i, menge: 1 } : i) };
+    case 'delete_container':
+      return { type: 'delete_container', room: action.room, path: [action.container] };
+    case 'rename_container':
+      return { type: 'rename_container', room: action.room, path: [action.container], new_name: action.new_name };
+    case 'delete_room':
+      return { type: 'delete_room', room: action.room };
+    case 'add_container':
+      return { type: 'add_container', room: action.room, path: [], id: action.container, name: action.name || action.container, typ: action.typ || 'sonstiges' };
+    default: return null;
+  }
+}
+
+// Resolves a path array to the last container ID
+function resolveContainerFromPath(roomId, path) {
+  if (!path || path.length === 0) return null;
+  return path[path.length - 1];
+}
+
+// Room presets for auto-creation
+const ROOM_PRESETS = {
+  kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'],
+  schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'],
+  keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges'],
+  flur: ['🚪', 'Flur'], garage: ['🚗', 'Garage'], kinderzimmer: ['🧸', 'Kinderzimmer'],
+  balkon: ['🌿', 'Balkon'], dachboden: ['🏚️', 'Dachboden'], gaestezimmer: ['🛏️', 'Gästezimmer']
+};
+
+function ensureRoom(roomId) {
+  if (roomId && !Brain.getRoom(roomId)) {
+    const p = ROOM_PRESETS[roomId] || ['🏠', roomId];
+    Brain.addRoom(roomId, p[1], p[0]);
+  }
+}
+
+// Unified action executor for all ORDO marker types
+function executeOrdoAction(action) {
   try {
-    switch (action.action) {
+    const containerId = resolveContainerFromPath(action.room, action.path);
+
+    switch (action.type) {
       case 'add_item': {
         ensureRoom(action.room);
-        if (!Brain.getContainer(action.room, action.container)) {
-          Brain.addContainer(action.room, action.container, action.container, 'sonstiges');
+        if (containerId && !Brain.getContainer(action.room, containerId)) {
+          Brain.addContainer(action.room, containerId, containerId, 'sonstiges');
         }
-        Brain.addItem(action.room, action.container, action.item);
-        const c = Brain.getContainer(action.room, action.container);
-        const r = Brain.getRoom(action.room);
-        showSystemMessage(`✓ ${action.item} → ${c?.name || action.container} (${r?.name || action.room})`);
-        renderBrainView();
-        break;
-      }
-      case 'move_item': {
-        Brain.removeItem(action.from_room || action.room, action.from_container || action.container, action.item);
-        ensureRoom(action.room);
-        if (!Brain.getContainer(action.room, action.container)) {
-          Brain.addContainer(action.room, action.container, action.container, 'sonstiges');
+        if (containerId) {
+          Brain.addItem(action.room, containerId, action.item);
+          // Store quantity if > 1
+          if (action.menge && action.menge > 1) {
+            const data = Brain.getData();
+            const c = Brain._findContainerInTree(data.rooms?.[action.room]?.containers, containerId);
+            if (c) {
+              if (!c.quantities) c.quantities = {};
+              c.quantities[action.item] = action.menge;
+              Brain.save(data);
+            }
+          }
+          const c = Brain.getContainer(action.room, containerId);
+          const r = Brain.getRoom(action.room);
+          showSystemMessage(`✓ ${action.item} → ${c?.name || containerId} (${r?.name || action.room})`);
         }
-        Brain.addItem(action.room, action.container, action.item);
-        const c = Brain.getContainer(action.room, action.container);
-        const r = Brain.getRoom(action.room);
-        showSystemMessage(`✓ ${action.item} verschoben → ${c?.name || action.container} (${r?.name || action.room})`);
         renderBrainView();
         break;
       }
       case 'remove_item': {
-        Brain.removeItem(action.room, action.container, action.item);
-        showSystemMessage(`✓ ${action.item} entfernt`);
+        if (!Brain.getRoom(action.room)) return;
+        if (!containerId || !Brain.getContainer(action.room, containerId)) return;
+        const c = Brain.getContainer(action.room, containerId);
+        const r = Brain.getRoom(action.room);
+        Brain.removeItem(action.room, containerId, action.item);
+        showSystemMessage(`✓ ${action.item} entfernt aus ${c?.name || containerId} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'remove_items': {
+        if (!Brain.getRoom(action.room)) return;
+        if (!containerId || !Brain.getContainer(action.room, containerId)) return;
+        const c = Brain.getContainer(action.room, containerId);
+        const r = Brain.getRoom(action.room);
+        (action.items || []).forEach(item => Brain.removeItem(action.room, containerId, item));
+        showSystemMessage(`✓ ${(action.items || []).length} Gegenstände entfernt aus ${c?.name || containerId} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'move_item': {
+        const fromId = resolveContainerFromPath(action.from_room, action.from_path);
+        const toId = resolveContainerFromPath(action.to_room, action.to_path);
+        if (!fromId || !toId) return;
+        const fromC = Brain.getContainer(action.from_room, fromId);
+        const toR = Brain.getRoom(action.to_room);
+        const toC = Brain.getContainer(action.to_room, toId);
+        if (!fromC || !toR || !toC) return;
+        const fromR = Brain.getRoom(action.from_room);
+        Brain.removeItem(action.from_room, fromId, action.item);
+        Brain.addItem(action.to_room, toId, action.item);
+        showSystemMessage(`✓ ${action.item} verschoben: ${fromR?.name || action.from_room} → ${toR?.name || action.to_room}`);
+        renderBrainView();
+        break;
+      }
+      case 'replace_items': {
+        if (!Brain.getRoom(action.room)) return;
+        if (!containerId || !Brain.getContainer(action.room, containerId)) return;
+        const c = Brain.getContainer(action.room, containerId);
+        const r = Brain.getRoom(action.room);
+        const data = Brain.getData();
+        const cont = Brain._findContainerInTree(data.rooms[action.room].containers, containerId);
+        if (cont) {
+          cont.items = (action.items || []).map(i => typeof i === 'string' ? i : i.name);
+          cont.quantities = {};
+          (action.items || []).forEach(i => {
+            if (typeof i === 'object' && i.menge > 1) {
+              cont.quantities[i.name] = i.menge;
+            }
+          });
+          Brain.save(data);
+        }
+        showSystemMessage(`✓ Inhalt aktualisiert: ${c?.name || containerId} (${r?.name || action.room})`);
         renderBrainView();
         break;
       }
       case 'add_container': {
         ensureRoom(action.room);
-        Brain.addContainer(action.room, action.container, action.name || action.container, action.typ || 'sonstiges');
+        const parentId = action.path && action.path.length > 0 ? action.path[action.path.length - 1] : null;
+        if (parentId && Brain.getContainer(action.room, parentId)) {
+          Brain.addChildContainer(action.room, parentId, action.id, action.name || action.id, action.typ || 'sonstiges');
+        } else {
+          Brain.addContainer(action.room, action.id, action.name || action.id, action.typ || 'sonstiges');
+        }
         const r = Brain.getRoom(action.room);
-        showSystemMessage(`✓ Neuer Bereich: ${action.name || action.container} (${r?.name || action.room})`);
+        showSystemMessage(`✓ Neuer Bereich: ${action.name || action.id} (${r?.name || action.room})`);
         renderBrainView();
         break;
       }
-      // need_info → no action needed
+      case 'delete_container': {
+        if (!Brain.getRoom(action.room)) return;
+        if (!containerId || !Brain.getContainer(action.room, containerId)) return;
+        const c = Brain.getContainer(action.room, containerId);
+        const r = Brain.getRoom(action.room);
+        const containerName = c.name;
+        Brain.deleteContainer(action.room, containerId);
+        showSystemMessage(`✓ ${containerName} gelöscht (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'rename_container': {
+        if (!Brain.getRoom(action.room)) return;
+        if (!containerId || !Brain.getContainer(action.room, containerId)) return;
+        const c = Brain.getContainer(action.room, containerId);
+        const r = Brain.getRoom(action.room);
+        const oldName = c.name;
+        Brain.renameContainer(action.room, containerId, action.new_name);
+        showSystemMessage(`✓ ${oldName} umbenannt zu ${action.new_name} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'delete_room': {
+        const r = Brain.getRoom(action.room);
+        if (!r) return;
+        const roomName = r.name;
+        Brain.deleteRoom(action.room);
+        showSystemMessage(`✓ Raum ${roomName} gelöscht`);
+        renderBrainView();
+        break;
+      }
     }
   } catch { /* silent fail – don't break chat */ }
 }
@@ -539,23 +703,10 @@ function appendSystemMessage(text) {
   showSystemMessage(text);
 }
 
-// ── FOUND MARKER SYSTEM (Photo Proof) ──────────────────
-
-// Extracts all <!--FOUND:{...}--> markers from AI response text
-// Returns { cleanText, foundItems[] }
-function processFoundMarkers(text) {
-  const foundItems = [];
-  const cleanText = text.replace(/<!--FOUND:([\s\S]*?)-->/g, (_, jsonStr) => {
-    try {
-      const item = JSON.parse(jsonStr.trim());
-      if (item.room && item.container) foundItems.push(item);
-    } catch { /* ignore malformed markers */ }
-    return '';
-  }).trim();
-  return { cleanText, foundItems };
-}
+// ── PHOTO PROOF BUTTONS (for found items) ──────────────
 
 // Renders photo proof buttons under a chat message element
+// foundItems now use ORDO format: { type: 'found', room, path, item }
 async function renderFoundPhotoButtons(msgDiv, foundItems) {
   if (!foundItems || foundItems.length === 0) return;
 
@@ -563,7 +714,9 @@ async function renderFoundPhotoButtons(msgDiv, foundItems) {
   btnContainer.className = 'chat-proof-buttons';
 
   for (const found of foundItems) {
-    const photoInfo = await Brain.findBestPhoto(found.room, found.container);
+    const containerId = resolveContainerFromPath(found.room, found.path);
+    if (!containerId) continue;
+    const photoInfo = await Brain.findBestPhoto(found.room, containerId);
     if (!photoInfo) continue;
 
     const btn = document.createElement('button');
@@ -571,8 +724,8 @@ async function renderFoundPhotoButtons(msgDiv, foundItems) {
 
     // Build label
     const room = Brain.getRoom(found.room);
-    const container = Brain.getContainer(found.room, found.container);
-    const locationName = container?.name || found.container;
+    const container = Brain.getContainer(found.room, containerId);
+    const locationName = container?.name || containerId;
 
     // Date info
     let dateLabel = '';
@@ -605,7 +758,7 @@ async function renderFoundPhotoButtons(msgDiv, foundItems) {
     }
 
     btn.addEventListener('click', () => {
-      showProofLightbox(photoInfo.blob, photoInfo.timestamp, found.room, found.container, found.item);
+      showProofLightbox(photoInfo.blob, photoInfo.timestamp, found.room, containerId, found.item);
     });
 
     btnContainer.appendChild(btn);
@@ -674,130 +827,6 @@ function showProofLightbox(blob, timestamp, roomId, containerId, itemName) {
 
   lb.style.display = 'flex';
   requestAnimationFrame(() => lb.classList.add('lightbox--visible'));
-}
-
-// ── ACTION MARKER SYSTEM ────────────────────────────────
-
-// Extracts all <!--ACTION:{...}--> markers from AI response text
-// Returns { cleanText, actions[] }
-function processActions(text) {
-  const actions = [];
-  const cleanText = text.replace(/<!--ACTION:([\s\S]*?)-->/g, (_, jsonStr) => {
-    try {
-      const action = JSON.parse(jsonStr.trim());
-      actions.push(action);
-    } catch { /* ignore malformed markers */ }
-    return '';
-  }).trim();
-  return { cleanText, actions };
-}
-
-// Executes a parsed action from the ACTION marker system
-function executeAction(action) {
-  try {
-    switch (action.type) {
-      case 'add_item': {
-        if (!Brain.getRoom(action.room)) return;
-        if (!Brain.getContainer(action.room, action.container)) return;
-        Brain.addItem(action.room, action.container, action.item);
-        const c = Brain.getContainer(action.room, action.container);
-        const r = Brain.getRoom(action.room);
-        showSystemMessage(`✓ ${action.item} hinzugefügt zu ${c?.name || action.container} (${r?.name || action.room})`);
-        renderBrainView();
-        break;
-      }
-      case 'remove_item': {
-        if (!Brain.getRoom(action.room)) return;
-        const c = Brain.getContainer(action.room, action.container);
-        if (!c) return;
-        const r = Brain.getRoom(action.room);
-        Brain.removeItem(action.room, action.container, action.item);
-        showSystemMessage(`✓ ${action.item} entfernt aus ${c?.name || action.container} (${r?.name || action.room})`);
-        renderBrainView();
-        break;
-      }
-      case 'move_item': {
-        const fromC = Brain.getContainer(action.from_room, action.from_container);
-        const toR = Brain.getRoom(action.to_room);
-        const toC = Brain.getContainer(action.to_room, action.to_container);
-        if (!fromC || !toR || !toC) return;
-        const fromR = Brain.getRoom(action.from_room);
-        Brain.removeItem(action.from_room, action.from_container, action.item);
-        Brain.addItem(action.to_room, action.to_container, action.item);
-        showSystemMessage(`✓ ${action.item} verschoben: ${fromR?.name || action.from_room} → ${toR?.name || action.to_room}`);
-        renderBrainView();
-        break;
-      }
-      case 'remove_items': {
-        if (!Brain.getRoom(action.room)) return;
-        const c = Brain.getContainer(action.room, action.container);
-        if (!c) return;
-        const r = Brain.getRoom(action.room);
-        (action.items || []).forEach(item => Brain.removeItem(action.room, action.container, item));
-        showSystemMessage(`✓ ${(action.items || []).length} Gegenstände entfernt aus ${c?.name || action.container} (${r?.name || action.room})`);
-        renderBrainView();
-        break;
-      }
-      case 'replace_items': {
-        if (!Brain.getRoom(action.room)) return;
-        const c = Brain.getContainer(action.room, action.container);
-        if (!c) return;
-        const r = Brain.getRoom(action.room);
-        const data = Brain.getData();
-        data.rooms[action.room].containers[action.container].items = action.items || [];
-        Brain.save(data);
-        showSystemMessage(`✓ Inhalt aktualisiert: ${c?.name || action.container} (${r?.name || action.room})`);
-        renderBrainView();
-        break;
-      }
-      case 'delete_container': {
-        if (!Brain.getRoom(action.room)) return;
-        const c = Brain.getContainer(action.room, action.container);
-        if (!c) return;
-        const r = Brain.getRoom(action.room);
-        const containerName = c.name;
-        const roomName = r?.name || action.room;
-        Brain.deleteContainer(action.room, action.container);
-        Brain.deletePhoto(action.room + '_' + action.container);
-        showSystemMessage(`✓ ${containerName} gelöscht (${roomName})`);
-        renderBrainView();
-        break;
-      }
-      case 'rename_container': {
-        if (!Brain.getRoom(action.room)) return;
-        const c = Brain.getContainer(action.room, action.container);
-        if (!c) return;
-        const r = Brain.getRoom(action.room);
-        const oldName = c.name;
-        Brain.renameContainer(action.room, action.container, action.new_name);
-        showSystemMessage(`✓ ${oldName} umbenannt zu ${action.new_name} (${r?.name || action.room})`);
-        renderBrainView();
-        break;
-      }
-      case 'delete_room': {
-        const r = Brain.getRoom(action.room);
-        if (!r) return;
-        const roomName = r.name;
-        const data = Brain.getData();
-        const containers = data.rooms[action.room]?.containers || {};
-        Object.keys(containers).forEach(cId => {
-          Brain.deletePhoto(action.room + '_' + cId);
-        });
-        Brain.deleteRoom(action.room);
-        showSystemMessage(`✓ Raum ${roomName} gelöscht`);
-        renderBrainView();
-        break;
-      }
-      case 'add_container': {
-        if (!Brain.getRoom(action.room)) return;
-        Brain.addContainer(action.room, action.container, action.name || action.container, action.typ || 'sonstiges');
-        const r = Brain.getRoom(action.room);
-        showSystemMessage(`✓ Neuer Behälter: ${action.name || action.container} (${r?.name || action.room})`);
-        renderBrainView();
-        break;
-      }
-    }
-  } catch { /* silent fail – don't break chat */ }
 }
 
 // ── PHOTO VIEW ─────────────────────────────────────────
@@ -2058,6 +2087,196 @@ function updateBreadcrumb(roomId, containerId) {
     span.textContent = c?.name || cId;
     breadcrumb.appendChild(span);
   });
+}
+
+// ── NFC CONTEXT VIEW ──────────────────────────────────
+let nfcCtxInactivityTimer = null;
+
+function setupNfcContextView() {
+  document.getElementById('nfc-ctx-back').addEventListener('click', () => {
+    clearNfcCtxInactivityTimer();
+    showView('chat');
+  });
+
+  document.getElementById('nfc-ctx-chat-btn').addEventListener('click', () => {
+    clearNfcCtxInactivityTimer();
+    showView('chat');
+  });
+
+  document.getElementById('nfc-ctx-photo-btn').addEventListener('click', () => {
+    document.getElementById('nfc-ctx-photo-input').click();
+  });
+
+  document.getElementById('nfc-ctx-photo-input').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !nfcContext) return;
+
+    const roomId = nfcContext.room;
+    const containerId = nfcContext.tag;
+    if (!roomId || !containerId) return;
+
+    // Ensure room and container exist
+    ensureRoom(roomId);
+    if (!Brain.getContainer(roomId, containerId)) {
+      Brain.addContainer(roomId, containerId, containerId, 'sonstiges');
+    }
+
+    const containerName = Brain.getContainer(roomId, containerId)?.name || containerId;
+
+    // Open staging/review workflow
+    stagingTarget = {
+      roomId,
+      containerId,
+      containerName,
+      mode: 'update'
+    };
+
+    showStagingOverlay(`📷 ${containerName}`);
+    await addFileToStaging(file);
+    e.target.value = '';
+  });
+
+  // Touch/click resets inactivity timer
+  const nfcView = document.getElementById('view-nfc-context');
+  nfcView.addEventListener('click', resetNfcCtxInactivityTimer);
+  nfcView.addEventListener('touchstart', resetNfcCtxInactivityTimer);
+}
+
+function clearNfcCtxInactivityTimer() {
+  if (nfcCtxInactivityTimer) {
+    clearTimeout(nfcCtxInactivityTimer);
+    nfcCtxInactivityTimer = null;
+  }
+}
+
+function resetNfcCtxInactivityTimer() {
+  clearNfcCtxInactivityTimer();
+  nfcCtxInactivityTimer = setTimeout(() => {
+    if (currentView === 'nfc-context') {
+      showView('chat');
+    }
+  }, 60000); // 1 minute inactivity → back to chat
+}
+
+async function renderNfcContextView() {
+  if (!nfcContext) return;
+
+  const roomId = nfcContext.room;
+  const containerId = nfcContext.tag;
+  const room = Brain.getRoom(roomId);
+  const container = containerId ? Brain.getContainer(roomId, containerId) : null;
+
+  // Room label
+  const roomLabel = document.getElementById('nfc-ctx-room-label');
+  roomLabel.textContent = room ? `${room.emoji} ${room.name}` : roomId;
+
+  // Container name
+  const containerNameEl = document.getElementById('nfc-ctx-container-name');
+  const typeEmoji = getContainerTypeEmoji(container?.typ);
+  containerNameEl.textContent = container ? `${typeEmoji} ${container.name}` : (containerId || '');
+
+  // Photo
+  const photoArea = document.getElementById('nfc-ctx-photo-area');
+  const photoImg = document.getElementById('nfc-ctx-photo');
+  const photoDate = document.getElementById('nfc-ctx-photo-date');
+  const emptyArea = document.getElementById('nfc-ctx-empty');
+  const itemsArea = document.getElementById('nfc-ctx-items');
+  const childrenArea = document.getElementById('nfc-ctx-children');
+
+  photoArea.style.display = 'none';
+  emptyArea.style.display = 'none';
+  itemsArea.style.display = 'none';
+  childrenArea.style.display = 'none';
+
+  const hasItems = container?.items?.length > 0;
+  const hasChildren = container?.containers && Object.keys(container.containers).length > 0;
+  const hasContent = hasItems || hasChildren;
+
+  // Show photo if available
+  if (containerId) {
+    const photoInfo = await Brain.findBestPhoto(roomId, containerId);
+    if (photoInfo?.blob) {
+      const url = URL.createObjectURL(photoInfo.blob);
+      photoImg.src = url;
+      photoArea.style.display = 'block';
+      if (photoInfo.timestamp) {
+        const d = new Date(photoInfo.timestamp);
+        photoDate.textContent = `📷 Foto (${d.toLocaleDateString('de-DE')})`;
+      } else {
+        photoDate.textContent = '';
+      }
+      // Click photo for lightbox
+      photoImg.onclick = () => {
+        const lb = document.getElementById('lightbox');
+        document.getElementById('lightbox-img').src = url;
+        lb.style.display = 'flex';
+        requestAnimationFrame(() => lb.classList.add('lightbox--visible'));
+      };
+    }
+  }
+
+  // Items
+  if (hasItems) {
+    itemsArea.style.display = 'block';
+    const chipsEl = document.getElementById('nfc-ctx-item-chips');
+    chipsEl.innerHTML = '';
+    container.items.forEach(item => {
+      const chip = document.createElement('span');
+      chip.className = 'nfc-ctx-chip';
+      const qty = container.quantities?.[item];
+      chip.textContent = qty > 1 ? `${qty}x ${item}` : item;
+      chipsEl.appendChild(chip);
+    });
+  }
+
+  // Child containers
+  if (hasChildren) {
+    childrenArea.style.display = 'block';
+    const listEl = document.getElementById('nfc-ctx-children-list');
+    listEl.innerHTML = '';
+    for (const [childId, child] of Object.entries(container.containers)) {
+      const row = document.createElement('button');
+      row.className = 'nfc-ctx-child-row';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = `${getContainerTypeEmoji(child.typ)} ${child.name}`;
+
+      const arrow = document.createElement('span');
+      arrow.className = 'nfc-ctx-child-arrow';
+      arrow.textContent = '▸';
+
+      row.appendChild(nameSpan);
+      row.appendChild(arrow);
+
+      row.addEventListener('click', () => {
+        // Navigate into child container
+        nfcContext = { room: roomId, tag: childId };
+        renderNfcContextView();
+      });
+
+      listEl.appendChild(row);
+    }
+  }
+
+  // Empty state
+  if (!hasContent && !(await Brain.findBestPhoto(roomId, containerId))) {
+    emptyArea.style.display = 'block';
+    emptyArea.innerHTML = `
+      <p class="nfc-ctx-empty-text">Dieser Bereich ist noch leer.</p>
+      <p class="nfc-ctx-empty-hint">Mach ein Foto vom geöffneten Bereich und ich merke mir was drin ist.</p>
+    `;
+    document.getElementById('nfc-ctx-photo-btn-label').textContent = '📷 Erstes Foto machen';
+  } else {
+    document.getElementById('nfc-ctx-photo-btn-label').textContent = '📷 Foto aktualisieren';
+  }
+
+  // Start inactivity timer
+  resetNfcCtxInactivityTimer();
+}
+
+function getContainerTypeEmoji(typ) {
+  const map = { schrank: '🗄️', regal: '📚', schublade: '🗃️', kiste: '📦', tisch: '🪑' };
+  return map[typ] || '📦';
 }
 
 // ── PHOTO TIMELINE ─────────────────────────────────────

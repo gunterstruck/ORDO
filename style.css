@@ -682,6 +682,176 @@ html, body {
 
 .brain-photo-history-hint:hover { color: var(--accent); }
 
+/* ── NFC Context View ────────────────────────────── */
+#view-nfc-context.active {
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px calc(var(--nav-h) + 16px);
+}
+
+.nfc-ctx-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 8px;
+}
+
+.nfc-ctx-back-btn {
+  background: none;
+  border: none;
+  font-size: 15px;
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 0;
+}
+
+.nfc-ctx-room-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nfc-ctx-container-name {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.nfc-ctx-photo-area {
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.nfc-ctx-photo {
+  width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.nfc-ctx-photo-date {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  text-align: center;
+}
+
+.nfc-ctx-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nfc-ctx-item-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.nfc-ctx-chip {
+  display: inline-block;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.nfc-ctx-items {
+  margin-bottom: 8px;
+}
+
+.nfc-ctx-children {
+  margin-bottom: 16px;
+}
+
+.nfc-ctx-children-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nfc-ctx-child-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 15px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text);
+  transition: background 0.15s;
+}
+
+.nfc-ctx-child-row:active { background: var(--border); }
+
+.nfc-ctx-child-arrow {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.nfc-ctx-empty {
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.nfc-ctx-empty-text {
+  font-size: 17px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.nfc-ctx-empty-hint {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.nfc-ctx-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+  padding: 16px 0;
+}
+
+.nfc-ctx-action-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s;
+}
+
+.nfc-ctx-action-btn:active { opacity: 0.7; }
+
+.nfc-ctx-action-btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.nfc-ctx-action-btn--secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
 /* ── Photo Timeline Overlay ──────────────────────── */
 .photo-timeline-overlay {
   position: fixed;

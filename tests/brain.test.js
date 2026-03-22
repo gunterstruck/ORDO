@@ -63,7 +63,7 @@ describe('Brain.init()', () => {
     resetBrain();
     const data = Brain.getData();
     assert(data !== null, 'Data sollte nicht null sein');
-    assertEqual(data.version, '1.1');
+    assertEqual(data.version, '1.2');
     assertDeepEqual(data.rooms, {});
     assertDeepEqual(data.chat_history, []);
     assert(data.created > 0, 'created timestamp fehlt');
