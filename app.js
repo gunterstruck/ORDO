@@ -538,6 +538,29 @@ function setupSettings() {
     }
   });
 
+  // Debug buttons
+  document.getElementById('debug-test-btn').addEventListener('click', async () => {
+    const apiKey = Brain.getApiKey();
+    if (!apiKey) {
+      debugLog('FEHLER: Kein API Key gespeichert!');
+      return;
+    }
+    debugLog('Starte Testanfrage …');
+    try {
+      const result = await callClaude(apiKey, 'Du bist ein Testassistent.', [
+        { role: 'user', content: 'Sag nur "OK".' }
+      ]);
+      debugLog(`TEST ERFOLGREICH: Antwort = "${result}"`);
+    } catch (err) {
+      debugLog(`TEST FEHLGESCHLAGEN: ${err.message}`);
+    }
+  });
+
+  document.getElementById('debug-clear-btn').addEventListener('click', () => {
+    const el = document.getElementById('debug-log');
+    if (el) el.textContent = '— noch kein Log —';
+  });
+
   // NFC Tag write
   document.getElementById('nfc-write-btn').addEventListener('click', writeNfcTag);
   document.getElementById('nfc-room-select').addEventListener('change', updateNfcPreview);
@@ -706,41 +729,66 @@ function toggleMic() {
   btn.classList.add('recording');
 }
 
+// ── DEBUG LOG ───────────────────────────────────────────
+function debugLog(msg) {
+  const el = document.getElementById('debug-log');
+  if (!el) return;
+  const ts = new Date().toLocaleTimeString('de-DE');
+  const current = el.textContent === '— noch kein Log —' ? '' : el.textContent;
+  el.textContent = `[${ts}] ${msg}\n${current}`;
+}
+
 // ── CLAUDE API ─────────────────────────────────────────
 async function callClaude(apiKey, systemPrompt, messages) {
   if (!navigator.onLine) {
+    debugLog('FEHLER: Gerät ist offline (navigator.onLine = false)');
     throw new Error('offline');
   }
 
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages
-    })
-  });
+  const keyPreview = apiKey ? apiKey.slice(0, 12) + '…' : '(leer)';
+  debugLog(`Anfrage starten → Modell: ${MODEL}, Key: ${keyPreview}`);
+
+  let response;
+  try {
+    response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages
+      })
+    });
+  } catch (fetchErr) {
+    debugLog(`NETZWERK-FEHLER: ${fetchErr.message}`);
+    throw fetchErr;
+  }
+
+  debugLog(`HTTP Status: ${response.status} ${response.statusText}`);
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
+    let errBody = {};
+    const rawText = await response.text().catch(() => '');
+    try { errBody = JSON.parse(rawText); } catch (_) { /* ignore */ }
+    debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
     if (response.status === 401) throw new Error('api_key');
-    throw new Error(err.error?.message || 'api_error');
+    throw new Error(errBody.error?.message || `HTTP ${response.status}`);
   }
 
   const data = await response.json();
+  debugLog(`Antwort OK – ${data.content?.[0]?.text?.length ?? 0} Zeichen`);
   return data.content[0].text;
 }
 
 function getErrorMessage(err) {
   if (err.message === 'offline') return 'Ich bin gerade offline. Deine gespeicherten Infos kann ich dir trotzdem zeigen.';
-  if (err.message === 'api_key') return 'API Key nicht gesetzt. Bitte in den Einstellungen eintragen.';
+  if (err.message === 'api_key') return 'API Key ungültig oder nicht gesetzt (401). Bitte in den Einstellungen prüfen.';
   if (err.message?.includes('too large') || err.message?.includes('size')) return 'Foto zu groß – bitte ein kleineres wählen oder Auflösung reduzieren.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
 }
