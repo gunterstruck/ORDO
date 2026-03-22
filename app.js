@@ -1,7 +1,7 @@
 // app.js – Main application logic
 
-const MODEL = 'gemini-1.5-flash';
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const MODEL = 'gemini-3-flash-preview';
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
