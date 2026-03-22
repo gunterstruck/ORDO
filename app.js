@@ -20,6 +20,9 @@ let stagedPhotos = []; // [{ base64, mimeType, previewUrl, originalFile }]
 let stagingTarget = null; // { roomId, containerId, containerName, mode }
 let reviewState = null; // { roomId, containerId, containerName, items, mode }
 
+// Move container state
+let moveContainerState = null; // { roomId, containerId }
+
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   Brain.init();
@@ -35,6 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setupReviewOverlay();
   setupPullToRefresh();
   setupOnboarding();
+  setupPhotoTimeline();
+  setupMoveContainerOverlay();
 
   // Show onboarding on very first start (no data, no flag)
   if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {
@@ -307,7 +312,9 @@ Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"`;
       const nfcRoomName = nfcRoom?.name || nfcContext.room;
       const nfcContainerName = nfcContainer?.name || nfcContext.tag || '';
       if (nfcContainerName) {
-        systemPrompt += `\n\nDer Nutzer steht gerade vor: ${nfcContainerName} im Raum ${nfcRoomName}. Wenn er ein Foto schickt oder Gegenstände erwähnt, ordne sie diesem Behälter zu (room: "${nfcContext.room}", container: "${nfcContext.tag}") – außer er sagt ausdrücklich etwas anderes.`;
+        const nfcPath = Brain.getContainerPath(nfcContext.room, nfcContext.tag);
+        const pathStr = nfcPath.length > 1 ? ` (Pfad: ${nfcPath.join(' > ')})` : '';
+        systemPrompt += `\n\nDer Nutzer steht gerade vor: ${nfcContainerName} im Raum ${nfcRoomName}${pathStr}. Wenn er ein Foto schickt oder Gegenstände erwähnt, ordne sie diesem Behälter zu (room: "${nfcContext.room}", container: "${nfcContext.tag}") – außer er sagt ausdrücklich etwas anderes. Wenn das Foto einen Teil dieses Möbelstücks zeigt (z.B. eine Schublade), ordne das Ergebnis ALS KIND dieses Behälters ein.`;
       } else {
         systemPrompt += `\n\nDer Nutzer befindet sich gerade im Raum: ${nfcRoomName}. Ordne erwähnte Gegenstände diesem Raum zu – außer er sagt ausdrücklich etwas anderes.`;
       }
@@ -785,19 +792,30 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
       }
 
       const systemPrompt = `Analysiere dieses Foto eines Raums oder Möbelstücks.
+Wenn du ein Möbelstück mit erkennbaren Unterteilungen siehst (Türen, Schubladen, Fächer, Regalböden), bilde die Hierarchie im JSON ab.
+Ein Behälter kann Unterbehälter haben. Nutze das Feld "behaelter" rekursiv.
 Antworte NUR mit diesem JSON, nichts anderes:
 {
   "behaelter": [
     {
       "id": "eindeutige_id",
       "name": "menschlicher Name",
-      "typ": "schrank|regal|schublade|kiste|sonstiges",
+      "typ": "schrank|regal|schublade|kiste|tuer|sonstiges",
       "position": "kurze Positionsbeschreibung",
       "inhalt_sicher": ["Gegenstand der klar in diesem Behälter liegt"],
       "inhalt_unsicher": [
         {
           "name": "Gegenstand",
           "vermutung": "liegt vermutlich in diesem Behälter, aber nicht 100% sicher"
+        }
+      ],
+      "behaelter": [
+        {
+          "id": "unterbeh_id",
+          "name": "Name des Unterbehälters",
+          "typ": "schublade|fach|tuer|kiste|sonstiges",
+          "inhalt_sicher": ["..."],
+          "behaelter": []
         }
       ]
     }
@@ -806,11 +824,16 @@ Antworte NUR mit diesem JSON, nichts anderes:
   "unklar": [
     {
       "name": "Gegenstand",
-      "kontext": "Kurze Beschreibung warum unklar, z.B. liegt zwischen zwei Behältern"
+      "kontext": "Kurze Beschreibung warum unklar"
     }
   ],
   "raumhinweis": "kurze Raumcharakteristik"
-}`;
+}
+Regeln:
+- Nur verschachteln wenn du die Zugehörigkeit klar erkennen kannst
+- Im Zweifel flach lassen
+- Maximal 3 Ebenen tief
+- Jeder Behälter braucht eine eindeutige ID`;
 
       const messages = [{
         role: 'user',
@@ -858,11 +881,10 @@ Antworte NUR mit diesem JSON, nichts anderes:
         primaryContainerId = 'inhalt';
       }
 
-      // Save resized photo to IndexedDB for the first (main) container
+      // Save resized photo to IndexedDB with history
       try {
         const resized = await resizeImage(file, 1200);
-        const photoKey = `${roomId}_${primaryContainerId}`;
-        await Brain.savePhoto(photoKey, resized);
+        await Brain.savePhotoWithHistory(roomId, primaryContainerId, resized);
         Brain.setContainerHasPhoto(roomId, primaryContainerId, true);
       } catch { /* photo save failed silently */ }
 
@@ -1363,7 +1385,7 @@ Regeln:
 - NICHT "Handtücher" (zu allgemein) → sondern "Handtuch, dunkelblau" mit Menge 3
 - Bei mehreren Fotos: Kombiniere alle Erkenntnisse, vermeide Duplikate
 - Schätze Mengen wenn nicht exakt zählbar
-- hinweis nur setzen wenn wirklich hilfreich (z.B. "Dinge liegen übereinander – einzeln fotografieren hilft")`;
+- hinweis nur setzen wenn wirklich hilfreich (z.B. "Dinge liegen übereinander – einzeln fotografieren hilft")` + (nfcContext?.tag ? `\nKontext: Der Nutzer steht vor "${Brain.getContainer(nfcContext.room, nfcContext.tag)?.name || nfcContext.tag}". Das Foto zeigt vermutlich einen Teil dieses Möbelstücks.` : '');
 
     const imageContents = stagedPhotos.map(p => ({
       type: 'image',
@@ -1388,12 +1410,12 @@ Regeln:
       checked: true
     })).filter(item => item.name.trim());
 
-    // Save first photo to IndexedDB for thumbnail
+    // Save first photo to IndexedDB with history
     try {
       const firstFile = stagedPhotos[0].originalFile;
       if (firstFile) {
         const resized = await resizeImage(firstFile, 1200);
-        await Brain.savePhoto(`${roomId}_${containerId}`, resized);
+        await Brain.savePhotoWithHistory(roomId, containerId, resized);
       }
       if (!Brain.getContainer(roomId, containerId)) {
         Brain.addContainer(roomId, containerId, containerName || containerId, 'sonstiges', [], true);
@@ -1582,6 +1604,10 @@ function renderBrainView() {
   const rooms = Brain.getRooms();
   container.innerHTML = '';
 
+  // Hide breadcrumb when rendering full view
+  const breadcrumb = document.getElementById('brain-breadcrumb');
+  if (breadcrumb) breadcrumb.style.display = 'none';
+
   if (Object.keys(rooms).length === 0) {
     const emptyEl = document.createElement('div');
     emptyEl.className = 'brain-empty-cta';
@@ -1607,11 +1633,11 @@ function buildRoomNode(roomId, room) {
   const roomEl = document.createElement('div');
   roomEl.className = 'brain-room';
 
-  const hasContainers = Object.keys(room.containers || {}).length > 0;
+  const totalContainers = Brain.countContainers(room.containers);
 
   const header = document.createElement('div');
   header.className = 'brain-room-header';
-  header.innerHTML = `<span class="brain-room-emoji">${room.emoji}</span><span class="brain-room-name">${room.name}</span><span class="brain-room-count">${Object.keys(room.containers || {}).length}</span>`;
+  header.innerHTML = `<span class="brain-room-emoji">${room.emoji}</span><span class="brain-room-name">${room.name}</span><span class="brain-room-count">${totalContainers}</span>`;
 
   let open = true;
   const body = document.createElement('div');
@@ -1626,14 +1652,14 @@ function buildRoomNode(roomId, room) {
   // Long press to rename/delete
   setupLongPress(header, () => showRoomContextMenu(roomId, room));
 
-  if (!hasContainers) {
+  if (totalContainers === 0) {
     const empty = document.createElement('p');
     empty.className = 'brain-empty-room';
     empty.textContent = 'Noch nichts erfasst – mach ein Foto.';
     body.appendChild(empty);
   } else {
-    for (const [cId, c] of Object.entries(room.containers)) {
-      body.appendChild(buildContainerNode(roomId, cId, c));
+    for (const [cId, c] of Object.entries(room.containers || {})) {
+      body.appendChild(buildContainerNode(roomId, cId, c, 0));
     }
   }
 
@@ -1649,16 +1675,39 @@ function buildRoomNode(roomId, room) {
   return roomEl;
 }
 
-function buildContainerNode(roomId, cId, c) {
+function buildContainerNode(roomId, cId, c, depth) {
   const el = document.createElement('div');
-  el.className = `brain-container ${c.items?.length > 0 ? 'has-items' : 'empty'}`;
+  const hasItems = c.items?.length > 0;
+  const hasChildren = c.containers && Object.keys(c.containers).length > 0;
+  el.className = `brain-container ${hasItems ? 'has-items' : 'empty'}`;
+  if (depth > 0) {
+    el.classList.add('brain-container--nested');
+    el.style.marginLeft = `${depth * 18}px`;
+  }
+  if (depth > 0) {
+    el.classList.add('brain-container--depth-' + Math.min(depth, 3));
+  }
 
-  const typIcon = { schrank: '🗄️', regal: '📚', schublade: '🗃️', kiste: '📦', tisch: '🪑', sonstiges: '📋' };
+  const typIcon = { schrank: '🗄️', regal: '📚', schublade: '🗃️', kiste: '📦', tisch: '🪑', tuer: '🚪', fach: '📚', sonstiges: '📋' };
   const icon = typIcon[c.typ] || '📋';
 
   const header = document.createElement('div');
   header.className = 'brain-container-header';
-  header.innerHTML = `<span>${icon} ${c.name}</span><small>${c.last_updated ? Brain.formatDate(c.last_updated) : ''}</small>`;
+
+  const headerLeft = document.createElement('span');
+  headerLeft.textContent = `${icon} ${c.name}`;
+  if (hasChildren) {
+    const childCount = document.createElement('span');
+    childCount.className = 'brain-container-child-count';
+    childCount.textContent = `${Object.keys(c.containers).length}`;
+    headerLeft.appendChild(childCount);
+  }
+
+  const headerRight = document.createElement('small');
+  headerRight.textContent = c.last_updated ? Brain.formatDate(c.last_updated) : '';
+
+  header.appendChild(headerLeft);
+  header.appendChild(headerRight);
 
   let open = false;
   const body = document.createElement('div');
@@ -1668,7 +1717,11 @@ function buildContainerNode(roomId, cId, c) {
   header.addEventListener('click', () => {
     open = !open;
     body.style.display = open ? 'block' : 'none';
-    if (open) loadThumbnail(roomId, cId, c, thumbnailWrapper);
+    header.classList.toggle('brain-container-header--open', open);
+    if (open) {
+      loadThumbnail(roomId, cId, c, thumbnailWrapper);
+      updateBreadcrumb(roomId, cId);
+    }
   });
 
   setupLongPress(header, () => showContainerContextMenu(roomId, cId, c));
@@ -1676,6 +1729,11 @@ function buildContainerNode(roomId, cId, c) {
   // Thumbnail area
   const thumbnailWrapper = document.createElement('div');
   thumbnailWrapper.className = 'brain-thumbnail-wrapper';
+
+  // Photo history hint
+  const photoHistoryHint = document.createElement('div');
+  photoHistoryHint.className = 'brain-photo-history-hint';
+  photoHistoryHint.style.display = 'none';
 
   // Items as chips
   const chips = document.createElement('div');
@@ -1710,6 +1768,15 @@ function buildContainerNode(roomId, cId, c) {
     chips.appendChild(chip);
   });
 
+  // Child containers (recursive)
+  const childrenWrapper = document.createElement('div');
+  childrenWrapper.className = 'brain-children';
+  if (hasChildren) {
+    for (const [childId, child] of Object.entries(c.containers)) {
+      childrenWrapper.appendChild(buildContainerNode(roomId, childId, child, depth + 1));
+    }
+  }
+
   // Add item button
   const addItemBtn = document.createElement('button');
   addItemBtn.className = 'brain-add-item-btn';
@@ -1720,6 +1787,14 @@ function buildContainerNode(roomId, cId, c) {
       Brain.addItem(roomId, cId, name.trim());
       renderBrainView();
     }
+  });
+
+  // Add child container button
+  const addChildBtn = document.createElement('button');
+  addChildBtn.className = 'brain-add-item-btn';
+  addChildBtn.textContent = '+ Bereich darunter';
+  addChildBtn.addEventListener('click', () => {
+    showAddChildContainerDialog(roomId, cId);
   });
 
   // Camera button – opens staging overlay for this container
@@ -1735,10 +1810,13 @@ function buildContainerNode(roomId, cId, c) {
   const btnRow = document.createElement('div');
   btnRow.className = 'brain-item-btn-row';
   btnRow.appendChild(addItemBtn);
+  btnRow.appendChild(addChildBtn);
   btnRow.appendChild(cameraItemBtn);
 
   body.appendChild(thumbnailWrapper);
+  body.appendChild(photoHistoryHint);
   body.appendChild(chips);
+  body.appendChild(childrenWrapper);
   body.appendChild(btnRow);
   el.appendChild(header);
   el.appendChild(body);
@@ -1750,10 +1828,12 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
   if (wrapper.dataset.loaded) return;
   wrapper.dataset.loaded = '1';
 
-  const photoKey = `${roomId}_${cId}`;
+  const photoKey = Brain.getLatestPhotoKey(roomId, cId);
   let blob = null;
   try {
     blob = await Brain.getPhoto(photoKey);
+    // Fallback to legacy key
+    if (!blob) blob = await Brain.getPhoto(`${roomId}_${cId}`);
   } catch { /* IndexedDB not available */ }
 
   if (blob) {
@@ -1766,6 +1846,19 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
     img.addEventListener('click', () => showLightbox(objectUrl));
     div.appendChild(img);
     wrapper.appendChild(div);
+
+    // Show photo history hint
+    const history = Brain.getPhotoHistory(roomId, cId);
+    if (history.length > 1) {
+      const hintEl = wrapper.parentElement.querySelector('.brain-photo-history-hint');
+      if (hintEl) {
+        const lastDate = Brain.formatDate(new Date(history[history.length - 1]).getTime());
+        hintEl.textContent = `📷 ${history.length} Fotos  ·  zuletzt ${lastDate}`;
+        hintEl.style.display = 'block';
+        hintEl.style.cursor = 'pointer';
+        hintEl.addEventListener('click', () => showPhotoTimeline(roomId, cId));
+      }
+    }
   } else {
     // Placeholder
     const div = document.createElement('div');
@@ -1774,6 +1867,160 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
     div.addEventListener('click', () => openCameraForContainer(roomId, cId));
     wrapper.appendChild(div);
   }
+}
+
+// ── BREADCRUMB NAVIGATION ──────────────────────────────
+function updateBreadcrumb(roomId, containerId) {
+  const breadcrumb = document.getElementById('brain-breadcrumb');
+  if (!breadcrumb) return;
+
+  const room = Brain.getRoom(roomId);
+  if (!room) return;
+
+  const path = Brain.getContainerPath(roomId, containerId);
+  if (path.length === 0) {
+    breadcrumb.style.display = 'none';
+    return;
+  }
+
+  breadcrumb.innerHTML = '';
+  breadcrumb.style.display = 'flex';
+
+  // Room
+  const roomSpan = document.createElement('span');
+  roomSpan.className = 'brain-breadcrumb-item';
+  roomSpan.textContent = `${room.emoji} ${room.name}`;
+  roomSpan.addEventListener('click', () => {
+    breadcrumb.style.display = 'none';
+  });
+  breadcrumb.appendChild(roomSpan);
+
+  // Container path
+  path.forEach((cId, idx) => {
+    const sep = document.createElement('span');
+    sep.className = 'brain-breadcrumb-sep';
+    sep.textContent = '>';
+    breadcrumb.appendChild(sep);
+
+    const c = Brain.getContainer(roomId, cId);
+    const span = document.createElement('span');
+    span.className = 'brain-breadcrumb-item';
+    if (idx === path.length - 1) span.classList.add('brain-breadcrumb-item--active');
+    span.textContent = c?.name || cId;
+    breadcrumb.appendChild(span);
+  });
+}
+
+// ── PHOTO TIMELINE ─────────────────────────────────────
+function setupPhotoTimeline() {
+  document.getElementById('photo-timeline-close').addEventListener('click', closePhotoTimeline);
+}
+
+async function showPhotoTimeline(roomId, containerId) {
+  const overlay = document.getElementById('photo-timeline-overlay');
+  const grid = document.getElementById('photo-timeline-grid');
+  grid.innerHTML = '';
+
+  const history = Brain.getPhotoHistory(roomId, containerId);
+  if (history.length === 0) return;
+
+  overlay.style.display = 'flex';
+
+  for (const ts of history) {
+    const photoKey = `${roomId}_${containerId}_${ts}`;
+    try {
+      const blob = await Brain.getPhoto(photoKey);
+      if (!blob) continue;
+      const url = URL.createObjectURL(blob);
+      const card = document.createElement('div');
+      card.className = 'photo-timeline-card';
+
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = ts;
+      img.addEventListener('click', () => showLightbox(url));
+
+      const date = document.createElement('span');
+      date.className = 'photo-timeline-date';
+      date.textContent = Brain.formatDate(new Date(ts).getTime());
+
+      const isLatest = ts === history[history.length - 1];
+      if (isLatest) {
+        const badge = document.createElement('span');
+        badge.className = 'photo-timeline-badge';
+        badge.textContent = 'aktuell';
+        card.appendChild(badge);
+      }
+
+      card.appendChild(img);
+      card.appendChild(date);
+      grid.appendChild(card);
+    } catch { /* skip */ }
+  }
+}
+
+function closePhotoTimeline() {
+  document.getElementById('photo-timeline-overlay').style.display = 'none';
+}
+
+// ── MOVE CONTAINER OVERLAY ─────────────────────────────
+function setupMoveContainerOverlay() {
+  document.getElementById('move-container-close').addEventListener('click', closeMoveContainerOverlay);
+  document.getElementById('move-container-cancel').addEventListener('click', closeMoveContainerOverlay);
+}
+
+function showMoveContainerOverlay(roomId, containerId) {
+  moveContainerState = { roomId, containerId };
+  const overlay = document.getElementById('move-container-overlay');
+  const list = document.getElementById('move-container-list');
+  list.innerHTML = '';
+
+  const container = Brain.getContainer(roomId, containerId);
+  const containerName = container?.name || containerId;
+
+  // Option: move to room root
+  const rootItem = document.createElement('button');
+  rootItem.className = 'move-container-item';
+  rootItem.textContent = `🏠 Raum-Ebene (${Brain.getRoom(roomId)?.name || roomId})`;
+  rootItem.addEventListener('click', () => {
+    Brain.moveContainer(roomId, containerId, null);
+    closeMoveContainerOverlay();
+    renderBrainView();
+    showBrainToast(`${containerName} verschoben`);
+  });
+  list.appendChild(rootItem);
+
+  // All other containers as potential parents
+  const allContainers = Brain.getAllContainersFlat(roomId, containerId);
+  allContainers.forEach(({ id, name, path }) => {
+    const item = document.createElement('button');
+    item.className = 'move-container-item';
+    item.textContent = path;
+    item.addEventListener('click', () => {
+      Brain.moveContainer(roomId, containerId, id);
+      closeMoveContainerOverlay();
+      renderBrainView();
+      showBrainToast(`${containerName} verschoben nach ${name}`);
+    });
+    list.appendChild(item);
+  });
+
+  overlay.style.display = 'flex';
+}
+
+function closeMoveContainerOverlay() {
+  document.getElementById('move-container-overlay').style.display = 'none';
+  moveContainerState = null;
+}
+
+// ── ADD CHILD CONTAINER ────────────────────────────────
+function showAddChildContainerDialog(roomId, parentId) {
+  const name = prompt('Name des Unterbereichs (z.B. "Schublade oben", "Linke Tür"):');
+  if (!name?.trim()) return;
+  const typ = prompt('Typ (schublade/fach/tuer/kiste/regal/sonstiges):', 'sonstiges');
+  const id = Brain.slugify(name.trim());
+  Brain.addChildContainer(roomId, parentId, id, name.trim(), typ || 'sonstiges');
+  renderBrainView();
 }
 
 function openCameraForContainer(roomId, cId) {
@@ -1836,7 +2083,7 @@ function showRoomContextMenu(roomId, room) {
 }
 
 function showContainerContextMenu(roomId, cId, c) {
-  const action = prompt(`Bereich: ${c.name}\n\nAktion:\n1 = Umbenennen\n2 = Löschen`);
+  const action = prompt(`Bereich: ${c.name}\n\nAktion:\n1 = Umbenennen\n2 = Löschen\n3 = Verschieben`);
   if (action === '1') {
     const newName = prompt('Neuer Name:', c.name);
     if (newName?.trim()) Brain.renameContainer(roomId, cId, newName.trim());
@@ -1846,6 +2093,8 @@ function showContainerContextMenu(roomId, cId, c) {
       Brain.deleteContainer(roomId, cId);
       renderBrainView();
     }
+  } else if (action === '3') {
+    showMoveContainerOverlay(roomId, cId);
   }
 }
 
@@ -1940,6 +2189,12 @@ function setupSettings() {
     body.style.display = body.style.display === 'none' ? 'block' : 'none';
   });
 
+  // Photo history limit
+  document.getElementById('settings-photo-history-limit').addEventListener('change', e => {
+    Brain.setPhotoHistoryLimit(parseInt(e.target.value) || 10);
+    showSettingsMsg('Foto-Historie Limit gespeichert.', 'success');
+  });
+
   // Copy NFC URL
   document.getElementById('nfc-copy-btn')?.addEventListener('click', () => {
     const url = document.getElementById('nfc-preview-url').textContent;
@@ -1951,6 +2206,10 @@ function renderSettings() {
   document.getElementById('settings-api-key').value = Brain.getApiKey();
   renderRoomDropdown('nfc-room-select');
   updateNfcPreview();
+
+  // Set photo history limit
+  const limitSel = document.getElementById('settings-photo-history-limit');
+  if (limitSel) limitSel.value = String(Brain.getPhotoHistoryLimit());
 
   // Add "Neuer Raum" option
   const sel = document.getElementById('nfc-room-select');
