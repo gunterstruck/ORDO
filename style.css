@@ -118,12 +118,15 @@ html, body {
 #view-chat {
   display: none;
   flex-direction: column;
+  overflow: hidden;   /* constrain height so inner scroll works */
+  padding: 0;         /* override .view bottom-padding; handled by input-row */
 }
 
 #view-chat.active { display: flex; }
 
 #chat-messages {
   flex: 1;
+  min-height: 0;      /* allow flex child to shrink below content height */
   overflow-y: auto;
   padding: 20px 16px 12px;
   display: flex;
@@ -166,9 +169,8 @@ html, body {
   gap: 0;
   background: var(--bg);
   border-top: 1px solid var(--border);
-  position: sticky;
-  bottom: calc(var(--nav-h) + var(--footer-h));
-  z-index: 50;
+  flex-shrink: 0;     /* stay at bottom of flex column, never squeezed */
+  padding-bottom: calc(var(--nav-h) + var(--footer-h));
 }
 
 /* Foto-Vorschau oberhalb der Eingabe */
