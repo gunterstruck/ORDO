@@ -1,11 +1,14 @@
+// Dynamisch den Basis-Pfad ermitteln – funktioniert unter /ORDO/ und überall sonst
+const BASE_URL = new URL('./', self.location.href).href;
+
 const CACHE_NAME = 'haushalt-v1';
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/brain.js',
-  '/manifest.json'
+  BASE_URL,
+  BASE_URL + 'index.html',
+  BASE_URL + 'style.css',
+  BASE_URL + 'app.js',
+  BASE_URL + 'brain.js',
+  BASE_URL + 'manifest.json'
 ];
 
 self.addEventListener('install', event => {
@@ -39,7 +42,7 @@ self.addEventListener('fetch', event => {
         return response;
       }).catch(() => {
         if (event.request.destination === 'document') {
-          return caches.match('/index.html');
+          return caches.match(BASE_URL + 'index.html');
         }
       });
     })
