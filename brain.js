@@ -4,6 +4,7 @@ const STORAGE_KEY = 'haushalt_data';
 const PHOTO_DB_NAME = 'haushalt_photos';
 const PHOTO_DB_VERSION = 1;
 const PHOTO_STORE = 'photos';
+const MAX_PHOTO_HISTORY = 10;
 
 const Brain = {
 
@@ -93,7 +94,7 @@ const Brain = {
         req.onerror = () => resolve();
       });
     }
-    const exportData = { ...data, version: '1.1', photos };
+    const exportData = { ...data, version: '1.2', photos };
     const sizeEstimate = JSON.stringify(exportData).length;
     return { exportData, sizeEstimate };
   },
@@ -136,7 +137,7 @@ const Brain = {
   init() {
     if (!this.getData()) {
       this.save({
-        version: '1.1',
+        version: '1.2',
         created: Date.now(),
         rooms: {},
         chat_history: [],
@@ -189,19 +190,97 @@ const Brain = {
     const data = this.getData();
     const room = data.rooms[roomId];
     if (room?.containers) {
-      for (const cId of Object.keys(room.containers)) {
-        this.deletePhoto(`${roomId}_${cId}`).catch(() => {});
-      }
+      // Recursively delete all photos for all containers (including nested)
+      this._deleteContainerPhotosRecursive(roomId, room.containers);
     }
     delete data.rooms[roomId];
     this.save(data);
   },
 
-  // --- Containers ---
-  getContainer(roomId, containerId) {
-    return this.getRoom(roomId)?.containers?.[containerId] || null;
+  // Helper: recursively delete photos for containers and their children
+  _deleteContainerPhotosRecursive(roomId, containers) {
+    for (const [cId, c] of Object.entries(containers || {})) {
+      // Delete all history photos
+      if (c.photo_history?.length > 0) {
+        c.photo_history.forEach(ts => {
+          this.deletePhoto(`${roomId}_${cId}_${ts}`).catch(() => {});
+        });
+      }
+      // Delete legacy photo key
+      this.deletePhoto(`${roomId}_${cId}`).catch(() => {});
+      // Recurse into children
+      if (c.containers) {
+        this._deleteContainerPhotosRecursive(roomId, c.containers);
+      }
+    }
   },
 
+  // --- Containers (recursive) ---
+
+  // Get a container by ID – searches recursively through all levels
+  getContainer(roomId, containerId) {
+    const room = this.getRoom(roomId);
+    if (!room) return null;
+    return this._findContainerInTree(room.containers, containerId);
+  },
+
+  // Recursive search through container tree
+  _findContainerInTree(containers, containerId) {
+    if (!containers) return null;
+    if (containers[containerId]) return containers[containerId];
+    for (const c of Object.values(containers)) {
+      if (c.containers) {
+        const found = this._findContainerInTree(c.containers, containerId);
+        if (found) return found;
+      }
+    }
+    return null;
+  },
+
+  // Find the parent containers map that holds a given containerId
+  _findParentContainers(containers, containerId) {
+    if (!containers) return null;
+    if (containers[containerId]) return containers;
+    for (const c of Object.values(containers)) {
+      if (c.containers) {
+        const found = this._findParentContainers(c.containers, containerId);
+        if (found) return found;
+      }
+    }
+    return null;
+  },
+
+  // Get container path as array of IDs (for breadcrumbs)
+  getContainerPath(roomId, containerId) {
+    const room = this.getRoom(roomId);
+    if (!room) return [];
+    const path = [];
+    this._buildPath(room.containers, containerId, path);
+    return path;
+  },
+
+  _buildPath(containers, targetId, path) {
+    if (!containers) return false;
+    if (containers[targetId]) {
+      path.push(targetId);
+      return true;
+    }
+    for (const [cId, c] of Object.entries(containers)) {
+      if (c.containers) {
+        path.push(cId);
+        if (this._buildPath(c.containers, targetId, path)) return true;
+        path.pop();
+      }
+    }
+    return false;
+  },
+
+  // Get depth of a container in the tree
+  getContainerDepth(roomId, containerId) {
+    return this.getContainerPath(roomId, containerId).length - 1;
+  },
+
+  // Add container at root level of a room (backwards compatible)
   addContainer(roomId, containerId, name, typ, items = [], photoAnalyzed = false) {
     const data = this.getData();
     if (!data.rooms[roomId]) return;
@@ -218,28 +297,116 @@ const Brain = {
     return data.rooms[roomId].containers[containerId];
   },
 
+  // Add a child container under a parent
+  addChildContainer(roomId, parentId, childId, name, typ) {
+    const data = this.getData();
+    if (!data.rooms[roomId]) return null;
+    const parent = this._findContainerInTree(data.rooms[roomId].containers, parentId);
+    if (!parent) return null;
+    if (!parent.containers) parent.containers = {};
+    parent.containers[childId] = {
+      name,
+      typ: typ || 'sonstiges',
+      items: [],
+      quantities: {},
+      last_updated: Date.now(),
+      photo_analyzed: false
+    };
+    parent.last_updated = Date.now();
+    data.rooms[roomId].last_updated = Date.now();
+    this.save(data);
+    return parent.containers[childId];
+  },
+
+  // Move a container under a new parent (or to room root if newParentId is null)
+  moveContainer(roomId, containerId, newParentId) {
+    const data = this.getData();
+    if (!data.rooms[roomId]) return false;
+
+    // Find and remove from current parent
+    const currentParent = this._findParentContainers(data.rooms[roomId].containers, containerId);
+    if (!currentParent) return false;
+
+    const containerData = currentParent[containerId];
+    delete currentParent[containerId];
+
+    if (newParentId) {
+      // Move under new parent
+      const newParent = this._findContainerInTree(data.rooms[roomId].containers, newParentId);
+      if (!newParent) {
+        // Rollback
+        currentParent[containerId] = containerData;
+        return false;
+      }
+      if (!newParent.containers) newParent.containers = {};
+      newParent.containers[containerId] = containerData;
+    } else {
+      // Move to room root
+      data.rooms[roomId].containers[containerId] = containerData;
+    }
+
+    data.rooms[roomId].last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
   renameContainer(roomId, containerId, newName) {
     const data = this.getData();
-    if (data.rooms?.[roomId]?.containers?.[containerId]) {
-      data.rooms[roomId].containers[containerId].name = newName;
-      data.rooms[roomId].containers[containerId].last_updated = Date.now();
+    if (!data.rooms[roomId]) return;
+    const c = this._findContainerInTree(data.rooms[roomId].containers, containerId);
+    if (c) {
+      c.name = newName;
+      c.last_updated = Date.now();
       this.save(data);
     }
   },
 
   deleteContainer(roomId, containerId) {
     const data = this.getData();
-    if (data.rooms?.[roomId]?.containers) {
-      delete data.rooms[roomId].containers[containerId];
-      this.save(data);
-      this.deletePhoto(`${roomId}_${containerId}`).catch(() => {});
+    if (!data.rooms[roomId]) return;
+    const parent = this._findParentContainers(data.rooms[roomId].containers, containerId);
+    if (!parent) return;
+    const container = parent[containerId];
+    // Delete all nested photos recursively
+    if (container) {
+      if (container.containers) {
+        this._deleteContainerPhotosRecursive(roomId, container.containers);
+      }
+      if (container.photo_history?.length > 0) {
+        container.photo_history.forEach(ts => {
+          this.deletePhoto(`${roomId}_${containerId}_${ts}`).catch(() => {});
+        });
+      }
+    }
+    delete parent[containerId];
+    this.save(data);
+    this.deletePhoto(`${roomId}_${containerId}`).catch(() => {});
+  },
+
+  // Get all container IDs and names as flat list (for move dialog)
+  getAllContainersFlat(roomId, excludeId) {
+    const room = this.getRoom(roomId);
+    if (!room) return [];
+    const result = [];
+    this._flattenContainers(room.containers, [], result, excludeId);
+    return result;
+  },
+
+  _flattenContainers(containers, pathNames, result, excludeId) {
+    for (const [cId, c] of Object.entries(containers || {})) {
+      if (cId === excludeId) continue;
+      const currentPath = [...pathNames, c.name];
+      result.push({ id: cId, name: c.name, path: currentPath.join(' > ') });
+      if (c.containers) {
+        this._flattenContainers(c.containers, currentPath, result, excludeId);
+      }
     }
   },
 
-  // --- Items ---
+  // --- Items (now works with recursive containers) ---
   addItem(roomId, containerId, item) {
     const data = this.getData();
-    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c && !c.items.includes(item)) {
       c.items.push(item);
       c.last_updated = Date.now();
@@ -249,7 +416,7 @@ const Brain = {
 
   removeItem(roomId, containerId, item) {
     const data = this.getData();
-    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c) {
       c.items = c.items.filter(i => i !== item);
       if (c.quantities) delete c.quantities[item];
@@ -261,7 +428,7 @@ const Brain = {
   // Mark a container as having a stored photo
   setContainerHasPhoto(roomId, containerId, value) {
     const data = this.getData();
-    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c) {
       c.has_photo = value;
       this.save(data);
@@ -272,7 +439,7 @@ const Brain = {
   // reviewItems: [{name, menge, checked}]
   addItemsFromReview(roomId, containerId, reviewItems) {
     const data = this.getData();
-    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (!c) return 0;
     if (!c.quantities) c.quantities = {};
     let count = 0;
@@ -298,20 +465,30 @@ const Brain = {
   },
 
   // --- Photo Analysis Result ---
-  // Supports new format with inhalt_sicher / inhalt_unsicher, as well as legacy inhalt
-  applyPhotoAnalysis(roomId, analysisResult) {
+  // Supports new recursive format with behaelter containing behaelter
+  applyPhotoAnalysis(roomId, analysisResult, parentContainerId) {
     const data = this.getData();
     if (!data.rooms[roomId]) return 0;
 
     let count = 0;
+    const targetContainers = parentContainerId
+      ? (() => {
+          const parent = this._findContainerInTree(data.rooms[roomId].containers, parentContainerId);
+          if (parent) {
+            if (!parent.containers) parent.containers = {};
+            return parent.containers;
+          }
+          return data.rooms[roomId].containers;
+        })()
+      : data.rooms[roomId].containers;
+
     (analysisResult.behaelter || []).forEach(b => {
       const cId = this.slugify(b.id || b.name);
-      // Support both new format (inhalt_sicher/inhalt_unsicher) and legacy (inhalt)
       const sicherItems = b.inhalt_sicher || b.inhalt || [];
       const unsicherItems = (b.inhalt_unsicher || []).map(u =>
         typeof u === 'string' ? u : u.name
       );
-      data.rooms[roomId].containers[cId] = {
+      targetContainers[cId] = {
         name: b.name,
         typ: b.typ || 'sonstiges',
         items: sicherItems,
@@ -320,6 +497,12 @@ const Brain = {
         photo_analyzed: true
       };
       count++;
+
+      // Recursively handle nested containers
+      if (b.behaelter?.length > 0) {
+        if (!targetContainers[cId].containers) targetContainers[cId].containers = {};
+        count += this._applyNestedAnalysis(targetContainers[cId], b.behaelter);
+      }
     });
 
     if (analysisResult.raumhinweis) {
@@ -331,10 +514,35 @@ const Brain = {
     return count;
   },
 
+  _applyNestedAnalysis(parentContainer, behaelterList) {
+    let count = 0;
+    if (!parentContainer.containers) parentContainer.containers = {};
+    (behaelterList || []).forEach(b => {
+      const cId = this.slugify(b.id || b.name);
+      const sicherItems = b.inhalt_sicher || b.inhalt || [];
+      const unsicherItems = (b.inhalt_unsicher || []).map(u =>
+        typeof u === 'string' ? u : u.name
+      );
+      parentContainer.containers[cId] = {
+        name: b.name,
+        typ: b.typ || 'sonstiges',
+        items: sicherItems,
+        uncertain_items: unsicherItems,
+        last_updated: Date.now(),
+        photo_analyzed: true
+      };
+      count++;
+      if (b.behaelter?.length > 0) {
+        count += this._applyNestedAnalysis(parentContainer.containers[cId], b.behaelter);
+      }
+    });
+    return count;
+  },
+
   // Add a single item as uncertain (shows "?" in brain view)
   addUncertainItem(roomId, containerId, item) {
     const data = this.getData();
-    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c) {
       if (!c.uncertain_items) c.uncertain_items = [];
       if (!c.uncertain_items.includes(item)) {
@@ -348,13 +556,73 @@ const Brain = {
   // Confirm an uncertain item → moves it to regular items
   confirmUncertainItem(roomId, containerId, item) {
     const data = this.getData();
-    const c = data.rooms?.[roomId]?.containers?.[containerId];
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c) {
       c.uncertain_items = (c.uncertain_items || []).filter(i => i !== item);
       if (!c.items.includes(item)) c.items.push(item);
       c.last_updated = Date.now();
       this.save(data);
     }
+  },
+
+  // --- Photo History (Snapshots) ---
+  // Save a photo with timestamp, maintaining history
+  async savePhotoWithHistory(roomId, containerId, blob) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return;
+
+    const ts = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    const photoKey = `${roomId}_${containerId}_${ts}`;
+
+    await this.savePhoto(photoKey, blob);
+
+    if (!c.photo_history) c.photo_history = [];
+    c.photo_history.push(ts);
+
+    // Enforce max limit
+    const maxPhotos = this.getPhotoHistoryLimit();
+    while (c.photo_history.length > maxPhotos) {
+      const oldest = c.photo_history.shift();
+      this.deletePhoto(`${roomId}_${containerId}_${oldest}`).catch(() => {});
+    }
+
+    c.has_photo = true;
+    c.last_updated = Date.now();
+    this.save(data);
+
+    // Also save under legacy key for backwards compat
+    await this.savePhoto(`${roomId}_${containerId}`, blob);
+
+    return ts;
+  },
+
+  // Get all photo timestamps for a container
+  getPhotoHistory(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    return c?.photo_history || [];
+  },
+
+  // Get the latest photo key for a container
+  getLatestPhotoKey(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    if (c?.photo_history?.length > 0) {
+      const latest = c.photo_history[c.photo_history.length - 1];
+      return `${roomId}_${containerId}_${latest}`;
+    }
+    // Fallback to legacy key
+    return `${roomId}_${containerId}`;
+  },
+
+  // Get photo history limit from settings
+  getPhotoHistoryLimit() {
+    try {
+      return parseInt(localStorage.getItem('photo_history_limit')) || MAX_PHOTO_HISTORY;
+    } catch { return MAX_PHOTO_HISTORY; }
+  },
+
+  setPhotoHistoryLimit(limit) {
+    localStorage.setItem('photo_history_limit', String(Math.max(1, Math.min(20, limit))));
   },
 
   // --- Chat History ---
@@ -378,7 +646,7 @@ const Brain = {
     this.save(data);
   },
 
-  // --- Context for AI ---
+  // --- Context for AI (with recursive hierarchy) ---
   buildContext() {
     const rooms = this.getRooms();
     if (Object.keys(rooms).length === 0) return 'Noch keine Haushaltsdaten vorhanden.';
@@ -391,20 +659,44 @@ const Brain = {
         ctx += ' (keine Behälter erfasst)';
       } else {
         for (const [cId, c] of containers) {
-          ctx += `\n  ${c.typ}: ${c.name}`;
-          if (c.items?.length > 0) {
-            const itemsStr = c.items.map(item => {
-              const qty = c.quantities?.[item];
-              return qty > 1 ? `${qty}x ${item}` : item;
-            }).join(', ');
-            ctx += ` → ${itemsStr}`;
-          } else {
-            ctx += ' (leer)';
-          }
+          ctx += this._buildContainerContext(c, 1);
         }
       }
     }
     return ctx.trim();
+  },
+
+  _buildContainerContext(c, depth) {
+    const indent = '  '.repeat(depth);
+    let ctx = `\n${indent}${c.typ}: ${c.name}`;
+    if (c.items?.length > 0) {
+      const itemsStr = c.items.map(item => {
+        const qty = c.quantities?.[item];
+        return qty > 1 ? `${qty}x ${item}` : item;
+      }).join(', ');
+      ctx += ` → ${itemsStr}`;
+    } else {
+      ctx += ' (leer)';
+    }
+    // Recurse into children
+    if (c.containers) {
+      for (const [childId, child] of Object.entries(c.containers)) {
+        ctx += this._buildContainerContext(child, depth + 1);
+      }
+    }
+    return ctx;
+  },
+
+  // Count total containers recursively
+  countContainers(containers) {
+    let count = 0;
+    for (const c of Object.values(containers || {})) {
+      count++;
+      if (c.containers) {
+        count += this.countContainers(c.containers);
+      }
+    }
+    return count;
   },
 
   // --- Export / Import ---

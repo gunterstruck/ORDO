@@ -136,7 +136,31 @@
       <span class="brain-view-title">🏠 Mein Zuhause</span>
       <button id="brain-add-room">+ Raum</button>
     </div>
+    <div id="brain-breadcrumb" class="brain-breadcrumb" style="display:none"></div>
     <div id="brain-tree"></div>
+  </div>
+
+  <!-- ── PHOTO TIMELINE OVERLAY ────────────────────── -->
+  <div id="photo-timeline-overlay" class="photo-timeline-overlay" style="display:none">
+    <div class="photo-timeline-header">
+      <button id="photo-timeline-close" class="picking-close-btn" aria-label="Schließen">✕</button>
+      <span class="photo-timeline-title">Foto-Historie</span>
+    </div>
+    <div id="photo-timeline-grid" class="photo-timeline-grid"></div>
+  </div>
+
+  <!-- ── MOVE CONTAINER OVERLAY ────────────────────── -->
+  <div id="move-container-overlay" class="move-container-overlay" style="display:none">
+    <div class="move-container-modal">
+      <div class="staging-header">
+        <button id="move-container-close" class="staging-close-btn" aria-label="Schließen">✕</button>
+        <span class="staging-title">Verschieben nach…</span>
+      </div>
+      <div id="move-container-list" class="move-container-list"></div>
+      <div class="staging-footer">
+        <button id="move-container-cancel" class="staging-cancel-btn">Abbrechen</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── SETTINGS VIEW ──────────────────────────── -->
@@ -227,7 +251,7 @@
     <!-- Info -->
     <div class="settings-section">
       <div class="settings-section-title">Info</div>
-      <p class="app-version">App Version: 1.0</p>
+      <p class="app-version">App Version: 1.2</p>
     </div>
 
     <!-- Impressum (aus Footer hierher verschoben) -->
@@ -253,6 +277,14 @@
           <strong>Android:</strong> funktioniert direkt im Chrome Browser.<br>
           <strong>iPhone:</strong> zum Beschreiben bitte "NFC Tools" verwenden.
         </div>
+        <div class="settings-section-title" style="margin-top:16px">Foto-Historie</div>
+        <label class="settings-label" for="settings-photo-history-limit">Max. Fotos pro Bereich</label>
+        <select id="settings-photo-history-limit" class="settings-input" aria-label="Foto-Historie Limit">
+          <option value="5">5 Fotos</option>
+          <option value="10" selected>10 Fotos</option>
+          <option value="20">20 Fotos</option>
+        </select>
+
         <div class="settings-section-title" style="margin-top:16px">Debug / API-Status</div>
         <button id="debug-test-btn" class="settings-btn settings-btn--secondary">API-Verbindung testen</button>
         <button id="debug-clear-btn" class="settings-btn settings-btn--secondary">Log leeren</button>

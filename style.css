@@ -505,6 +505,210 @@ html, body {
 
 .brain-add-btn:hover, .brain-add-item-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+/* ── Nested Container Hierarchy ───────────────────── */
+.brain-container--nested {
+  border-left: 2px solid var(--accent);
+  border-radius: 0 12px 12px 0;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.brain-container--depth-1 { border-left-color: var(--accent); }
+.brain-container--depth-2 { border-left-color: #c8a28a; }
+.brain-container--depth-3 { border-left-color: var(--border); }
+
+.brain-container-header--open {
+  background: var(--surface);
+  border-radius: 12px 12px 0 0;
+}
+
+.brain-container-child-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.brain-children {
+  margin-top: 4px;
+}
+
+/* ── Breadcrumb Navigation ───────────────────────── */
+.brain-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.brain-breadcrumb-item {
+  font-size: 13px;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.brain-breadcrumb-item:active { background: var(--border); }
+
+.brain-breadcrumb-item--active {
+  color: var(--text);
+  font-weight: 600;
+  cursor: default;
+}
+
+.brain-breadcrumb-sep {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Photo History Hint ──────────────────────────── */
+.brain-photo-history-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.brain-photo-history-hint:hover { color: var(--accent); }
+
+/* ── Photo Timeline Overlay ──────────────────────── */
+.photo-timeline-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.photo-timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: var(--radius) var(--radius) 0 0;
+  width: 100%;
+  max-width: 480px;
+}
+
+.photo-timeline-title {
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.photo-timeline-grid {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  overflow-x: auto;
+  background: var(--bg);
+  width: 100%;
+  max-width: 480px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.photo-timeline-card {
+  position: relative;
+  flex-shrink: 0;
+  width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.photo-timeline-card img {
+  width: 120px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 2px solid var(--border);
+}
+
+.photo-timeline-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.photo-timeline-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--accent);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+
+/* ── Move Container Overlay ──────────────────────── */
+.move-container-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 250;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.move-container-modal {
+  background: var(--bg);
+  border-radius: var(--radius) var(--radius) 0 0;
+  width: 100%;
+  max-width: 480px;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.move-container-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.move-container-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+
+.move-container-item:active { border-color: var(--accent); background: #fef3ec; }
+
 /* ── SETTINGS & IMPRESSUM ─────────────────────────── */
 #view-settings, #view-impressum {
   padding: 24px 16px calc(var(--nav-h) + var(--footer-h) + 24px);
