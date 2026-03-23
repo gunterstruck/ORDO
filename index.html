@@ -24,7 +24,7 @@
         <p class="onboarding-subtitle">Dein Haushalt bekommt ein Gedächtnis.</p>
       </div>
       <div class="onboarding-steps">
-        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Fotografiere deine Räume</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Fotografiere oder filme deine Räume</div>
         <div class="onboarding-step"><span class="onboarding-step-num">2</span> KI erkennt Möbel automatisch</div>
         <div class="onboarding-step"><span class="onboarding-step-num">3</span> Frag später einfach</div>
       </div>
@@ -32,16 +32,26 @@
       <button id="onboarding-skip" class="onboarding-btn-skip">Überspringen</button>
     </div>
 
-    <!-- Raum-Scan: Foto aufnehmen -->
+    <!-- Raum-Scan: Foto oder Video aufnehmen -->
     <div id="onboarding-step-scan" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title">Raum fotografieren</h2>
-      <p class="onboarding-step-desc" id="onboarding-scan-desc">Fotografiere einen Raum – möglichst mit sichtbaren Schränken, Regalen oder Möbeln.</p>
-      <button id="onboarding-scan-btn" class="onboarding-camera-btn">📷</button>
-      <p class="onboarding-step-hint">Ein Foto pro Raum</p>
+      <h2 class="onboarding-step-title" id="onboarding-scan-title">Raum erfassen</h2>
+      <p class="onboarding-step-desc" id="onboarding-scan-desc">Fotografiere einen Raum oder filme einen Rundgang durch deine Wohnung (max. 5 Min.).</p>
+      <div class="onboarding-scan-buttons">
+        <button id="onboarding-scan-photo-btn" class="onboarding-camera-btn">📷</button>
+        <button id="onboarding-scan-video-btn" class="onboarding-camera-btn onboarding-video-btn">🎬</button>
+      </div>
+      <div class="onboarding-scan-labels">
+        <span>Foto</span>
+        <span>Video</span>
+      </div>
       <input type="file" id="onboarding-scan-input" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="onboarding-video-input" accept="video/*" capture="environment" style="display:none">
       <div id="onboarding-scan-status" class="onboarding-scan-status" style="display:none">
         <div class="onboarding-spinner"></div>
-        <p class="onboarding-scan-status-text">KI analysiert den Raum…</p>
+        <p class="onboarding-scan-status-text" id="onboarding-scan-status-text">KI analysiert den Raum…</p>
+        <div id="onboarding-scan-progress" class="onboarding-progress-bar" style="display:none">
+          <div id="onboarding-scan-progress-fill" class="onboarding-progress-fill"></div>
+        </div>
       </div>
     </div>
 

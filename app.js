@@ -2,6 +2,10 @@
 
 const MODEL = 'gemini-3-flash-preview';
 const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+const FILE_API_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
+const FILE_API_GET_URL = 'https://generativelanguage.googleapis.com/v1beta/files';
+const MAX_VIDEO_DURATION_SEC = 300; // 5 Minuten
+const MAX_VIDEO_SIZE_MB = 200;
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
@@ -3101,6 +3105,8 @@ async function callGemini(apiKey, systemPrompt, messages) {
       parts = msg.content.map(item => {
         if (item.type === 'image') {
           return { inlineData: { mimeType: item.source.media_type, data: item.source.data } };
+        } else if (item.type === 'file') {
+          return { fileData: { fileUri: item.source.uri, mimeType: item.source.mimeType } };
         } else if (item.type === 'text') {
           return { text: item.text };
         }
@@ -3156,7 +3162,9 @@ function getErrorMessage(err) {
   if (err.message === 'safety_block') return 'Das Foto wurde vom Sicherheitsfilter blockiert. Bitte ein anderes Foto versuchen.';
   if (err.message === 'max_tokens') return 'Antwort zu lang – bitte ein übersichtlicheres Foto wählen.';
   if (err.message === 'Kein JSON in Antwort') return 'Die KI hat keine auswertbare Antwort geliefert. Bitte nochmal versuchen.';
-  if (err.message?.includes('too large') || err.message?.includes('size')) return 'Foto zu groß – bitte ein kleineres wählen oder Auflösung reduzieren.';
+  if (err.message?.includes('Video zu groß')) return err.message;
+  if (err.message?.includes('Video-Verarbeitung')) return err.message;
+  if (err.message?.includes('too large') || err.message?.includes('size')) return 'Datei zu groß – bitte eine kleinere wählen oder Auflösung reduzieren.';
   if (err instanceof SyntaxError || err.message?.includes('JSON')) return 'Antwort war unvollständig – bitte nochmal versuchen.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
 }
@@ -3219,10 +3227,14 @@ let scannedRooms = []; // Array of { id, name, emoji, containers: [{ name, typ }
 function setupOnboarding() {
   document.getElementById('onboarding-start').addEventListener('click', () => showOnboardingScreen('scan'));
   document.getElementById('onboarding-skip').addEventListener('click', finishOnboarding);
-  document.getElementById('onboarding-scan-btn').addEventListener('click', () => {
+  document.getElementById('onboarding-scan-photo-btn').addEventListener('click', () => {
     document.getElementById('onboarding-scan-input').click();
   });
+  document.getElementById('onboarding-scan-video-btn').addEventListener('click', () => {
+    document.getElementById('onboarding-video-input').click();
+  });
   document.getElementById('onboarding-scan-input').addEventListener('change', onRoomScanPhoto);
+  document.getElementById('onboarding-video-input').addEventListener('change', onRoomScanVideo);
   document.getElementById('onboarding-add-more').addEventListener('click', () => showOnboardingScreen('scan'));
   document.getElementById('onboarding-confirm-all').addEventListener('click', confirmAllScannedRooms);
   document.getElementById('onboarding-finish').addEventListener('click', finishOnboarding);
@@ -3253,38 +3265,22 @@ function showOnboardingScreen(screen) {
 
   if (screen === 'scan') {
     document.getElementById('onboarding-scan-status').style.display = 'none';
-    document.getElementById('onboarding-scan-btn').style.display = 'flex';
+    const btns = document.querySelector('.onboarding-scan-buttons');
+    if (btns) btns.style.display = 'flex';
+    const labels = document.querySelector('.onboarding-scan-labels');
+    if (labels) labels.style.display = 'flex';
     const count = scannedRooms.length;
     document.getElementById('onboarding-scan-desc').textContent = count === 0
-      ? 'Fotografiere einen Raum – möglichst mit sichtbaren Schränken, Regalen oder Möbeln.'
-      : `${count} ${count === 1 ? 'Raum' : 'Räume'} erkannt. Fotografiere den nächsten Raum.`;
+      ? 'Fotografiere einen Raum oder filme einen Rundgang durch deine Wohnung (max. 5 Min.).'
+      : `${count} ${count === 1 ? 'Raum' : 'Räume'} erkannt. Fotografiere oder filme den nächsten Raum.`;
   }
   if (screen === 'review') {
     renderScannedRoomCards();
   }
 }
 
-async function onRoomScanPhoto(e) {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file) return;
-
-  const apiKey = Brain.getApiKey();
-  if (!apiKey) {
-    showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
-    return;
-  }
-
-  // Show spinner
-  document.getElementById('onboarding-scan-btn').style.display = 'none';
-  document.getElementById('onboarding-scan-status').style.display = 'flex';
-
-  try {
-    const resized = await resizeImage(file, 1200);
-    const base64 = await blobToBase64(resized);
-    const mimeType = file.type || 'image/jpeg';
-
-    const systemPrompt = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Foto und erkenne:
+// Shared prompt for room detection (photo + video)
+const ROOM_DETECT_SYSTEM_PROMPT_SINGLE = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Foto und erkenne:
 1. Um welchen Raum es sich handelt (z.B. Küche, Wohnzimmer, Schlafzimmer, Bad, Arbeitszimmer, Keller, Flur, Kinderzimmer, Garage, Balkon, Dachboden, Gästezimmer)
 2. Welche Aufbewahrungsmöbel sichtbar sind (Schränke, Regale, Schubladen, Kommoden, Tische, Kisten etc.)
 
@@ -3308,6 +3304,105 @@ Regeln:
 - Erkenne nur deutlich sichtbare Möbel, erfinde keine
 - konfidenz: hoch/mittel/niedrig – wie sicher bist du beim Raumtyp?`;
 
+const ROOM_DETECT_SYSTEM_PROMPT_VIDEO = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Video eines Wohnungsrundgangs.
+Erkenne ALLE verschiedenen Räume, die im Video zu sehen sind, und die sichtbaren Aufbewahrungsmöbel in jedem Raum.
+
+Antworte NUR mit diesem JSON:
+{
+  "raeume": [
+    {
+      "raum_typ": "kueche",
+      "raum_name": "Küche",
+      "raum_emoji": "🍳",
+      "moebel": [
+        {"name": "Hängeschrank über Spüle", "typ": "schrank"},
+        {"name": "Gewürzregal", "typ": "regal"}
+      ]
+    },
+    {
+      "raum_typ": "wohnzimmer",
+      "raum_name": "Wohnzimmer",
+      "raum_emoji": "🛋️",
+      "moebel": [
+        {"name": "TV-Schrank", "typ": "schrank"},
+        {"name": "Bücherregal", "typ": "regal"}
+      ]
+    }
+  ]
+}
+
+Regeln:
+- raum_typ muss einer dieser IDs sein: kueche, wohnzimmer, schlafzimmer, bad, arbeitszimmer, keller, flur, kinderzimmer, garage, balkon, dachboden, gaestezimmer, sonstiges
+- Für raum_name verwende den deutschen Namen
+- moebel.typ muss sein: schrank, regal, schublade, kiste, tisch, kommode, sonstiges
+- Benenne Möbel spezifisch nach Position/Eigenschaft (z.B. "Schrank links neben Tür", "Bücherregal an der Wand")
+- Erkenne nur deutlich sichtbare Möbel, erfinde keine
+- Jeden Raum nur einmal auflisten, auch wenn er mehrfach im Video erscheint
+- Bei Fluren/Durchgängen nur auflisten wenn dort Möbel stehen`;
+
+function showScanSpinner(text) {
+  const btns = document.querySelector('.onboarding-scan-buttons');
+  if (btns) btns.style.display = 'none';
+  const labels = document.querySelector('.onboarding-scan-labels');
+  if (labels) labels.style.display = 'none';
+  const status = document.getElementById('onboarding-scan-status');
+  status.style.display = 'flex';
+  document.getElementById('onboarding-scan-status-text').textContent = text || 'KI analysiert…';
+}
+
+function hideScanSpinner() {
+  const btns = document.querySelector('.onboarding-scan-buttons');
+  if (btns) btns.style.display = 'flex';
+  const labels = document.querySelector('.onboarding-scan-labels');
+  if (labels) labels.style.display = 'flex';
+  document.getElementById('onboarding-scan-status').style.display = 'none';
+  document.getElementById('onboarding-scan-progress').style.display = 'none';
+}
+
+function mergeDetectedRoom(result) {
+  const existingIdx = scannedRooms.findIndex(r => r.id === result.raum_typ);
+  if (existingIdx >= 0) {
+    const existing = scannedRooms[existingIdx];
+    const newContainers = (result.moebel || []).map(m => ({
+      name: m.name || 'Möbel',
+      typ: m.typ || 'sonstiges'
+    }));
+    existing.containers = [...existing.containers, ...newContainers];
+  } else {
+    let roomId = result.raum_typ || 'sonstiges';
+    if (scannedRooms.some(r => r.id === roomId) && roomId === 'sonstiges') {
+      roomId = 'sonstiges_' + Date.now();
+    }
+    scannedRooms.push({
+      id: roomId,
+      name: result.raum_name || ROOM_PRESETS[roomId]?.[1] || 'Raum',
+      emoji: result.raum_emoji || ROOM_PRESETS[roomId]?.[0] || '🏠',
+      containers: (result.moebel || []).map(m => ({
+        name: m.name || 'Möbel',
+        typ: m.typ || 'sonstiges'
+      }))
+    });
+  }
+}
+
+async function onRoomScanPhoto(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
+    return;
+  }
+
+  showScanSpinner('KI analysiert den Raum…');
+
+  try {
+    const resized = await resizeImage(file, 1200);
+    const base64 = await blobToBase64(resized);
+    const mimeType = file.type || 'image/jpeg';
+
     const messages = [{
       role: 'user',
       content: [
@@ -3316,45 +3411,182 @@ Regeln:
       ]
     }];
 
-    const raw = await callGemini(apiKey, systemPrompt, messages);
+    const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_SINGLE, messages);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+
+    mergeDetectedRoom(JSON.parse(jsonMatch[0]));
+    showOnboardingScreen('review');
+
+  } catch (err) {
+    hideScanSpinner();
+    showToast(getErrorMessage(err), 'error');
+  }
+}
+
+// ── VIDEO UPLOAD via Gemini File API ───────────────────
+async function uploadVideoToGemini(apiKey, file, onProgress) {
+  const sizeMB = file.size / (1024 * 1024);
+  if (sizeMB > MAX_VIDEO_SIZE_MB) {
+    throw new Error(`Video zu groß (${Math.round(sizeMB)} MB). Maximum: ${MAX_VIDEO_SIZE_MB} MB.`);
+  }
+
+  onProgress?.('upload', 0);
+
+  // Step 1: Start resumable upload
+  const startRes = await fetch(`${FILE_API_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': file.size,
+      'X-Goog-Upload-Header-Content-Type': file.type,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ file: { displayName: file.name } })
+  });
+
+  if (!startRes.ok) {
+    const errText = await startRes.text().catch(() => '');
+    if (startRes.status === 400 || startRes.status === 403) throw new Error('api_key');
+    throw new Error(`Upload-Start fehlgeschlagen: HTTP ${startRes.status}`);
+  }
+
+  const uploadUrl = startRes.headers.get('X-Goog-Upload-URL');
+  if (!uploadUrl) throw new Error('Kein Upload-URL erhalten');
+
+  // Step 2: Upload file data in one chunk
+  onProgress?.('upload', 30);
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Length': file.size,
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize'
+    },
+    body: file
+  });
+
+  if (!uploadRes.ok) {
+    throw new Error(`Video-Upload fehlgeschlagen: HTTP ${uploadRes.status}`);
+  }
+
+  const uploadData = await uploadRes.json();
+  const fileObj = uploadData.file;
+  if (!fileObj?.name) throw new Error('Keine Datei-Referenz erhalten');
+
+  onProgress?.('processing', 50);
+
+  // Step 3: Poll until processing is complete
+  let attempts = 0;
+  const maxAttempts = 120; // 5 min max polling (2.5s * 120)
+  while (attempts < maxAttempts) {
+    const checkRes = await fetch(`${FILE_API_GET_URL}/${fileObj.name}?key=${apiKey}`);
+    if (!checkRes.ok) throw new Error('Status-Abfrage fehlgeschlagen');
+
+    const checkData = await checkRes.json();
+    const state = checkData.state;
+
+    if (state === 'ACTIVE') {
+      onProgress?.('ready', 100);
+      return { fileUri: checkData.uri, mimeType: checkData.mimeType, fileName: fileObj.name };
+    }
+    if (state === 'FAILED') {
+      throw new Error('Video-Verarbeitung fehlgeschlagen. Bitte ein kürzeres Video versuchen.');
+    }
+
+    // Still PROCESSING
+    attempts++;
+    const progress = 50 + Math.min(45, (attempts / maxAttempts) * 45);
+    onProgress?.('processing', progress);
+    await new Promise(r => setTimeout(r, 2500));
+  }
+
+  throw new Error('Video-Verarbeitung dauert zu lange. Bitte ein kürzeres Video versuchen.');
+}
+
+async function deleteGeminiFile(apiKey, fileName) {
+  try {
+    await fetch(`${FILE_API_GET_URL}/${fileName}?key=${apiKey}`, { method: 'DELETE' });
+  } catch { /* best effort cleanup */ }
+}
+
+async function onRoomScanVideo(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
+    return;
+  }
+
+  // Validate video type
+  if (!file.type.startsWith('video/')) {
+    showToast('Bitte eine Video-Datei wählen.', 'error');
+    return;
+  }
+
+  const progressBar = document.getElementById('onboarding-scan-progress');
+  const progressFill = document.getElementById('onboarding-scan-progress-fill');
+  showScanSpinner('Video wird hochgeladen…');
+  progressBar.style.display = 'block';
+  progressFill.style.width = '0%';
+
+  let uploadedFile = null;
+
+  try {
+    // Upload video to Gemini File API
+    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
+      progressFill.style.width = `${pct}%`;
+      if (phase === 'upload') {
+        document.getElementById('onboarding-scan-status-text').textContent = 'Video wird hochgeladen…';
+      } else if (phase === 'processing') {
+        document.getElementById('onboarding-scan-status-text').textContent = 'Video wird verarbeitet…';
+      } else if (phase === 'ready') {
+        document.getElementById('onboarding-scan-status-text').textContent = 'KI analysiert Räume…';
+      }
+    });
+
+    // Analyze with Gemini
+    document.getElementById('onboarding-scan-status-text').textContent = 'KI erkennt Räume und Möbel…';
+    progressFill.style.width = '100%';
+
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'file', source: { type: 'uri', uri: uploadedFile.fileUri, mimeType: uploadedFile.mimeType } },
+        { type: 'text', text: 'Analysiere dieses Video eines Wohnungsrundgangs. Erkenne alle sichtbaren Räume und Aufbewahrungsmöbel.' }
+      ]
+    }];
+
+    const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_VIDEO, messages);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('Kein JSON in Antwort');
 
     const result = JSON.parse(jsonMatch[0]);
+    const rooms = result.raeume || [];
 
-    // Check for duplicate room type
-    const existingIdx = scannedRooms.findIndex(r => r.id === result.raum_typ);
-    if (existingIdx >= 0) {
-      // Merge containers into existing room
-      const existing = scannedRooms[existingIdx];
-      const newContainers = (result.moebel || []).map(m => ({
-        name: m.name || 'Möbel',
-        typ: m.typ || 'sonstiges'
-      }));
-      existing.containers = [...existing.containers, ...newContainers];
-    } else {
-      // Make room ID unique if sonstiges is used multiple times
-      let roomId = result.raum_typ || 'sonstiges';
-      if (scannedRooms.some(r => r.id === roomId) && roomId === 'sonstiges') {
-        roomId = 'sonstiges_' + Date.now();
-      }
-      scannedRooms.push({
-        id: roomId,
-        name: result.raum_name || ROOM_PRESETS[roomId]?.[1] || 'Raum',
-        emoji: result.raum_emoji || ROOM_PRESETS[roomId]?.[0] || '🏠',
-        containers: (result.moebel || []).map(m => ({
-          name: m.name || 'Möbel',
-          typ: m.typ || 'sonstiges'
-        }))
-      });
+    if (rooms.length === 0) {
+      showToast('Keine Räume im Video erkannt. Bitte erneut versuchen.', 'error');
+      hideScanSpinner();
+      return;
     }
+
+    // Merge all detected rooms
+    rooms.forEach(room => mergeDetectedRoom(room));
 
     showOnboardingScreen('review');
 
   } catch (err) {
-    document.getElementById('onboarding-scan-btn').style.display = 'flex';
-    document.getElementById('onboarding-scan-status').style.display = 'none';
+    hideScanSpinner();
     showToast(getErrorMessage(err), 'error');
+  } finally {
+    // Cleanup: delete uploaded file from Gemini
+    if (uploadedFile?.fileName) {
+      deleteGeminiFile(apiKey, uploadedFile.fileName);
+    }
   }
 }
 

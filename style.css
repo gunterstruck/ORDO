@@ -2267,6 +2267,51 @@ select.settings-input { appearance: none; }
 .onboarding-camera-btn:active { background: #fef3ec; border-style: solid; }
 
 /* Room Scan onboarding additions */
+.onboarding-scan-buttons {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboarding-scan-labels {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.onboarding-scan-labels span {
+  width: 100px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.onboarding-video-btn {
+  border-color: #6c5ce7;
+}
+
+.onboarding-video-btn:active { background: #f0edff; border-style: solid; border-color: #6c5ce7; }
+
+.onboarding-progress-bar {
+  width: 200px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.onboarding-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+  width: 0%;
+}
+
 .onboarding-scan-status {
   display: flex;
   flex-direction: column;
