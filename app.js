@@ -1708,8 +1708,49 @@ async function analyzeAllStagedPhotos() {
   try {
     ensureRoomExists(roomId);
 
+    // Check if container already has items → Delta mode
+    const existingContainer = Brain.getContainer(roomId, containerId);
+    const existingActiveItems = existingContainer ? Brain.getActiveItems(roomId, containerId) : [];
+    const isDeltaMode = existingActiveItems.length > 0;
+
     const photoCount = stagedPhotos.length;
-    const systemPrompt = `Analysiere ${photoCount > 1 ? 'alle ' + photoCount + ' Fotos zusammen' : 'dieses Foto'}.
+    let systemPrompt;
+
+    if (isDeltaMode) {
+      // Delta mode: compare photo with known contents
+      const knownItemsList = existingActiveItems.map(item => {
+        const name = Brain.getItemName(item);
+        const menge = item.menge || 1;
+        return menge > 1 ? `${menge}x ${name}` : name;
+      }).join(', ');
+
+      systemPrompt = `Analysiere ${photoCount > 1 ? 'alle ' + photoCount + ' Fotos zusammen' : 'dieses Foto'}.
+Vergleiche das Foto mit dem bekannten Inhalt dieses Behälters.
+Bekannter Inhalt (aus der Datenbank): ${knownItemsList}
+
+Antworte NUR mit diesem JSON:
+{
+  "bestaetigt": [
+    {"name": "Schere", "menge": 1}
+  ],
+  "nicht_gesehen": [
+    {"name": "Alter Adapter", "vermutung": "nicht mehr sichtbar"}
+  ],
+  "neu_erkannt": [
+    {"name": "Taschenlampe", "menge": 1}
+  ],
+  "hinweis": "optionaler Kommentar (sonst leer lassen)"
+}
+Regeln:
+- "bestaetigt": Dinge die du auf dem Foto siehst UND die im bekannten Inhalt stehen
+- "nicht_gesehen": Dinge aus dem bekannten Inhalt die du auf dem Foto NICHT sehen kannst
+- "neu_erkannt": Dinge die du auf dem Foto siehst aber die NICHT im bekannten Inhalt stehen
+- Sei ehrlich: Wenn etwas verdeckt sein könnte, sage das in der "vermutung"
+- Mengen aktualisieren wenn sich die Anzahl geändert hat
+- Jede Variante (Farbe, Muster, Größe) ist ein separater Eintrag
+- Bei mehreren Fotos: Kombiniere alle Erkenntnisse`;
+    } else {
+      systemPrompt = `Analysiere ${photoCount > 1 ? 'alle ' + photoCount + ' Fotos zusammen' : 'dieses Foto'}.
 WICHTIG: Zähle identische oder ähnliche Gegenstände und gib die Menge an. Sei spezifisch bei Farbe, Muster und Größe.
 Antworte NUR mit diesem JSON:
 {
@@ -1724,7 +1765,12 @@ Regeln:
 - NICHT "Handtücher" (zu allgemein) → sondern "Handtuch, dunkelblau" mit Menge 3
 - Bei mehreren Fotos: Kombiniere alle Erkenntnisse, vermeide Duplikate
 - Schätze Mengen wenn nicht exakt zählbar
-- hinweis nur setzen wenn wirklich hilfreich (z.B. "Dinge liegen übereinander – einzeln fotografieren hilft")` + (nfcContext?.tag ? `\nKontext: Der Nutzer steht vor "${Brain.getContainer(nfcContext.room, nfcContext.tag)?.name || nfcContext.tag}". Das Foto zeigt vermutlich einen Teil dieses Möbelstücks.` : '');
+- hinweis nur setzen wenn wirklich hilfreich (z.B. "Dinge liegen übereinander – einzeln fotografieren hilft")`;
+    }
+
+    if (nfcContext?.tag) {
+      systemPrompt += `\nKontext: Der Nutzer steht vor "${Brain.getContainer(nfcContext.room, nfcContext.tag)?.name || nfcContext.tag}". Das Foto zeigt vermutlich einen Teil dieses Möbelstücks.`;
+    }
 
     const imageContents = stagedPhotos.map(p => ({
       type: 'image',
@@ -1742,12 +1788,45 @@ Regeln:
     if (!jsonMatch) throw new Error('Kein JSON in Antwort');
 
     const analysis = JSON.parse(jsonMatch[0]);
-    const items = (analysis.inhalt || []).map((item, i) => ({
-      id: `item_${i}`,
-      name: typeof item === 'string' ? item : (item.name || ''),
-      menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
-      checked: true
-    })).filter(item => item.name.trim());
+    let items;
+    let deltaData = null;
+
+    if (isDeltaMode) {
+      // Parse delta response into three sections
+      const bestaetigt = (analysis.bestaetigt || []).map((item, i) => ({
+        id: `confirmed_${i}`,
+        name: typeof item === 'string' ? item : (item.name || ''),
+        menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+        checked: true,
+        section: 'bestaetigt'
+      })).filter(item => item.name.trim());
+
+      const nichtGesehen = (analysis.nicht_gesehen || []).map((item, i) => ({
+        id: `missing_${i}`,
+        name: typeof item === 'string' ? item : (item.name || ''),
+        vermutung: typeof item === 'string' ? '' : (item.vermutung || ''),
+        action: 'nichts', // 'nichts' | 'weg' | 'verdeckt'
+        section: 'nicht_gesehen'
+      })).filter(item => item.name.trim());
+
+      const neuErkannt = (analysis.neu_erkannt || []).map((item, i) => ({
+        id: `new_${i}`,
+        name: typeof item === 'string' ? item : (item.name || ''),
+        menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+        checked: true,
+        section: 'neu_erkannt'
+      })).filter(item => item.name.trim());
+
+      items = [...bestaetigt, ...neuErkannt]; // for backwards compat with confirmReview
+      deltaData = { bestaetigt, nichtGesehen, neuErkannt };
+    } else {
+      items = (analysis.inhalt || []).map((item, i) => ({
+        id: `item_${i}`,
+        name: typeof item === 'string' ? item : (item.name || ''),
+        menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+        checked: true
+      })).filter(item => item.name.trim());
+    }
 
     // Save first photo to IndexedDB with history
     try {
@@ -1765,7 +1844,7 @@ Regeln:
     const hint = (analysis.hinweis || '').trim();
     const isOnboarding = stagingTarget?.onboardingFlow;
     closeStagingOverlay();
-    showReviewPopup(roomId, containerId, containerName, items, mode || 'add', hint || null, isOnboarding);
+    showReviewPopup(roomId, containerId, containerName, items, mode || 'add', hint || null, isOnboarding, deltaData);
 
   } catch (err) {
     analyzeBtn.disabled = false;
@@ -1784,11 +1863,30 @@ function setupReviewOverlay() {
   document.getElementById('review-add-manual').addEventListener('click', addManualReviewItem);
 }
 
-function showReviewPopup(roomId, containerId, containerName, items, mode, hinweis, onboardingFlow) {
-  reviewState = { roomId, containerId, containerName, items: items.map(i => ({ ...i })), mode, onboardingFlow };
+function showReviewPopup(roomId, containerId, containerName, items, mode, hinweis, onboardingFlow, deltaData) {
+  reviewState = {
+    roomId, containerId, containerName,
+    items: items.map(i => ({ ...i })),
+    mode, onboardingFlow,
+    deltaData: deltaData ? {
+      bestaetigt: deltaData.bestaetigt.map(i => ({ ...i })),
+      nichtGesehen: deltaData.nichtGesehen.map(i => ({ ...i })),
+      neuErkannt: deltaData.neuErkannt.map(i => ({ ...i }))
+    } : null
+  };
   renderReviewList();
 
+  const titleEl = document.querySelector('.review-title');
   const subtitleEl = document.getElementById('review-subtitle');
+  const hintEl = document.querySelector('.review-hint');
+
+  if (deltaData) {
+    titleEl.textContent = 'Inhalt aktualisieren';
+    hintEl.textContent = 'Bestätigte Gegenstände werden aktualisiert. Bei nicht gesehenen: entscheide ob weg oder nur verdeckt.';
+  } else {
+    titleEl.textContent = 'Erkannte Gegenstände';
+    hintEl.textContent = 'Hake an was stimmt. Korrigiere Namen oder Mengen per Tippen. Nicht Erkanntes unten manuell hinzufügen.';
+  }
   subtitleEl.textContent = containerName ? `für "${containerName}"` : '';
 
   const tipEl = document.getElementById('review-tip');
@@ -1807,6 +1905,14 @@ function renderReviewList() {
   const listEl = document.getElementById('review-list');
   listEl.innerHTML = '';
 
+  if (reviewState.deltaData) {
+    renderDeltaReviewList(listEl);
+  } else {
+    renderNormalReviewList(listEl);
+  }
+}
+
+function renderNormalReviewList(listEl) {
   reviewState.items.forEach((item, index) => {
     const row = document.createElement('div');
     row.className = `review-item${item.checked ? '' : ' review-item--unchecked'}`;
@@ -1857,6 +1963,168 @@ function renderReviewList() {
   });
 }
 
+function renderDeltaReviewList(listEl) {
+  const { bestaetigt, nichtGesehen, neuErkannt } = reviewState.deltaData;
+
+  // Section 1: Confirmed items (green)
+  if (bestaetigt.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'delta-section delta-section--confirmed';
+    const header = document.createElement('div');
+    header.className = 'delta-section-header';
+    header.innerHTML = `<span class="delta-section-icon">&#x2705;</span> Best&auml;tigt (${bestaetigt.length})`;
+    section.appendChild(header);
+
+    bestaetigt.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = `review-item${item.checked ? '' : ' review-item--unchecked'}`;
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = item.checked;
+      checkbox.className = 'review-checkbox';
+      checkbox.addEventListener('change', e => {
+        reviewState.deltaData.bestaetigt[i].checked = e.target.checked;
+        row.classList.toggle('review-item--unchecked', !e.target.checked);
+      });
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'review-name-label';
+      nameSpan.textContent = item.name;
+
+      const mengeSpan = document.createElement('span');
+      mengeSpan.className = 'review-menge-label';
+      mengeSpan.textContent = `${item.menge}x`;
+
+      row.appendChild(checkbox);
+      row.appendChild(nameSpan);
+      row.appendChild(mengeSpan);
+      section.appendChild(row);
+    });
+
+    listEl.appendChild(section);
+  }
+
+  // Section 2: Newly detected items (blue)
+  if (neuErkannt.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'delta-section delta-section--new';
+    const header = document.createElement('div');
+    header.className = 'delta-section-header';
+    header.innerHTML = `<span class="delta-section-icon">&#x1F195;</span> Neu erkannt (${neuErkannt.length})`;
+    section.appendChild(header);
+
+    neuErkannt.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = `review-item${item.checked ? '' : ' review-item--unchecked'}`;
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = item.checked;
+      checkbox.className = 'review-checkbox';
+      checkbox.addEventListener('change', e => {
+        reviewState.deltaData.neuErkannt[i].checked = e.target.checked;
+        row.classList.toggle('review-item--unchecked', !e.target.checked);
+      });
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = item.name;
+      nameInput.className = 'review-name-input';
+      nameInput.setAttribute('aria-label', 'Gegenstandsname');
+      nameInput.addEventListener('input', e => {
+        reviewState.deltaData.neuErkannt[i].name = e.target.value;
+      });
+
+      const mengeWrapper = document.createElement('div');
+      mengeWrapper.className = 'review-menge';
+      const mengeInput = document.createElement('input');
+      mengeInput.type = 'number';
+      mengeInput.min = '1';
+      mengeInput.max = '999';
+      mengeInput.value = item.menge;
+      mengeInput.className = 'review-menge-input';
+      mengeInput.setAttribute('aria-label', 'Menge');
+      mengeInput.addEventListener('input', e => {
+        reviewState.deltaData.neuErkannt[i].menge = parseInt(e.target.value) || 1;
+      });
+      const mengeLabel = document.createElement('span');
+      mengeLabel.textContent = 'x';
+      mengeLabel.className = 'review-menge-label';
+      mengeWrapper.appendChild(mengeInput);
+      mengeWrapper.appendChild(mengeLabel);
+
+      row.appendChild(checkbox);
+      row.appendChild(nameInput);
+      row.appendChild(mengeWrapper);
+      section.appendChild(row);
+    });
+
+    listEl.appendChild(section);
+  }
+
+  // Section 3: Not seen items (orange)
+  if (nichtGesehen.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'delta-section delta-section--missing';
+    const header = document.createElement('div');
+    header.className = 'delta-section-header';
+    header.innerHTML = `<span class="delta-section-icon">&#x26A0;&#xFE0F;</span> Nicht mehr gesehen (${nichtGesehen.length})`;
+    section.appendChild(header);
+
+    const tip = document.createElement('p');
+    tip.className = 'delta-section-tip';
+    tip.textContent = 'Manche Dinge sind vielleicht nur verdeckt.';
+    section.appendChild(tip);
+
+    nichtGesehen.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'review-item delta-missing-item';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'review-name-label delta-missing-name';
+      nameSpan.textContent = item.name;
+      if (item.vermutung) nameSpan.title = item.vermutung;
+
+      const actions = document.createElement('div');
+      actions.className = 'delta-missing-actions';
+
+      const wegBtn = document.createElement('button');
+      wegBtn.className = 'delta-btn delta-btn--weg' + (item.action === 'weg' ? ' delta-btn--active' : '');
+      wegBtn.textContent = 'Weg';
+      wegBtn.setAttribute('aria-label', `${item.name} ist weg`);
+
+      const verdecktBtn = document.createElement('button');
+      verdecktBtn.className = 'delta-btn delta-btn--verdeckt' + (item.action === 'verdeckt' ? ' delta-btn--active' : '');
+      verdecktBtn.textContent = 'Verdeckt';
+      verdecktBtn.setAttribute('aria-label', `${item.name} ist verdeckt`);
+
+      wegBtn.addEventListener('click', () => {
+        const current = reviewState.deltaData.nichtGesehen[i].action;
+        reviewState.deltaData.nichtGesehen[i].action = current === 'weg' ? 'nichts' : 'weg';
+        wegBtn.classList.toggle('delta-btn--active', reviewState.deltaData.nichtGesehen[i].action === 'weg');
+        verdecktBtn.classList.remove('delta-btn--active');
+      });
+
+      verdecktBtn.addEventListener('click', () => {
+        const current = reviewState.deltaData.nichtGesehen[i].action;
+        reviewState.deltaData.nichtGesehen[i].action = current === 'verdeckt' ? 'nichts' : 'verdeckt';
+        verdecktBtn.classList.toggle('delta-btn--active', reviewState.deltaData.nichtGesehen[i].action === 'verdeckt');
+        wegBtn.classList.remove('delta-btn--active');
+      });
+
+      actions.appendChild(wegBtn);
+      actions.appendChild(verdecktBtn);
+
+      row.appendChild(nameSpan);
+      row.appendChild(actions);
+      section.appendChild(row);
+    });
+
+    listEl.appendChild(section);
+  }
+}
+
 function closeReviewPopup() {
   document.getElementById('review-overlay').style.display = 'none';
   reviewState = null;
@@ -1864,7 +2132,7 @@ function closeReviewPopup() {
 
 function confirmReview() {
   if (!reviewState) return;
-  const { roomId, containerId, containerName, items, mode } = reviewState;
+  const { roomId, containerId, containerName, items, mode, deltaData } = reviewState;
   const isOnboarding = reviewState.onboardingFlow;
 
   ensureRoomExists(roomId);
@@ -1872,31 +2140,93 @@ function confirmReview() {
     Brain.addContainer(roomId, containerId, containerName || containerId, 'sonstiges', [], true);
   }
 
-  // In replace mode: clear existing items first
-  if (mode === 'replace') {
-    const data = Brain.getData();
-    if (data.rooms?.[roomId]?.containers?.[containerId]) {
-      data.rooms[roomId].containers[containerId].items = [];
-      data.rooms[roomId].containers[containerId].quantities = {};
+  if (deltaData) {
+    // Delta mode: process three sections separately
+    let totalChanges = 0;
+
+    // 1. Confirmed items: update last_seen and seen_count
+    const confirmedNames = deltaData.bestaetigt
+      .filter(i => i.checked)
+      .map(i => i.name);
+    if (confirmedNames.length > 0) {
+      Brain.updateItemsLastSeen(roomId, containerId, confirmedNames);
+      totalChanges += confirmedNames.length;
+    }
+    // Also update menge for confirmed items if changed
+    deltaData.bestaetigt.filter(i => i.checked).forEach(i => {
+      const c = Brain.getContainer(roomId, containerId);
+      const existing = (c?.items || []).find(item => Brain.getItemName(item) === i.name);
+      if (existing && typeof existing === 'object' && existing.menge !== i.menge) {
+        existing.menge = i.menge;
+      }
+    });
+    if (deltaData.bestaetigt.some(i => i.checked)) {
+      const data = Brain.getData();
       Brain.save(data);
     }
-  }
 
-  const count = Brain.addItemsFromReview(roomId, containerId, items);
-  const containerDisplayName = Brain.getContainer(roomId, containerId)?.name || containerName || containerId;
+    // 2. Newly detected items: add as new
+    const newItems = deltaData.neuErkannt
+      .filter(i => i.checked && i.name.trim())
+      .map(i => ({ name: i.name.trim(), menge: i.menge || 1, checked: true }));
+    if (newItems.length > 0) {
+      Brain.addItemsFromReview(roomId, containerId, newItems);
+      totalChanges += newItems.length;
+    }
 
-  closeReviewPopup();
-  renderBrainView();
+    // 3. Not seen items: archive or leave
+    deltaData.nichtGesehen.forEach(item => {
+      if (item.action === 'weg') {
+        Brain.archiveItem(roomId, containerId, item.name);
+        totalChanges++;
+      }
+      // 'verdeckt' → do nothing (item stays active, last_seen NOT updated)
+      // 'nichts' → do nothing
+    });
 
-  if (isOnboarding) {
-    showOnboardingDoneStep();
-  } else if (currentView === 'brain') {
-    showBrainToast(`${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} übernommen`);
+    const containerDisplayName = Brain.getContainer(roomId, containerId)?.name || containerName || containerId;
+    closeReviewPopup();
+    renderBrainView();
+
+    const archivedCount = deltaData.nichtGesehen.filter(i => i.action === 'weg').length;
+    let msg = `${confirmedNames.length} bestätigt`;
+    if (newItems.length > 0) msg += `, ${newItems.length} neu`;
+    if (archivedCount > 0) msg += `, ${archivedCount} archiviert`;
+
+    if (isOnboarding) {
+      showOnboardingDoneStep();
+    } else if (currentView === 'brain') {
+      showBrainToast(msg);
+    } else {
+      showPhotoStatus(`${containerDisplayName}: ${msg}`, 'success');
+    }
   } else {
-    showPhotoStatus(
-      `${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} in "${containerDisplayName}" übernommen.`,
-      'success'
-    );
+    // Normal mode (first scan)
+    if (mode === 'replace') {
+      const data = Brain.getData();
+      if (data.rooms?.[roomId]?.containers?.[containerId]) {
+        data.rooms[roomId].containers[containerId].items = [];
+        data.rooms[roomId].containers[containerId].quantities = {};
+        Brain.save(data);
+      }
+    }
+
+    const count = Brain.addItemsFromReview(roomId, containerId, items);
+    const containerDisplayName = Brain.getContainer(roomId, containerId)?.name || containerName || containerId;
+
+    closeReviewPopup();
+    renderBrainView();
+
+    if (isOnboarding) {
+      showOnboardingDoneStep();
+    } else if (currentView === 'brain') {
+      showBrainToast(`${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} übernommen`);
+    } else {
+      showPhotoStatus(
+        `${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} in "${containerDisplayName}" übernommen.`,
+        'success'
+      );
+    }
   }
 }
 
