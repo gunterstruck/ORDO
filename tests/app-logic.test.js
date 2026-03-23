@@ -436,6 +436,106 @@ describe('executeOrdoAction() – Integration', () => {
   });
 });
 
+// ── Delta Review Integration ─────────────────────────────
+describe('Delta Review – Brain Integration', () => {
+  const Brain = context.Brain;
+
+  it('Delta-Abgleich: bestätigte Items werden mit updateItemsLastSeen aktualisiert', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    Brain.addItem('kueche', 'schrank', 'Klebeband');
+    const beforeCount = Brain.getContainer('kueche', 'schrank').items[0].seen_count;
+    Brain.updateItemsLastSeen('kueche', 'schrank', ['Schere', 'Klebeband']);
+    const after = Brain.getContainer('kueche', 'schrank').items;
+    assertEqual(after[0].seen_count, beforeCount + 1);
+    assertEqual(after[1].seen_count, beforeCount + 1);
+    assert(after[0].last_seen !== null);
+  });
+
+  it('Delta-Abgleich: neu erkannte Items werden als neue Objekte hinzugefügt', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    Brain.addItemsFromReview('kueche', 'schrank', [
+      { name: 'Taschenlampe', menge: 1, checked: true }
+    ]);
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertEqual(c.items.length, 2);
+    assertIncludes(c.items, 'Taschenlampe');
+    const newItem = c.items.find(i => i.name === 'Taschenlampe');
+    assertEqual(newItem.status, 'aktiv');
+    assertEqual(newItem.seen_count, 1);
+  });
+
+  it('Delta-Abgleich: "Weg"-Items werden archiviert', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Alter Adapter');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    Brain.archiveItem('kueche', 'schrank', 'Alter Adapter');
+    const active = Brain.getActiveItems('kueche', 'schrank');
+    assertEqual(active.length, 1);
+    assertEqual(active[0].name, 'Schere');
+    const archived = Brain.getArchivedItems('kueche', 'schrank');
+    assertEqual(archived.length, 1);
+    assertEqual(archived[0].name, 'Alter Adapter');
+    assert(archived[0].archived_at !== undefined);
+  });
+
+  it('Delta-Abgleich: Kompletter Flow (bestätigen + neu + archivieren)', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    Brain.addItem('kueche', 'schrank', 'Klebeband');
+    Brain.addItem('kueche', 'schrank', 'Alter Adapter');
+
+    // Simulate delta review result:
+    // 1. Schere + Klebeband confirmed
+    Brain.updateItemsLastSeen('kueche', 'schrank', ['Schere', 'Klebeband']);
+    // 2. Taschenlampe is new
+    Brain.addItemsFromReview('kueche', 'schrank', [
+      { name: 'Taschenlampe', menge: 1, checked: true }
+    ]);
+    // 3. Alter Adapter is gone
+    Brain.archiveItem('kueche', 'schrank', 'Alter Adapter');
+
+    const active = Brain.getActiveItems('kueche', 'schrank');
+    assertEqual(active.length, 3);
+    assertIncludes(active, 'Schere');
+    assertIncludes(active, 'Klebeband');
+    assertIncludes(active, 'Taschenlampe');
+
+    const archived = Brain.getArchivedItems('kueche', 'schrank');
+    assertEqual(archived.length, 1);
+    assertEqual(archived[0].name, 'Alter Adapter');
+
+    // buildContext should only show active items
+    const ctx = Brain.buildContext();
+    assert(ctx.includes('Schere'));
+    assert(ctx.includes('Taschenlampe'));
+    assert(ctx.includes('Archiviert'));
+    assert(ctx.includes('Alter Adapter'));
+  });
+
+  it('Delta-Abgleich: "Verdeckt"-Items bleiben aktiv ohne last_seen Update', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'USB-Stick');
+    const beforeLastSeen = Brain.getContainer('kueche', 'schrank').items[0].last_seen;
+    // "Verdeckt" means: do nothing, don't update last_seen
+    // (no Brain call needed – item stays as-is)
+    const afterItem = Brain.getContainer('kueche', 'schrank').items[0];
+    assertEqual(afterItem.status, 'aktiv');
+    assertEqual(afterItem.last_seen, beforeLastSeen);
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

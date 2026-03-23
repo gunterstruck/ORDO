@@ -2062,6 +2062,98 @@ select.settings-input { appearance: none; }
 
 .review-confirm-btn:active { opacity: 0.8; }
 
+/* ── Delta Review Sections ────────────────────────── */
+.delta-section {
+  margin: 8px 0;
+  border-radius: 12px;
+  padding: 8px 0;
+}
+
+.delta-section-header {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.delta-section-icon { font-size: 16px; }
+
+.delta-section--confirmed .delta-section-header { color: #16a34a; }
+.delta-section--new .delta-section-header { color: #2563eb; }
+.delta-section--missing .delta-section-header { color: #d97706; }
+
+.delta-section--confirmed { background: rgba(22, 163, 74, 0.06); border-radius: 12px; padding: 8px 12px; }
+.delta-section--new { background: rgba(37, 99, 235, 0.06); border-radius: 12px; padding: 8px 12px; }
+.delta-section--missing { background: rgba(217, 119, 6, 0.06); border-radius: 12px; padding: 8px 12px; }
+
+.delta-section-tip {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 4px 4px;
+  font-style: italic;
+}
+
+.review-name-label {
+  flex: 1;
+  font-size: 15px;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delta-missing-item {
+  justify-content: space-between;
+}
+
+.delta-missing-name {
+  flex: 1;
+}
+
+.delta-missing-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.delta-btn {
+  padding: 5px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.delta-btn:active { opacity: 0.7; }
+
+.delta-btn--weg.delta-btn--active {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #dc2626;
+}
+
+.delta-btn--verdeckt.delta-btn--active {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #b45309;
+}
+
+/* Dark mode delta overrides */
+@media (prefers-color-scheme: dark) {
+  .delta-section--confirmed { background: rgba(22, 163, 74, 0.1); }
+  .delta-section--new { background: rgba(37, 99, 235, 0.1); }
+  .delta-section--missing { background: rgba(217, 119, 6, 0.1); }
+  .delta-btn--weg.delta-btn--active { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+  .delta-btn--verdeckt.delta-btn--active { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+}
+
 /* ── Brain Item Button Row ────────────────────────── */
 .brain-item-btn-row {
   display: flex;
