@@ -352,6 +352,16 @@ function resizeImageForChat(file) {
   return resizeImage(file, 1024, { quality: 0.85, returnFormat: 'base64' });
 }
 
+// Convert Blob to base64 string (without data URL prefix)
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 function initChat() {
   const messages = document.getElementById('chat-messages');
   if (messages.children.length === 0) {
@@ -1916,6 +1926,7 @@ function showBrainToast(msg) {
 // ── BRAIN VIEW ─────────────────────────────────────────
 function setupBrain() {
   document.getElementById('brain-add-room').addEventListener('click', showAddRoomDialog);
+  document.getElementById('brain-scan-rooms').addEventListener('click', startRoomScan);
 
   // Lightbox close
   const lb = document.getElementById('lightbox');
@@ -3202,88 +3213,269 @@ function setupPullToRefresh() {
   }, { passive: true });
 }
 
-// ── ONBOARDING ─────────────────────────────────────────
-let onboardingRoomId = null;
+// ── ONBOARDING / ROOM SCAN ─────────────────────────────
+let scannedRooms = []; // Array of { id, name, emoji, containers: [{ name, typ }] }
 
 function setupOnboarding() {
-  document.getElementById('onboarding-start').addEventListener('click', showOnboardingRoomStep);
+  document.getElementById('onboarding-start').addEventListener('click', () => showOnboardingScreen('scan'));
   document.getElementById('onboarding-skip').addEventListener('click', finishOnboarding);
-  document.getElementById('onboarding-photo-btn').addEventListener('click', () => {
-    document.getElementById('onboarding-photo-input').click();
+  document.getElementById('onboarding-scan-btn').addEventListener('click', () => {
+    document.getElementById('onboarding-scan-input').click();
   });
-  document.getElementById('onboarding-photo-input').addEventListener('change', async e => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    if (onboardingRoomId) {
-      // Process through normal photo analysis flow
-      ensureRoomExists(onboardingRoomId);
-      stagingTarget = { roomId: onboardingRoomId, containerId: 'inhalt', containerName: '', mode: 'add', onboardingFlow: true };
-      showStagingOverlay('📷 Fotos sammeln');
-      addFileToStaging(file);
-      // Don't show done step here - it will be shown after review/staging closes
-    }
-  });
+  document.getElementById('onboarding-scan-input').addEventListener('change', onRoomScanPhoto);
+  document.getElementById('onboarding-add-more').addEventListener('click', () => showOnboardingScreen('scan'));
+  document.getElementById('onboarding-confirm-all').addEventListener('click', confirmAllScannedRooms);
   document.getElementById('onboarding-finish').addEventListener('click', finishOnboarding);
 
-  // Build room tiles
-  const tiles = document.getElementById('onboarding-room-tiles');
-  const onboardingRooms = ['kueche', 'wohnzimmer', 'schlafzimmer', 'bad', 'arbeitszimmer', 'keller'];
-  onboardingRooms.forEach(id => {
-    const [emoji, name] = ROOM_PRESETS[id] || ['🏠', id];
-    const tile = document.createElement('button');
-    tile.className = 'onboarding-room-tile';
-    const emojiSpan = document.createElement('span');
-    emojiSpan.className = 'onboarding-room-tile-emoji';
-    emojiSpan.textContent = emoji;
-    tile.appendChild(emojiSpan);
-    tile.appendChild(document.createTextNode(name));
-    tile.addEventListener('click', () => {
-      onboardingRoomId = id;
-      showOnboardingPhotoStep(name);
-    });
-    tiles.appendChild(tile);
-  });
+  // Settings re-trigger
+  document.getElementById('settings-room-scan').addEventListener('click', startRoomScan);
 }
 
 function showOnboarding() {
-  // Hide nav during onboarding
+  scannedRooms = [];
   document.getElementById('nav').style.display = 'none';
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const onb = document.getElementById('view-onboarding');
   onb.style.display = 'flex';
   onb.classList.add('active');
-  // Show welcome, hide steps
-  onb.querySelector('.onboarding-screen').style.display = 'flex';
-  document.getElementById('onboarding-step-room').style.display = 'none';
-  document.getElementById('onboarding-step-photo').style.display = 'none';
-  document.getElementById('onboarding-step-done').style.display = 'none';
+  showOnboardingScreen('welcome');
 }
 
-function showOnboardingRoomStep() {
-  const onb = document.getElementById('view-onboarding');
-  onb.querySelector('.onboarding-screen').style.display = 'none';
-  document.getElementById('onboarding-step-room').style.display = 'flex';
+function showOnboardingScreen(screen) {
+  const screens = ['onboarding-welcome', 'onboarding-step-scan', 'onboarding-step-review', 'onboarding-step-done'];
+  screens.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const map = { welcome: 'onboarding-welcome', scan: 'onboarding-step-scan', review: 'onboarding-step-review', done: 'onboarding-step-done' };
+  const el = document.getElementById(map[screen]);
+  if (el) el.style.display = 'flex';
+
+  if (screen === 'scan') {
+    document.getElementById('onboarding-scan-status').style.display = 'none';
+    document.getElementById('onboarding-scan-btn').style.display = 'flex';
+    const count = scannedRooms.length;
+    document.getElementById('onboarding-scan-desc').textContent = count === 0
+      ? 'Fotografiere einen Raum – möglichst mit sichtbaren Schränken, Regalen oder Möbeln.'
+      : `${count} ${count === 1 ? 'Raum' : 'Räume'} erkannt. Fotografiere den nächsten Raum.`;
+  }
+  if (screen === 'review') {
+    renderScannedRoomCards();
+  }
 }
 
-function showOnboardingPhotoStep(roomName) {
-  document.getElementById('onboarding-step-room').style.display = 'none';
-  document.getElementById('onboarding-photo-desc').textContent =
-    `Mach ein Foto von einem Schrank, Regal oder einer Schublade in deiner ${roomName}.`;
-  document.getElementById('onboarding-step-photo').style.display = 'flex';
+async function onRoomScanPhoto(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
+    return;
+  }
+
+  // Show spinner
+  document.getElementById('onboarding-scan-btn').style.display = 'none';
+  document.getElementById('onboarding-scan-status').style.display = 'flex';
+
+  try {
+    const resized = await resizeImage(file, 1200);
+    const base64 = await blobToBase64(resized);
+    const mimeType = file.type || 'image/jpeg';
+
+    const systemPrompt = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Foto und erkenne:
+1. Um welchen Raum es sich handelt (z.B. Küche, Wohnzimmer, Schlafzimmer, Bad, Arbeitszimmer, Keller, Flur, Kinderzimmer, Garage, Balkon, Dachboden, Gästezimmer)
+2. Welche Aufbewahrungsmöbel sichtbar sind (Schränke, Regale, Schubladen, Kommoden, Tische, Kisten etc.)
+
+Antworte NUR mit diesem JSON:
+{
+  "raum_typ": "kueche",
+  "raum_name": "Küche",
+  "raum_emoji": "🍳",
+  "moebel": [
+    {"name": "Hängeschrank über Spüle", "typ": "schrank"},
+    {"name": "Gewürzregal", "typ": "regal"}
+  ],
+  "konfidenz": "hoch"
+}
+
+Regeln:
+- raum_typ muss einer dieser IDs sein: kueche, wohnzimmer, schlafzimmer, bad, arbeitszimmer, keller, flur, kinderzimmer, garage, balkon, dachboden, gaestezimmer, sonstiges
+- Für raum_name verwende den deutschen Namen
+- moebel.typ muss sein: schrank, regal, schublade, kiste, tisch, kommode, sonstiges
+- Benenne Möbel spezifisch nach Position/Eigenschaft (z.B. "Schrank links neben Tür", "Bücherregal an der Wand")
+- Erkenne nur deutlich sichtbare Möbel, erfinde keine
+- konfidenz: hoch/mittel/niedrig – wie sicher bist du beim Raumtyp?`;
+
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+        { type: 'text', text: 'Erkenne diesen Raum und die sichtbaren Aufbewahrungsmöbel.' }
+      ]
+    }];
+
+    const raw = await callGemini(apiKey, systemPrompt, messages);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+
+    const result = JSON.parse(jsonMatch[0]);
+
+    // Check for duplicate room type
+    const existingIdx = scannedRooms.findIndex(r => r.id === result.raum_typ);
+    if (existingIdx >= 0) {
+      // Merge containers into existing room
+      const existing = scannedRooms[existingIdx];
+      const newContainers = (result.moebel || []).map(m => ({
+        name: m.name || 'Möbel',
+        typ: m.typ || 'sonstiges'
+      }));
+      existing.containers = [...existing.containers, ...newContainers];
+    } else {
+      // Make room ID unique if sonstiges is used multiple times
+      let roomId = result.raum_typ || 'sonstiges';
+      if (scannedRooms.some(r => r.id === roomId) && roomId === 'sonstiges') {
+        roomId = 'sonstiges_' + Date.now();
+      }
+      scannedRooms.push({
+        id: roomId,
+        name: result.raum_name || ROOM_PRESETS[roomId]?.[1] || 'Raum',
+        emoji: result.raum_emoji || ROOM_PRESETS[roomId]?.[0] || '🏠',
+        containers: (result.moebel || []).map(m => ({
+          name: m.name || 'Möbel',
+          typ: m.typ || 'sonstiges'
+        }))
+      });
+    }
+
+    showOnboardingScreen('review');
+
+  } catch (err) {
+    document.getElementById('onboarding-scan-btn').style.display = 'flex';
+    document.getElementById('onboarding-scan-status').style.display = 'none';
+    showToast(getErrorMessage(err), 'error');
+  }
+}
+
+function renderScannedRoomCards() {
+  const container = document.getElementById('onboarding-room-cards');
+  container.innerHTML = '';
+
+  scannedRooms.forEach((room, roomIdx) => {
+    const card = document.createElement('div');
+    card.className = 'onboarding-room-card';
+
+    // Header with emoji, name, delete
+    const header = document.createElement('div');
+    header.className = 'onboarding-room-card-header';
+    header.innerHTML = `<span class="onboarding-room-card-emoji">${room.emoji}</span>
+      <input type="text" class="onboarding-room-card-name" value="${room.name}" data-room-idx="${roomIdx}">
+      <button class="onboarding-room-card-delete" data-room-idx="${roomIdx}" aria-label="Raum entfernen">✕</button>`;
+    card.appendChild(header);
+
+    // Container list
+    if (room.containers.length > 0) {
+      const list = document.createElement('div');
+      list.className = 'onboarding-room-card-containers';
+      room.containers.forEach((c, cIdx) => {
+        const chip = document.createElement('div');
+        chip.className = 'onboarding-container-chip';
+        const typeEmoji = { schrank: '🗄️', regal: '📚', schublade: '🗃️', kiste: '📦', tisch: '🪑', kommode: '🪟', sonstiges: '📁' };
+        chip.innerHTML = `<span>${typeEmoji[c.typ] || '📁'} ${c.name}</span>
+          <button class="onboarding-container-chip-delete" data-room-idx="${roomIdx}" data-c-idx="${cIdx}" aria-label="Entfernen">✕</button>`;
+        list.appendChild(chip);
+      });
+      card.appendChild(list);
+    } else {
+      const empty = document.createElement('p');
+      empty.className = 'onboarding-room-card-empty';
+      empty.textContent = 'Keine Möbel erkannt';
+      card.appendChild(empty);
+    }
+
+    container.appendChild(card);
+  });
+
+  // Event: delete room
+  container.querySelectorAll('.onboarding-room-card-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      scannedRooms.splice(parseInt(btn.dataset.roomIdx), 1);
+      renderScannedRoomCards();
+    });
+  });
+
+  // Event: edit room name
+  container.querySelectorAll('.onboarding-room-card-name').forEach(input => {
+    input.addEventListener('change', () => {
+      scannedRooms[parseInt(input.dataset.roomIdx)].name = input.value.trim() || 'Raum';
+    });
+  });
+
+  // Event: delete container
+  container.querySelectorAll('.onboarding-container-chip-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rIdx = parseInt(btn.dataset.roomIdx);
+      const cIdx = parseInt(btn.dataset.cIdx);
+      scannedRooms[rIdx].containers.splice(cIdx, 1);
+      renderScannedRoomCards();
+    });
+  });
+
+  // Update confirm button text
+  const total = scannedRooms.reduce((sum, r) => sum + r.containers.length, 0);
+  const confirmBtn = document.getElementById('onboarding-confirm-all');
+  confirmBtn.textContent = `${scannedRooms.length} ${scannedRooms.length === 1 ? 'Raum' : 'Räume'} & ${total} Möbel übernehmen`;
+  confirmBtn.disabled = scannedRooms.length === 0;
+}
+
+function confirmAllScannedRooms() {
+  let roomCount = 0;
+  let containerCount = 0;
+
+  scannedRooms.forEach(room => {
+    // Create room
+    const preset = ROOM_PRESETS[room.id];
+    Brain.addRoom(room.id, room.name, room.emoji || (preset ? preset[0] : '🏠'));
+    roomCount++;
+
+    // Create first-level containers
+    room.containers.forEach((c, i) => {
+      const cId = room.id + '_' + (c.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20) || 'moebel') + '_' + i;
+      Brain.addContainer(room.id, cId, c.name, c.typ || 'sonstiges', [], false);
+      containerCount++;
+    });
+  });
+
+  // Update done description
+  document.getElementById('onboarding-done-desc').textContent =
+    `${roomCount} ${roomCount === 1 ? 'Raum' : 'Räume'} und ${containerCount} Möbel wurden angelegt. Frag mich einfach, z.B. „Was liegt im Schrank?"`;
+
+  showOnboardingScreen('done');
 }
 
 function showOnboardingDoneStep() {
-  document.getElementById('onboarding-step-photo').style.display = 'none';
-  document.getElementById('onboarding-step-done').style.display = 'flex';
+  showOnboardingScreen('done');
 }
 
 function finishOnboarding() {
   localStorage.setItem('onboarding_completed', 'true');
+  scannedRooms = [];
   document.getElementById('view-onboarding').style.display = 'none';
   document.getElementById('view-onboarding').classList.remove('active');
   document.getElementById('nav').style.display = 'flex';
-  showView('chat');
+  showView('brain');
+}
+
+// Re-trigger room scan from settings (or brain view)
+function startRoomScan() {
+  scannedRooms = [];
+  document.getElementById('nav').style.display = 'none';
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const onb = document.getElementById('view-onboarding');
+  onb.style.display = 'flex';
+  onb.classList.add('active');
+  showOnboardingScreen('scan');
 }
 
 // ── CHAT QUICK-SUGGESTIONS ─────────────────────────────

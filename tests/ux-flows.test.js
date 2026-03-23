@@ -205,11 +205,11 @@ describe('Onboarding – Klickpfad', () => {
     assertEqual(context.Brain.isEmpty(), true);
   });
 
-  it('finishOnboarding() setzt Flag und wechselt zu Chat', () => {
+  it('finishOnboarding() setzt Flag und wechselt zu Brain', () => {
     resetAll();
     context.finishOnboarding();
     assertEqual(localStorage.getItem('onboarding_completed'), 'true');
-    assertEqual(context.currentView, 'chat');
+    assertEqual(context.currentView, 'brain');
   });
 
   it('showOnboarding() versteckt die Navigation', () => {

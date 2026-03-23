@@ -488,6 +488,19 @@ html, body {
   font-weight: 700;
 }
 
+.brain-scan-btn {
+  background: var(--surface);
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
 #brain-add-room {
   background: var(--accent);
   color: white;
@@ -2252,6 +2265,154 @@ select.settings-input { appearance: none; }
 }
 
 .onboarding-camera-btn:active { background: #fef3ec; border-style: solid; }
+
+/* Room Scan onboarding additions */
+.onboarding-scan-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.onboarding-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.onboarding-scan-status-text {
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
+.onboarding-btn-secondary {
+  background: var(--surface);
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 24px;
+  font-size: 16px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.onboarding-btn-secondary:active { background: #fef3ec; }
+
+.onboarding-review-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 360px;
+  margin-top: 24px;
+}
+
+.onboarding-room-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 360px;
+  margin-bottom: 8px;
+}
+
+.onboarding-room-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: left;
+  animation: fadeIn 0.3s ease;
+}
+
+.onboarding-room-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.onboarding-room-card-emoji { font-size: 24px; flex-shrink: 0; }
+
+.onboarding-room-card-name {
+  flex: 1;
+  border: none;
+  border-bottom: 2px solid var(--border);
+  background: transparent;
+  font-size: 18px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text);
+  padding: 4px 0;
+  outline: none;
+}
+
+.onboarding-room-card-name:focus { border-bottom-color: var(--accent); }
+
+.onboarding-room-card-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 50%;
+  transition: all 0.15s;
+}
+
+.onboarding-room-card-delete:hover { color: #e74c3c; background: #fde8e8; }
+
+.onboarding-room-card-containers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.onboarding-container-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.onboarding-container-chip-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.onboarding-container-chip-delete:hover { color: #e74c3c; }
+
+.onboarding-room-card-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.settings-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
 
 /* ── Chat Quick-Suggestions ──────────────────────── */
 .chat-suggestions {
