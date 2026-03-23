@@ -16,41 +16,51 @@
 
   <!-- ── ONBOARDING VIEW (einmalig beim allerersten Start) ── -->
   <div id="view-onboarding" class="view" style="display:none">
-    <div class="onboarding-screen">
+    <!-- Willkommen -->
+    <div class="onboarding-screen" id="onboarding-welcome">
       <div class="onboarding-hero">
         <span class="onboarding-icon">🏠</span>
         <h1 class="onboarding-title">Willkommen bei ORDO</h1>
         <p class="onboarding-subtitle">Dein Haushalt bekommt ein Gedächtnis.</p>
       </div>
       <div class="onboarding-steps">
-        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Wähle einen Raum</div>
-        <div class="onboarding-step"><span class="onboarding-step-num">2</span> Mach ein Foto</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Fotografiere deine Räume</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">2</span> KI erkennt Möbel automatisch</div>
         <div class="onboarding-step"><span class="onboarding-step-num">3</span> Frag später einfach</div>
       </div>
-      <button id="onboarding-start" class="onboarding-btn-primary">Los geht's →</button>
+      <button id="onboarding-start" class="onboarding-btn-primary">Räume scannen →</button>
       <button id="onboarding-skip" class="onboarding-btn-skip">Überspringen</button>
     </div>
 
-    <!-- Schritt 1: Raum wählen -->
-    <div id="onboarding-step-room" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title">Wähle deinen ersten Raum</h2>
-      <div id="onboarding-room-tiles" class="onboarding-room-tiles"></div>
+    <!-- Raum-Scan: Foto aufnehmen -->
+    <div id="onboarding-step-scan" class="onboarding-screen" style="display:none">
+      <h2 class="onboarding-step-title">Raum fotografieren</h2>
+      <p class="onboarding-step-desc" id="onboarding-scan-desc">Fotografiere einen Raum – möglichst mit sichtbaren Schränken, Regalen oder Möbeln.</p>
+      <button id="onboarding-scan-btn" class="onboarding-camera-btn">📷</button>
+      <p class="onboarding-step-hint">Ein Foto pro Raum</p>
+      <input type="file" id="onboarding-scan-input" accept="image/*" capture="environment" style="display:none">
+      <div id="onboarding-scan-status" class="onboarding-scan-status" style="display:none">
+        <div class="onboarding-spinner"></div>
+        <p class="onboarding-scan-status-text">KI analysiert den Raum…</p>
+      </div>
     </div>
 
-    <!-- Schritt 2: Foto machen -->
-    <div id="onboarding-step-photo" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title">Mach ein Foto</h2>
-      <p class="onboarding-step-desc" id="onboarding-photo-desc">Fotografiere einen Schrank, ein Regal oder eine Schublade.</p>
-      <button id="onboarding-photo-btn" class="onboarding-camera-btn">📷</button>
-      <p class="onboarding-step-hint">Kamera öffnet sich</p>
-      <input type="file" id="onboarding-photo-input" accept="image/*" capture="environment" style="display:none">
+    <!-- Raum-Scan: Erkannte Räume als Karten -->
+    <div id="onboarding-step-review" class="onboarding-screen" style="display:none">
+      <h2 class="onboarding-step-title">Erkannte Räume</h2>
+      <p class="onboarding-step-desc">Prüfe und bearbeite die Ergebnisse.</p>
+      <div id="onboarding-room-cards" class="onboarding-room-cards"></div>
+      <div class="onboarding-review-actions">
+        <button id="onboarding-add-more" class="onboarding-btn-secondary">+ Weiteren Raum scannen</button>
+        <button id="onboarding-confirm-all" class="onboarding-btn-primary">Alles übernehmen</button>
+      </div>
     </div>
 
-    <!-- Schritt 3: Fertig -->
+    <!-- Fertig -->
     <div id="onboarding-step-done" class="onboarding-screen" style="display:none">
       <span class="onboarding-icon">✨</span>
-      <h2 class="onboarding-step-title">Perfekt!</h2>
-      <p class="onboarding-step-desc">Ich kenne jetzt deinen ersten Bereich. Frag mich einfach, z.B. „Was liegt im Schrank?"</p>
+      <h2 class="onboarding-step-title">Dein Zuhause ist bereit!</h2>
+      <p class="onboarding-step-desc" id="onboarding-done-desc">Räume und Möbel wurden angelegt. Frag mich einfach, z.B. „Was liegt im Schrank?"</p>
       <button id="onboarding-finish" class="onboarding-btn-primary">Jetzt loslegen</button>
     </div>
   </div>
@@ -134,6 +144,7 @@
   <div id="view-brain" class="view">
     <div class="brain-view-header">
       <span class="brain-view-title">🏠 Mein Zuhause</span>
+      <button id="brain-scan-rooms" class="brain-scan-btn">📷 Scannen</button>
       <button id="brain-add-room">+ Raum</button>
     </div>
     <div id="brain-breadcrumb" class="brain-breadcrumb" style="display:none"></div>
@@ -275,6 +286,13 @@
         <div class="nfc-fallback-url nfc-preview-box" id="nfc-fallback-url"></div>
         <button id="nfc-copy-btn" class="settings-btn settings-btn--secondary">URL kopieren</button>
       </div>
+    </div>
+
+    <!-- Raum-Scan -->
+    <div class="settings-section">
+      <div class="settings-section-title">Raum-Scan</div>
+      <p class="settings-hint">Fotografiere Räume und lass die KI Möbel automatisch erkennen.</p>
+      <button id="settings-room-scan" class="settings-btn settings-btn--secondary">Räume scannen</button>
     </div>
 
     <!-- Daten -->
