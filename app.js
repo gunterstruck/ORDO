@@ -734,13 +734,15 @@ function executeOrdoAction(action) {
         }
         if (containerId) {
           Brain.addItem(action.room, containerId, action.item);
-          // Store quantity if > 1
+          // Store quantity if > 1 (in both item object and quantities fallback)
           if (action.menge && action.menge > 1) {
             const data = Brain.getData();
             const c = Brain._findContainerInTree(data.rooms?.[action.room]?.containers, containerId);
             if (c) {
               if (!c.quantities) c.quantities = {};
               c.quantities[action.item] = action.menge;
+              const itemObj = c.items.find(i => Brain.getItemName(i) === action.item);
+              if (itemObj && typeof itemObj === 'object') itemObj.menge = action.menge;
               Brain.save(data);
             }
           }
