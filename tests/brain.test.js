@@ -809,6 +809,327 @@ describe('Brain – Edge Cases', () => {
   });
 });
 
+// ── Levenshtein Distance ────────────────────────────────
+describe('Brain.levenshtein()', () => {
+  it('gibt 0 bei identischen Strings', () => {
+    assertEqual(Brain.levenshtein('test', 'test'), 0);
+  });
+
+  it('berechnet Distanz korrekt bei einer Änderung', () => {
+    assertEqual(Brain.levenshtein('Schere', 'Schere'), 0);
+    assertEqual(Brain.levenshtein('Schere', 'Scherf'), 1);
+    assertEqual(Brain.levenshtein('abc', 'abcd'), 1);
+  });
+
+  it('berechnet Distanz bei völlig verschiedenen Strings', () => {
+    assert(Brain.levenshtein('abc', 'xyz') === 3);
+  });
+
+  it('handhabt leere Strings', () => {
+    assertEqual(Brain.levenshtein('', 'abc'), 3);
+    assertEqual(Brain.levenshtein('test', ''), 4);
+    assertEqual(Brain.levenshtein('', ''), 0);
+  });
+
+  it('handhabt null/undefined', () => {
+    assertEqual(Brain.levenshtein(null, 'abc'), 3);
+    assertEqual(Brain.levenshtein('abc', null), 3);
+  });
+});
+
+// ── normalizeName ───────────────────────────────────────
+describe('Brain.normalizeName()', () => {
+  it('konvertiert zu lowercase', () => {
+    assertEqual(Brain.normalizeName('TELLER'), 'teller');
+  });
+
+  it('entfernt deutsche Artikel', () => {
+    assertEqual(Brain.normalizeName('der Teller'), 'teller');
+    assertEqual(Brain.normalizeName('die Schere'), 'schere');
+    assertEqual(Brain.normalizeName('das Buch'), 'buch');
+    assertEqual(Brain.normalizeName('ein Hammer'), 'hammer');
+    assertEqual(Brain.normalizeName('eine Zange'), 'zange');
+  });
+
+  it('trimmt Whitespace', () => {
+    assertEqual(Brain.normalizeName('  Teller  '), 'teller');
+    assertEqual(Brain.normalizeName('der   große  Teller'), 'große teller');
+  });
+
+  it('handhabt leere/null Werte', () => {
+    assertEqual(Brain.normalizeName(''), '');
+    assertEqual(Brain.normalizeName(null), '');
+  });
+});
+
+// ── isFuzzyMatch ────────────────────────────────────────
+describe('Brain.isFuzzyMatch()', () => {
+  it('erkennt exakte Matches', () => {
+    assert(Brain.isFuzzyMatch('Schere', 'Schere'));
+  });
+
+  it('erkennt Matches nach Normalisierung', () => {
+    assert(Brain.isFuzzyMatch('der Teller', 'Teller'));
+    assert(Brain.isFuzzyMatch('Die Schere', 'schere'));
+  });
+
+  it('erkennt Containment-Matches', () => {
+    assert(Brain.isFuzzyMatch('Schere', 'Schere, groß'));
+    assert(Brain.isFuzzyMatch('Werkzeugkasten rot', 'Werkzeugkasten'));
+  });
+
+  it('erkennt ähnliche Namen mit geringer Levenshtein-Distanz', () => {
+    assert(Brain.isFuzzyMatch('Schere', 'Scherre'));
+    assert(Brain.isFuzzyMatch('Teller', 'Tellerr'));
+  });
+
+  it('erkennt Wort-Neuanordnung als Match', () => {
+    assert(Brain.isFuzzyMatch('Werkzeugkasten rot', 'Roter Werkzeugkasten'));
+  });
+
+  it('erkennt Mengen-Varianten', () => {
+    assert(Brain.isFuzzyMatch('3x Batterien AA', 'Batterien AA'));
+  });
+
+  it('lehnt klar verschiedene Items ab', () => {
+    assert(!Brain.isFuzzyMatch('Schere', 'Schneider'));
+    assert(!Brain.isFuzzyMatch('Roter Ordner', 'Blauer Ordner'));
+    assert(!Brain.isFuzzyMatch('Teller', 'Hammer'));
+  });
+
+  it('handhabt leere/null Werte', () => {
+    assert(!Brain.isFuzzyMatch('', 'Schere'));
+    assert(!Brain.isFuzzyMatch('Schere', ''));
+    assert(!Brain.isFuzzyMatch(null, null));
+  });
+});
+
+// ── findSimilarItem ─────────────────────────────────────
+describe('Brain.findSimilarItem()', () => {
+  it('findet exakten Match', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    const result = Brain.findSimilarItem('kueche', 'schrank', 'Schere');
+    assert(result !== null, 'Sollte exakten Match finden');
+    assertEqual(result.name, 'Schere');
+  });
+
+  it('findet fuzzy Match', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Werkzeugkasten rot');
+    const result = Brain.findSimilarItem('kueche', 'schrank', 'Roter Werkzeugkasten');
+    assert(result !== null, 'Sollte ähnlichen Match finden');
+  });
+
+  it('gibt null bei keinem Match', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    const result = Brain.findSimilarItem('kueche', 'schrank', 'Hammer');
+    assertEqual(result, null);
+  });
+
+  it('gibt null bei leerem Container', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const result = Brain.findSimilarItem('kueche', 'schrank', 'Irgendwas');
+    assertEqual(result, null);
+  });
+
+  it('gibt null bei ungültigem Raum/Container', () => {
+    resetBrain();
+    const result = Brain.findSimilarItem('nope', 'nope', 'Test');
+    assertEqual(result, null);
+  });
+});
+
+// ── isRecentlyPhotographed ──────────────────────────────
+describe('Brain.isRecentlyPhotographed()', () => {
+  it('gibt true bei frischem Timestamp mit photo_analyzed', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank', [], true);
+    const result = Brain.isRecentlyPhotographed('kueche', 'schrank', 10);
+    assertEqual(result, true);
+  });
+
+  it('gibt false bei altem Timestamp', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank', [], true);
+    // Manuell alten Timestamp setzen
+    const data = Brain.getData();
+    data.rooms.kueche.containers.schrank.last_updated = Date.now() - (20 * 60 * 1000);
+    Brain.save(data);
+    Brain._cache = null;
+    const result = Brain.isRecentlyPhotographed('kueche', 'schrank', 10);
+    assertEqual(result, false);
+  });
+
+  it('gibt false wenn photo_analyzed nicht gesetzt', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const result = Brain.isRecentlyPhotographed('kueche', 'schrank', 10);
+    assertEqual(result, false);
+  });
+
+  it('gibt false bei ungültigem Container', () => {
+    resetBrain();
+    const result = Brain.isRecentlyPhotographed('nope', 'nope');
+    assertEqual(result, false);
+  });
+
+  it('nutzt 10 Minuten als Default-Threshold', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank', [], true);
+    const result = Brain.isRecentlyPhotographed('kueche', 'schrank');
+    assertEqual(result, true);
+  });
+});
+
+// ── getContainerAge ─────────────────────────────────────
+describe('Brain.getContainerAge()', () => {
+  it('gibt Alter in Millisekunden', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const age = Brain.getContainerAge('kueche', 'schrank');
+    assert(age >= 0 && age < 1000, 'Alter sollte sehr gering sein: ' + age);
+  });
+
+  it('gibt Infinity bei ungültigem Container', () => {
+    resetBrain();
+    const age = Brain.getContainerAge('nope', 'nope');
+    assertEqual(age, Infinity);
+  });
+});
+
+// ── getContainerItemNames ───────────────────────────────
+describe('Brain.getContainerItemNames()', () => {
+  it('gibt Item-Namen als Array zurück', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    Brain.addItem('kueche', 'schrank', 'Tasse');
+    const names = Brain.getContainerItemNames('kueche', 'schrank');
+    assertEqual(names.length, 2);
+    assert(names.includes('Teller'));
+    assert(names.includes('Tasse'));
+  });
+
+  it('zeigt Mengen bei Quantities', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItemsFromReview('kueche', 'schrank', [
+      { name: 'Teller', menge: 5, checked: true }
+    ]);
+    const names = Brain.getContainerItemNames('kueche', 'schrank');
+    assert(names.includes('5x Teller'));
+  });
+
+  it('gibt leeres Array bei leerem Container', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const names = Brain.getContainerItemNames('kueche', 'schrank');
+    assertEqual(names.length, 0);
+  });
+});
+
+// ── Spatial Fields ──────────────────────────────────────
+describe('Brain – Spatial Fields', () => {
+  it('addRoom() akzeptiert optionalen spatial Parameter', () => {
+    resetBrain();
+    const spatial = { position: { x: 10, y: 20 }, size: { w: 100, h: 80 }, neighbors: [] };
+    Brain.addRoom('kueche', 'Küche', '🍳', spatial);
+    const room = Brain.getRoom('kueche');
+    assertDeepEqual(room.spatial, spatial);
+  });
+
+  it('addRoom() ohne spatial hat kein spatial Feld', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    const room = Brain.getRoom('kueche');
+    assertEqual(room.spatial, undefined);
+  });
+
+  it('addContainer() akzeptiert optionalen spatial Parameter', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    const spatial = { position: { x: 5, y: 10 }, wall: 'north' };
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank', [], false, spatial);
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertDeepEqual(c.spatial, spatial);
+  });
+
+  it('addContainer() ohne spatial hat kein spatial Feld', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertEqual(c.spatial, undefined);
+  });
+
+  it('createItemObject() akzeptiert spatial und object_id', () => {
+    const item = Brain.createItemObject('Schere', {
+      spatial: { position: { x: 0.3, y: 0.7 } },
+      object_id: 'test-uuid'
+    });
+    assertDeepEqual(item.spatial, { position: { x: 0.3, y: 0.7 } });
+    assertEqual(item.object_id, 'test-uuid');
+  });
+
+  it('createItemObject() ohne Extras hat keine Extra-Felder', () => {
+    const item = Brain.createItemObject('Schere');
+    assertEqual(item.spatial, undefined);
+    assertEqual(item.object_id, undefined);
+  });
+});
+
+// ── updateExistingItem ──────────────────────────────────
+describe('Brain.updateExistingItem()', () => {
+  it('aktualisiert last_seen und seen_count', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    const before = Brain.getContainer('kueche', 'schrank').items[0].seen_count;
+    const result = Brain.updateExistingItem('kueche', 'schrank', 'Schere');
+    assertEqual(result, true);
+    const after = Brain.getContainer('kueche', 'schrank').items[0];
+    assertEqual(after.seen_count, before + 1);
+    assertEqual(after.status, 'aktiv');
+  });
+
+  it('findet Items per Fuzzy-Match', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Werkzeugkasten rot');
+    const result = Brain.updateExistingItem('kueche', 'schrank', 'Roter Werkzeugkasten');
+    assertEqual(result, true);
+  });
+
+  it('gibt false bei keinem Match', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Schere');
+    const result = Brain.updateExistingItem('kueche', 'schrank', 'Fernseher');
+    assertEqual(result, false);
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

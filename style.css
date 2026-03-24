@@ -2668,3 +2668,210 @@ select.settings-input { appearance: none; }
 }
 
 .impressum-inline address { font-style: normal; }
+
+/* ── Brain View Toggle ──────────────────────────── */
+.brain-view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 2px;
+  margin-left: 8px;
+}
+
+.brain-toggle-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.brain-toggle-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Map View ───────────────────────────────────── */
+.map-view {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  position: relative;
+}
+
+.map-view--zoomed {
+  overflow: hidden;
+}
+
+/* Room grid */
+.map-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+}
+
+.map-grid--hidden {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 12px; left: 12px; right: 12px;
+}
+
+/* Room cell */
+.map-room-cell {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 14px 12px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  border: 2.5px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 90px;
+  position: relative;
+  overflow: hidden;
+}
+
+.map-room-cell:active {
+  transform: scale(0.97);
+}
+
+/* Freshness indicator border */
+.map-room-cell--fresh { border-color: var(--success); }
+.map-room-cell--stale { border-color: #F9C74F; }
+.map-room-cell--old   { border-color: #ccc; }
+
+/* Room type colors */
+.map-room-cell--kueche   { background: #FFF3E8; }
+.map-room-cell--bad       { background: #E8F4FD; }
+.map-room-cell--schlafzimmer { background: #F0E8FD; }
+.map-room-cell--wohnzimmer   { background: #FFF8E1; }
+.map-room-cell--buero     { background: #E8F5E9; }
+.map-room-cell--flur      { background: #FAFAFA; }
+.map-room-cell--keller    { background: #F5F0EB; }
+.map-room-cell--garage    { background: #ECEFF1; }
+.map-room-cell--kinderzimmer { background: #FFF0F5; }
+.map-room-cell--default   { background: var(--surface); }
+
+.map-room-emoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.map-room-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-room-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Room detail (Zoom level 2) */
+.map-room-detail {
+  animation: mapZoomIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes mapZoomIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.map-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-back-btn {
+  border: none;
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 15px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.map-detail-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* Container tiles in room detail */
+.map-container-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.map-container-tile {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 80px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.map-container-tile:active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.map-container-thumb {
+  width: 100%;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.map-container-emoji {
+  font-size: 24px;
+  text-align: center;
+  padding: 10px 0;
+  background: var(--surface);
+  border-radius: 6px;
+}
+
+.map-container-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-container-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.map-empty-state {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 40px 20px;
+  font-size: 15px;
+}

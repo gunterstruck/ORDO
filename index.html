@@ -158,11 +158,16 @@
   <div id="view-brain" class="view">
     <div class="brain-view-header">
       <span class="brain-view-title">🏠 Mein Zuhause</span>
+      <div class="brain-view-toggle" id="brain-view-toggle">
+        <button class="brain-toggle-btn active" data-mode="list">☰</button>
+        <button class="brain-toggle-btn" data-mode="map">⊞</button>
+      </div>
       <button id="brain-scan-rooms" class="brain-scan-btn">📷 Scannen</button>
       <button id="brain-add-room">+ Raum</button>
     </div>
     <div id="brain-breadcrumb" class="brain-breadcrumb" style="display:none"></div>
     <div id="brain-tree"></div>
+    <div id="brain-map" class="map-view" style="display:none"></div>
   </div>
 
   <!-- ── NFC CONTEXT VIEW ────────────────────────── -->

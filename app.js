@@ -1129,9 +1129,18 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
       // Ensure room exists
       ensureRoom(roomId);
 
+      // Build container context for dedup (Mechanism C)
+      let containerContextBlock = '';
+      if (targetContainerId) {
+        const existingItems = Brain.getContainerItemNames(roomId, targetContainerId);
+        if (existingItems.length > 0) {
+          containerContextBlock = `\nDieser Behälter enthält bereits folgende Gegenstände: ${existingItems.join(', ')}. Wenn du einen dieser Gegenstände wiedererkennst, liste ihn NICHT erneut auf. Liste NUR neue Gegenstände, die noch nicht in der Liste stehen.`;
+        }
+      }
+
       const systemPrompt = `Analysiere dieses Foto eines Raums oder Möbelstücks.
 Wenn du ein Möbelstück mit erkennbaren Unterteilungen siehst (Türen, Schubladen, Fächer, Regalböden), bilde die Hierarchie im JSON ab.
-Ein Behälter kann Unterbehälter haben. Nutze das Feld "behaelter" rekursiv.
+Ein Behälter kann Unterbehälter haben. Nutze das Feld "behaelter" rekursiv.${containerContextBlock}
 Antworte NUR mit diesem JSON, nichts anderes:
 {
   "behaelter": [
@@ -1231,7 +1240,7 @@ Regeln:
         const photoDataUrl = e.target.result;
         showPhotoStatus('Erkenne Gegenstände im Foto…', 'loading');
         try {
-          const hotspotsData = await analyzeHotspots(apiKey, base64, mimeType);
+          const hotspotsData = await analyzeHotspots(apiKey, base64, mimeType, roomId, primaryContainerId);
           // Ensure container exists for items to be saved into
           if (!Brain.getContainer(roomId, primaryContainerId)) {
             const containerName = customName || analysis.behaelter?.[0]?.name || 'Inhalt';
@@ -1304,9 +1313,18 @@ function processPhotoAnalysisResult(roomId, analysis) {
 }
 
 // ── HOTSPOT ANALYSIS ────────────────────────────────────
-async function analyzeHotspots(apiKey, base64, mimeType) {
+async function analyzeHotspots(apiKey, base64, mimeType, roomId, containerId) {
+  // Build existing items context for dedup
+  let existingItemsHint = '';
+  if (roomId && containerId) {
+    const existingItems = Brain.getContainerItemNames(roomId, containerId);
+    if (existingItems.length > 0) {
+      existingItemsHint = `\nDieser Behälter enthält bereits: ${existingItems.join(', ')}. Erkenne diese Gegenstände NICHT erneut – liste nur NEUE Gegenstände auf.`;
+    }
+  }
+
   const systemPrompt = `Analysiere dieses Foto eines Aufbewahrungsorts. Identifiziere einzelne, klar unterscheidbare Gegenstände.
-WICHTIG: Versuche NICHT alles zu erkennen. Nur Dinge die du mit Sicherheit als einzelnes Objekt identifizieren kannst.
+WICHTIG: Versuche NICHT alles zu erkennen. Nur Dinge die du mit Sicherheit als einzelnes Objekt identifizieren kannst.${existingItemsHint}
 Antworte NUR mit JSON:
 {
   "hotspots": [
@@ -1486,8 +1504,29 @@ async function confirmHotspotItem() {
     } catch { /* crop failed silently */ }
   }
 
-  // Save item to brain
-  Brain.addItem(roomId, containerId, name);
+  // Dedup: check for similar item in container (Mechanism B)
+  const similarItem = Brain.findSimilarItem(roomId, containerId, name);
+  if (similarItem) {
+    // Update existing item instead of creating a new one
+    Brain.updateExistingItem(roomId, containerId, similarItem.name);
+  } else {
+    // Save new item with spatial position from hotspot
+    const spatialOpts = {};
+    if (hs && hs.position) {
+      spatialOpts.spatial = { position: { x: hs.position.x, y: hs.position.y } };
+    }
+    const data = Brain.getData();
+    const c = Brain._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (c) {
+      Brain._migrateContainerItems(c);
+      const exists = c.items.some(i => Brain.getItemName(i) === name);
+      if (!exists) {
+        c.items.push(Brain.createItemObject(name, spatialOpts));
+        c.last_updated = Date.now();
+        Brain.save(data);
+      }
+    }
+  }
 
   // Mark confirmed
   pickingState.confirmed[hotspotId] = { name, cropId };
@@ -2262,6 +2301,9 @@ function setupBrain() {
   document.getElementById('brain-add-room').addEventListener('click', showAddRoomDialog);
   document.getElementById('brain-scan-rooms').addEventListener('click', startRoomScan);
 
+  // Map view toggle
+  setupMapViewToggle();
+
   // Lightbox close
   const lb = document.getElementById('lightbox');
   document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
@@ -2269,6 +2311,16 @@ function setupBrain() {
 }
 
 function renderBrainView() {
+  // If map mode is active, render map instead
+  if (brainViewMode === 'map') {
+    document.getElementById('brain-tree').style.display = 'none';
+    document.getElementById('brain-map').style.display = '';
+    renderMapView();
+    return;
+  }
+  document.getElementById('brain-tree').style.display = '';
+  document.getElementById('brain-map').style.display = 'none';
+
   const container = document.getElementById('brain-tree');
   const rooms = Brain.getRooms();
   container.innerHTML = '';
@@ -2366,6 +2418,7 @@ function buildContainerNode(roomId, cId, c, depth) {
   const hasItems = activeItems.length > 0;
   const hasChildren = c.containers && Object.keys(c.containers).length > 0;
   el.className = `brain-container ${hasItems ? 'has-items' : 'empty'}`;
+  el.setAttribute('data-container-id', cId);
   if (depth > 0) {
     el.classList.add('brain-container--nested');
     el.style.marginLeft = `${depth * 18}px`;
@@ -2597,6 +2650,230 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
     div.addEventListener('click', () => openCameraForContainer(roomId, cId));
     wrapper.appendChild(div);
   }
+}
+
+// ── MAP VIEW ─────────────────────────────────────────────
+
+let brainViewMode = localStorage.getItem('brain_view_mode') || 'list';
+
+function setupMapViewToggle() {
+  const toggle = document.getElementById('brain-view-toggle');
+  if (!toggle) return;
+  toggle.querySelectorAll('.brain-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      if (mode === brainViewMode) return;
+      brainViewMode = mode;
+      localStorage.setItem('brain_view_mode', mode);
+      toggle.querySelectorAll('.brain-toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (mode === 'map') {
+        document.getElementById('brain-tree').style.display = 'none';
+        document.getElementById('brain-map').style.display = '';
+        renderMapView();
+      } else {
+        document.getElementById('brain-tree').style.display = '';
+        document.getElementById('brain-map').style.display = 'none';
+        renderBrainView();
+      }
+    });
+  });
+
+  // Restore saved mode
+  if (brainViewMode === 'map') {
+    toggle.querySelectorAll('.brain-toggle-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === 'map');
+    });
+  }
+}
+
+function getRoomTypeClass(roomId, roomName) {
+  const n = (roomId + ' ' + roomName).toLowerCase();
+  if (n.includes('kueche') || n.includes('küche') || n.includes('kitchen')) return 'kueche';
+  if (n.includes('bad') || n.includes('bath') || n.includes('wc') || n.includes('dusche')) return 'bad';
+  if (n.includes('schlaf') || n.includes('bedroom')) return 'schlafzimmer';
+  if (n.includes('wohn') || n.includes('living')) return 'wohnzimmer';
+  if (n.includes('buero') || n.includes('büro') || n.includes('arbeit') || n.includes('office')) return 'buero';
+  if (n.includes('flur') || n.includes('diele') || n.includes('hall')) return 'flur';
+  if (n.includes('keller') || n.includes('basement')) return 'keller';
+  if (n.includes('garage')) return 'garage';
+  if (n.includes('kinder') || n.includes('kids')) return 'kinderzimmer';
+  return 'default';
+}
+
+function getFreshnessClass(lastUpdated) {
+  if (!lastUpdated) return 'old';
+  const ageMs = Date.now() - lastUpdated;
+  const oneMonth = 30 * 24 * 60 * 60 * 1000;
+  const sixMonths = 6 * oneMonth;
+  if (ageMs < oneMonth) return 'fresh';
+  if (ageMs < sixMonths) return 'stale';
+  return 'old';
+}
+
+function countRoomItems(room) {
+  let count = 0;
+  function countInContainers(containers) {
+    for (const c of Object.values(containers || {})) {
+      count += (c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert').length;
+      if (c.containers) countInContainers(c.containers);
+    }
+  }
+  countInContainers(room.containers);
+  return count;
+}
+
+function renderMapView() {
+  const mapEl = document.getElementById('brain-map');
+  if (!mapEl) return;
+  mapEl.innerHTML = '';
+
+  const rooms = Brain.getRooms();
+
+  if (Object.keys(rooms).length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'map-empty-state';
+    empty.textContent = 'Noch keine Räume angelegt. Starte mit einem Foto!';
+    mapEl.appendChild(empty);
+    return;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'map-grid';
+  grid.id = 'map-grid';
+
+  for (const [roomId, room] of Object.entries(rooms)) {
+    const cell = document.createElement('div');
+    const typeClass = getRoomTypeClass(roomId, room.name);
+    const freshClass = getFreshnessClass(room.last_updated);
+    cell.className = `map-room-cell map-room-cell--${typeClass} map-room-cell--${freshClass}`;
+
+    const emoji = document.createElement('div');
+    emoji.className = 'map-room-emoji';
+    emoji.textContent = room.emoji || '🏠';
+
+    const name = document.createElement('div');
+    name.className = 'map-room-name';
+    name.textContent = room.name;
+
+    const itemCount = countRoomItems(room);
+    const containerCount = Brain.countContainers(room.containers);
+    const count = document.createElement('div');
+    count.className = 'map-room-count';
+    count.textContent = `${containerCount} Bereiche · ${itemCount} Dinge`;
+
+    cell.appendChild(emoji);
+    cell.appendChild(name);
+    cell.appendChild(count);
+
+    cell.addEventListener('click', () => renderMapRoomDetail(roomId));
+    grid.appendChild(cell);
+  }
+
+  mapEl.appendChild(grid);
+}
+
+function renderMapRoomDetail(roomId) {
+  const mapEl = document.getElementById('brain-map');
+  if (!mapEl) return;
+  const room = Brain.getRoom(roomId);
+  if (!room) return;
+
+  mapEl.innerHTML = '';
+
+  const detail = document.createElement('div');
+  detail.className = 'map-room-detail';
+
+  // Header with back button
+  const header = document.createElement('div');
+  header.className = 'map-detail-header';
+
+  const backBtn = document.createElement('button');
+  backBtn.className = 'map-back-btn';
+  backBtn.textContent = '← Zurück';
+  backBtn.addEventListener('click', () => renderMapView());
+
+  const title = document.createElement('span');
+  title.className = 'map-detail-title';
+  title.textContent = `${room.emoji} ${room.name}`;
+
+  header.appendChild(backBtn);
+  header.appendChild(title);
+  detail.appendChild(header);
+
+  const containers = Object.entries(room.containers || {});
+  if (containers.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'map-empty-state';
+    empty.textContent = 'Noch keine Bereiche erfasst.';
+    detail.appendChild(empty);
+  } else {
+    const grid = document.createElement('div');
+    grid.className = 'map-container-grid';
+
+    for (const [cId, c] of containers) {
+      const tile = document.createElement('div');
+      tile.className = 'map-container-tile';
+
+      // Photo thumbnail or emoji
+      if (c.has_photo) {
+        const thumb = document.createElement('img');
+        thumb.className = 'map-container-thumb';
+        thumb.alt = c.name;
+        // Load async
+        (async () => {
+          try {
+            const photoKey = Brain.getLatestPhotoKey(roomId, cId);
+            let blob = await Brain.getPhoto(photoKey);
+            if (!blob) blob = await Brain.getPhoto(`${roomId}_${cId}`);
+            if (blob) thumb.src = URL.createObjectURL(blob);
+          } catch { /* ignore */ }
+        })();
+        tile.appendChild(thumb);
+      } else {
+        const emojiDiv = document.createElement('div');
+        emojiDiv.className = 'map-container-emoji';
+        emojiDiv.textContent = getContainerTypeEmoji(c.typ);
+        tile.appendChild(emojiDiv);
+      }
+
+      const name = document.createElement('div');
+      name.className = 'map-container-name';
+      name.textContent = c.name;
+
+      const itemCount = (c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert').length;
+      const meta = document.createElement('div');
+      meta.className = 'map-container-meta';
+      const parts = [`${itemCount} Dinge`];
+      if (c.last_updated) parts.push(Brain.formatDate(c.last_updated));
+      meta.textContent = parts.join(' · ');
+
+      tile.appendChild(name);
+      tile.appendChild(meta);
+
+      tile.addEventListener('click', () => {
+        // Switch to list view and navigate to container
+        brainViewMode = 'list';
+        localStorage.setItem('brain_view_mode', 'list');
+        const toggle = document.getElementById('brain-view-toggle');
+        if (toggle) toggle.querySelectorAll('.brain-toggle-btn').forEach(b =>
+          b.classList.toggle('active', b.dataset.mode === 'list'));
+        document.getElementById('brain-tree').style.display = '';
+        document.getElementById('brain-map').style.display = 'none';
+        renderBrainView();
+        // Try to expand and scroll to the container
+        setTimeout(() => {
+          const containerEl = document.querySelector(`[data-container-id="${cId}"]`);
+          if (containerEl) containerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+      });
+
+      grid.appendChild(tile);
+    }
+    detail.appendChild(grid);
+  }
+
+  mapEl.appendChild(detail);
 }
 
 // ── BREADCRUMB NAVIGATION ──────────────────────────────
