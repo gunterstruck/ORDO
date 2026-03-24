@@ -116,11 +116,12 @@ const Brain = {
             const res = await fetch(dataUrl);
             const blob = await res.blob();
             await this.savePhoto(id, blob);
-          } catch { /* skip failed photos */ }
+          } catch (err) { if (typeof debugLog === 'function') debugLog(`Import-Foto fehlgeschlagen (${id}): ${err.message}`); }
         }
       }
       return true;
-    } catch {
+    } catch (err) {
+      if (typeof debugLog === 'function') debugLog(`Import fehlgeschlagen: ${err.message}`);
       return false;
     }
   },
@@ -130,11 +131,24 @@ const Brain = {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       const data = raw ? JSON.parse(raw) : null;
-      if (data) this._cache = data;
-      return data;
-    } catch {
-      this._cache = null;
+      if (data) {
+        this._cache = data;
+        return data;
+      }
       return null;
+    } catch (err) {
+      if (typeof debugLog === 'function') debugLog(`getData: JSON-Parse fehlgeschlagen – ${err.message}`);
+      this._cache = null;
+      // Corrupted data – reinitialize with fresh structure
+      const fresh = {
+        version: '1.3',
+        created: Date.now(),
+        rooms: {},
+        chat_history: [],
+        last_updated: Date.now()
+      };
+      this.save(fresh);
+      return this._cache;
     }
   },
 
@@ -164,7 +178,7 @@ const Brain = {
       existing.version = '1.3';
       this.save(existing);
     }
-    this.initPhotoDB().catch(() => {});
+    this.initPhotoDB().catch(err => { if (typeof debugLog === 'function') debugLog(`IndexedDB init fehlgeschlagen: ${err.message}`); });
     // Listen for external changes (other tabs)
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('storage', e => {

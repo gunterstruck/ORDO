@@ -216,7 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
 
-  navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+  navigator.serviceWorker.register('./service-worker.js').catch(err => { debugLog(`Service Worker Registrierung fehlgeschlagen: ${err.message}`); });
 
   // Guard gegen doppelten Reload (controllerchange + statechange können gleichzeitig feuern)
   let reloading = false;
@@ -292,7 +292,7 @@ function setupChatCamera() {
     if (!file) return;
 
     if (file.size > 4 * 1024 * 1024) {
-      appendMessage('assistant', 'Foto zu groß – bitte ein kleineres wählen.');
+      showToast('Foto zu groß – bitte ein kleineres wählen.', 'error');
       return;
     }
 
@@ -305,7 +305,8 @@ function setupChatCamera() {
       document.getElementById('chat-photo-preview').hidden = false;
       document.getElementById('chat-input').focus();
     } catch {
-      appendMessage('assistant', 'Foto konnte nicht geladen werden.');
+      debugLog('Chat-Foto konnte nicht geladen werden');
+      showToast('Foto konnte nicht geladen werden.', 'error');
     }
   });
 
@@ -547,7 +548,7 @@ function handleSaveResponse(response) {
       analysis = JSON.parse(jsonMatch[0]);
       roomId = analysis.raumId || 'sonstiges';
     }
-  } catch { /* JSON nicht parsebar → kein Speichern-Button */ }
+  } catch (err) { debugLog(`Legacy-SAVE JSON nicht parsebar: ${err.message}`); }
 
   if (!analysis) return;
 
@@ -606,7 +607,7 @@ function processMarkers(text) {
       } else {
         actions.push(marker);
       }
-    } catch { /* ignore malformed markers */ }
+    } catch (err) { debugLog(`ORDO-Marker ungültig: ${err.message} – ${jsonStr.slice(0, 100)}`); }
     return '';
   });
 
@@ -617,7 +618,7 @@ function processMarkers(text) {
       // Convert legacy SAVE format to ORDO format
       const converted = convertLegacySaveToOrdo(action);
       if (converted) actions.push(converted);
-    } catch { /* ignore */ }
+    } catch (err) { debugLog(`Legacy-SAVE Marker ungültig: ${err.message}`); }
     return '';
   });
 
@@ -628,7 +629,7 @@ function processMarkers(text) {
       // Convert legacy ACTION format to ORDO format
       const converted = convertLegacyActionToOrdo(action);
       if (converted) actions.push(converted);
-    } catch { /* ignore */ }
+    } catch (err) { debugLog(`Legacy-ACTION Marker ungültig: ${err.message}`); }
     return '';
   });
 
@@ -639,7 +640,7 @@ function processMarkers(text) {
       if (item.room && item.container) {
         foundItems.push({ type: 'found', room: item.room, path: [item.container], item: item.item });
       }
-    } catch { /* ignore */ }
+    } catch (err) { debugLog(`Legacy-FOUND Marker ungültig: ${err.message}`); }
     return '';
   });
 
@@ -922,7 +923,7 @@ async function renderFoundPhotoButtons(msgDiv, foundItems) {
       }
     }
 
-    btn.innerHTML = `\uD83D\uDCF7 ${foundItems.length > 1 ? locationName + ' ansehen' : 'Foto ansehen'}`;
+    btn.textContent = `\uD83D\uDCF7 ${foundItems.length > 1 ? locationName + ' ansehen' : 'Foto ansehen'}`;
     if (dateLabel) {
       const dateSpan = document.createElement('span');
       dateSpan.className = 'chat-proof-date' + (isVeryOld ? ' chat-proof-date--old' : isOld ? ' chat-proof-date--warn' : '');
@@ -1010,7 +1011,6 @@ function setupPhoto() {
     const customName = document.getElementById('photo-custom-name').value.trim();
     const containerId = customName ? Brain.slugify(customName) : 'inhalt';
     stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
-    showStagingOverlay(customName ? `📷 ${customName}` : '📷 Fotos sammeln');
     document.getElementById('photo-input-camera').click();
   });
   document.getElementById('photo-gallery-btn').addEventListener('click', () => {
@@ -1019,18 +1019,31 @@ function setupPhoto() {
     const customName = document.getElementById('photo-custom-name').value.trim();
     const containerId = customName ? Brain.slugify(customName) : 'inhalt';
     stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
-    showStagingOverlay(customName ? `📷 ${customName}` : '📷 Fotos sammeln');
     document.getElementById('photo-input-gallery').click();
   });
-  // Both hidden inputs feed into the staging area
+  // Both hidden inputs feed into the staging area – open overlay only after file selection
   document.getElementById('photo-input-camera').addEventListener('change', e => {
-    if (e.target.files[0]) addFileToStaging(e.target.files[0]);
-    else if (stagedPhotos.length === 0) closeStagingOverlay();
+    if (e.target.files[0]) {
+      if (!document.getElementById('staging-overlay').style.display || document.getElementById('staging-overlay').style.display === 'none') {
+        const title = stagingTarget?.containerName ? `📷 ${stagingTarget.containerName}` : '📷 Fotos sammeln';
+        showStagingOverlay(title);
+      }
+      addFileToStaging(e.target.files[0]);
+    } else {
+      if (stagedPhotos.length === 0) { closeStagingOverlay(); stagingTarget = null; }
+    }
     e.target.value = '';
   });
   document.getElementById('photo-input-gallery').addEventListener('change', e => {
-    if (e.target.files[0]) addFileToStaging(e.target.files[0]);
-    else if (stagedPhotos.length === 0) closeStagingOverlay();
+    if (e.target.files[0]) {
+      if (!document.getElementById('staging-overlay').style.display || document.getElementById('staging-overlay').style.display === 'none') {
+        const title = stagingTarget?.containerName ? `📷 ${stagingTarget.containerName}` : '📷 Fotos sammeln';
+        showStagingOverlay(title);
+      }
+      addFileToStaging(e.target.files[0]);
+    } else {
+      if (stagedPhotos.length === 0) { closeStagingOverlay(); stagingTarget = null; }
+    }
     e.target.value = '';
   });
 }
@@ -1850,7 +1863,7 @@ async function analyzeAllStagedPhotos() {
   analyzeBtn.textContent = 'Analysiere…';
 
   try {
-    ensureRoomExists(roomId);
+    ensureRoom(roomId);
 
     // Check if container already has items → Delta mode
     const existingContainer = Brain.getContainer(roomId, containerId);
@@ -1996,9 +2009,6 @@ Regeln:
     showToast(getErrorMessage(err), 'error');
   }
 }
-
-// ensureRoomExists → alias for ensureRoom (backwards compat)
-function ensureRoomExists(roomId) { ensureRoom(roomId); }
 
 // ── REVIEW OVERLAY ─────────────────────────────────────
 function setupReviewOverlay() {
@@ -2279,7 +2289,7 @@ function confirmReview() {
   const { roomId, containerId, containerName, items, mode, deltaData } = reviewState;
   const isOnboarding = reviewState.onboardingFlow;
 
-  ensureRoomExists(roomId);
+  ensureRoom(roomId);
   if (!Brain.getContainer(roomId, containerId)) {
     Brain.addContainer(roomId, containerId, containerName || containerId, 'sonstiges', [], true);
   }
@@ -2614,8 +2624,13 @@ function buildContainerNode(roomId, cId, c, depth) {
       chip.className = 'brain-chip brain-chip--archived';
       chip.textContent = item.name;
       chip.title = item.archived_at ? `Archiviert am ${Brain.formatDate(new Date(item.archived_at).getTime())}` : 'Archiviert';
-      chip.addEventListener('click', () => {
-        if (confirm(`"${item.name}" wiederherstellen?`)) {
+      chip.addEventListener('click', async () => {
+        const ok = await showConfirmModal({
+          title: 'Wiederherstellen',
+          description: `"${item.name}" wiederherstellen?`,
+          confirmLabel: 'Wiederherstellen'
+        });
+        if (ok) {
           Brain.restoreItem(roomId, cId, item.name);
           renderBrainView();
         }
@@ -2717,7 +2732,7 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
     blob = await Brain.getPhoto(photoKey);
     // Fallback to legacy key
     if (!blob) blob = await Brain.getPhoto(`${roomId}_${cId}`);
-  } catch { /* IndexedDB not available */ }
+  } catch (err) { debugLog(`Thumbnail laden fehlgeschlagen (IndexedDB): ${err.message}`); }
 
   if (blob) {
     const objectUrl = URL.createObjectURL(blob);
@@ -2932,7 +2947,7 @@ function renderMapRoomDetail(roomId) {
             let blob = await Brain.getPhoto(photoKey);
             if (!blob) blob = await Brain.getPhoto(`${roomId}_${cId}`);
             if (blob) thumb.src = URL.createObjectURL(blob);
-          } catch { /* ignore */ }
+          } catch (err) { debugLog(`Map-Thumbnail laden fehlgeschlagen: ${err.message}`); }
         })();
         tile.appendChild(thumb);
       } else {
@@ -3197,10 +3212,15 @@ async function renderNfcContextView() {
   // Empty state
   if (!hasContent && !(await Brain.findBestPhoto(roomId, containerId))) {
     emptyArea.style.display = 'block';
-    emptyArea.innerHTML = `
-      <p class="nfc-ctx-empty-text">Dieser Bereich ist noch leer.</p>
-      <p class="nfc-ctx-empty-hint">Mach ein Foto vom geöffneten Bereich und ich merke mir was drin ist.</p>
-    `;
+    emptyArea.textContent = '';
+    const emptyP = document.createElement('p');
+    emptyP.className = 'nfc-ctx-empty-text';
+    emptyP.textContent = 'Dieser Bereich ist noch leer.';
+    const hintP = document.createElement('p');
+    hintP.className = 'nfc-ctx-empty-hint';
+    hintP.textContent = 'Mach ein Foto vom geöffneten Bereich und ich merke mir was drin ist.';
+    emptyArea.appendChild(emptyP);
+    emptyArea.appendChild(hintP);
     document.getElementById('nfc-ctx-photo-btn-label').textContent = '📷 Erstes Foto machen';
   } else {
     document.getElementById('nfc-ctx-photo-btn-label').textContent = '📷 Foto aktualisieren';
@@ -3259,7 +3279,7 @@ async function showPhotoTimeline(roomId, containerId) {
       card.appendChild(img);
       card.appendChild(date);
       grid.appendChild(card);
-    } catch { /* skip */ }
+    } catch (err) { debugLog(`Timeline-Foto laden fehlgeschlagen: ${err.message}`); }
   }
 }
 
@@ -3516,6 +3536,19 @@ function setupSettings() {
     }
   });
 
+  // API key visibility toggle
+  document.getElementById('settings-api-key-toggle').addEventListener('click', () => {
+    const input = document.getElementById('settings-api-key');
+    const btn = document.getElementById('settings-api-key-toggle');
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = '🙈';
+    } else {
+      input.type = 'password';
+      btn.textContent = '👁️';
+    }
+  });
+
   document.getElementById('settings-export').addEventListener('click', async () => {
     await Brain.exportData(async (sizeMB) => {
       return showConfirmModal({
@@ -3751,7 +3784,7 @@ function toggleMic() {
   }
 
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    appendMessage('assistant', 'Spracheingabe wird von diesem Browser nicht unterstützt.');
+    showToast('Spracheingabe wird von diesem Browser nicht unterstützt.', 'warning');
     return;
   }
 
@@ -3854,7 +3887,8 @@ async function callGemini(apiKey, systemPrompt, messages) {
     const rawText = await response.text().catch(() => '');
     debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
     if (response.status === 429) throw new Error('quota');
-    if (response.status === 400 || response.status === 403) throw new Error('api_key');
+    if (response.status === 403) throw new Error('api_key');
+    if (response.status === 400) throw new Error('bad_request');
     throw new Error(`HTTP ${response.status}`);
   }
 
@@ -3871,7 +3905,8 @@ async function callGemini(apiKey, systemPrompt, messages) {
 
 function getErrorMessage(err) {
   if (err.message === 'offline') return 'Ich bin gerade offline. Deine gespeicherten Infos kann ich dir trotzdem zeigen.';
-  if (err.message === 'api_key') return 'API Key ungültig oder nicht gesetzt. Bitte in den Einstellungen prüfen.';
+  if (err.message === 'api_key') return 'API Key ungültig oder abgelaufen. Bitte in den Einstellungen prüfen.';
+  if (err.message === 'bad_request') return 'Anfrage ungültig – Foto zu groß oder falsches Format. Bitte ein anderes Foto versuchen.';
   if (err.message === 'quota') return 'Tageslimit der kostenlosen Google AI API erreicht (429). Bitte morgen wieder versuchen oder ein bezahltes Konto nutzen.';
   if (err.message === 'safety_block') return 'Das Foto wurde vom Sicherheitsfilter blockiert. Bitte ein anderes Foto versuchen.';
   if (err.message === 'max_tokens') return 'Antwort zu lang – bitte ein übersichtlicheres Foto wählen.';
@@ -4291,7 +4326,7 @@ async function uploadVideoToGemini(apiKey, file, onProgress) {
 async function deleteGeminiFile(apiKey, fileName) {
   try {
     await fetch(`${FILE_API_GET_URL}/${fileName}?key=${apiKey}`, { method: 'DELETE' });
-  } catch { /* best effort cleanup */ }
+  } catch (err) { debugLog(`Gemini-Datei löschen fehlgeschlagen: ${err.message}`); }
 }
 
 async function onRoomScanVideo(e) {
@@ -4397,9 +4432,22 @@ function renderScannedRoomCards() {
     // Header with emoji, name, delete
     const header = document.createElement('div');
     header.className = 'onboarding-room-card-header';
-    header.innerHTML = `<span class="onboarding-room-card-emoji">${room.emoji}</span>
-      <input type="text" class="onboarding-room-card-name" value="${room.name}" data-room-idx="${roomIdx}">
-      <button class="onboarding-room-card-delete" data-room-idx="${roomIdx}" aria-label="Raum entfernen">✕</button>`;
+    const emojiSpan = document.createElement('span');
+    emojiSpan.className = 'onboarding-room-card-emoji';
+    emojiSpan.textContent = room.emoji;
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'onboarding-room-card-name';
+    nameInput.value = room.name;
+    nameInput.dataset.roomIdx = roomIdx;
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'onboarding-room-card-delete';
+    deleteBtn.dataset.roomIdx = roomIdx;
+    deleteBtn.setAttribute('aria-label', 'Raum entfernen');
+    deleteBtn.textContent = '✕';
+    header.appendChild(emojiSpan);
+    header.appendChild(nameInput);
+    header.appendChild(deleteBtn);
     card.appendChild(header);
 
     // Container list
@@ -4410,8 +4458,16 @@ function renderScannedRoomCards() {
         const chip = document.createElement('div');
         chip.className = 'onboarding-container-chip';
         const typeEmoji = { schrank: '🗄️', regal: '📚', schublade: '🗃️', kiste: '📦', tisch: '🪑', kommode: '🪟', sonstiges: '📁' };
-        chip.innerHTML = `<span>${typeEmoji[c.typ] || '📁'} ${c.name}</span>
-          <button class="onboarding-container-chip-delete" data-room-idx="${roomIdx}" data-c-idx="${cIdx}" aria-label="Entfernen">✕</button>`;
+        const chipLabel = document.createElement('span');
+        chipLabel.textContent = `${typeEmoji[c.typ] || '📁'} ${c.name}`;
+        const chipDelete = document.createElement('button');
+        chipDelete.className = 'onboarding-container-chip-delete';
+        chipDelete.dataset.roomIdx = roomIdx;
+        chipDelete.dataset.cIdx = cIdx;
+        chipDelete.setAttribute('aria-label', 'Entfernen');
+        chipDelete.textContent = '✕';
+        chip.appendChild(chipLabel);
+        chip.appendChild(chipDelete);
         list.appendChild(chip);
       });
       card.appendChild(list);

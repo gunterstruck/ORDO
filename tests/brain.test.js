@@ -568,11 +568,13 @@ describe('Brain – Datenpersistenz', () => {
     assert(data.rooms.test !== undefined);
   });
 
-  it('getData() gibt null bei korruptem JSON', () => {
+  it('getData() erholt sich bei korruptem JSON', () => {
     Brain._cache = null;
     localStorage.setItem('haushalt_data', 'not valid json{{{');
     const data = Brain.getData();
-    assertEqual(data, null);
+    assert(data !== null, 'getData() sollte nie null zurückgeben bei korruptem JSON');
+    assertEqual(typeof data, 'object');
+    assert(data.rooms !== undefined, 'Erholtene Daten sollten rooms haben');
     resetBrain(); // Reparieren
   });
 
