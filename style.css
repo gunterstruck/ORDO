@@ -1430,6 +1430,53 @@ select.settings-input { appearance: none; }
   50% { box-shadow: 0 0 0 11px rgba(232, 168, 124, 0), 0 2px 8px rgba(0, 0, 0, 0.45); }
 }
 
+.picking-hotspot--uncertain {
+  background: rgba(158, 158, 158, 0.75);
+  animation: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  font-size: 18px;
+  color: white;
+  font-weight: bold;
+}
+
+.picking-hotspot--uncertain.picking-hotspot--active {
+  background: rgba(120, 120, 120, 0.9);
+  box-shadow: 0 2px 10px rgba(120, 120, 120, 0.5);
+}
+
+/* Uncertain hotspot decision buttons */
+.picking-uncertain-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.picking-uncertain-btn {
+  flex: 1;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.picking-uncertain-btn--infra {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.picking-uncertain-btn--item {
+  background: var(--accent, #e8a87c);
+  color: white;
+  border-color: var(--accent, #e8a87c);
+}
+
 /* Summary text below photo */
 .picking-summary {
   padding: 10px 16px;

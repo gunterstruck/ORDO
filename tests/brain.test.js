@@ -49,6 +49,7 @@ const Brain = context.Brain;
 function resetBrain() {
   localStorage.clear();
   Brain._cache = null;
+  Brain._globalInfraCache = null;
   Brain.init();
 }
 
@@ -1127,6 +1128,116 @@ describe('Brain.updateExistingItem()', () => {
     Brain.addItem('kueche', 'schrank', 'Schere');
     const result = Brain.updateExistingItem('kueche', 'schrank', 'Fernseher');
     assertEqual(result, false);
+  });
+});
+
+// ── Infrastructure Ignore ────────────────────────────────
+describe('Brain.addInfrastructureIgnore()', () => {
+  it('fügt Infrastruktur-Eintrag zum Container hinzu', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const result = Brain.addInfrastructureIgnore('kueche', 'schrank', 'Metallgriff');
+    assertEqual(result, true);
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertEqual(c.infrastructure_ignore.length, 1);
+    assertEqual(c.infrastructure_ignore[0].name, 'Metallgriff');
+    assert(c.infrastructure_ignore[0].marked_at !== undefined, 'marked_at sollte gesetzt sein');
+  });
+
+  it('verhindert Duplikate', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addInfrastructureIgnore('kueche', 'schrank', 'Metallgriff');
+    const result = Brain.addInfrastructureIgnore('kueche', 'schrank', 'Metallgriff');
+    assertEqual(result, false);
+    const c = Brain.getContainer('kueche', 'schrank');
+    assertEqual(c.infrastructure_ignore.length, 1);
+  });
+
+  it('gibt false bei leerem Namen', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const result = Brain.addInfrastructureIgnore('kueche', 'schrank', '  ');
+    assertEqual(result, false);
+  });
+
+  it('gibt false bei nicht-existentem Container', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    const result = Brain.addInfrastructureIgnore('kueche', 'gibts_nicht', 'Griff');
+    assertEqual(result, false);
+  });
+});
+
+describe('Brain.getInfrastructureIgnoreList()', () => {
+  it('gibt Namen-Array zurück', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addInfrastructureIgnore('kueche', 'schrank', 'Metallgriff');
+    Brain.addInfrastructureIgnore('kueche', 'schrank', 'Scharnier links');
+    const list = Brain.getInfrastructureIgnoreList('kueche', 'schrank');
+    assertEqual(list.length, 2);
+    assertIncludes(list, 'Metallgriff');
+    assertIncludes(list, 'Scharnier links');
+  });
+
+  it('gibt leeres Array wenn nichts markiert', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const list = Brain.getInfrastructureIgnoreList('kueche', 'schrank');
+    assertDeepEqual(list, []);
+  });
+
+  it('crasht nicht bei Container ohne infrastructure_ignore (alte Daten)', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    // Manuell das Feld entfernen um alte Daten zu simulieren
+    const data = Brain.getData();
+    delete data.rooms['kueche'].containers['schrank'].infrastructure_ignore;
+    Brain.save(data);
+    Brain.invalidateCache();
+    const list = Brain.getInfrastructureIgnoreList('kueche', 'schrank');
+    assertDeepEqual(list, []);
+  });
+});
+
+describe('Brain.getGlobalInfrastructure()', () => {
+  it('gibt nur Namen zurück die in 3+ Containern vorkommen', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addRoom('bad', 'Bad', '🚿');
+    Brain.addRoom('schlafzimmer', 'Schlafzimmer', '🛏️');
+    Brain.addContainer('kueche', 'schrank1', 'Schrank 1', 'schrank');
+    Brain.addContainer('kueche', 'schrank2', 'Schrank 2', 'schrank');
+    Brain.addContainer('bad', 'schrank3', 'Badschrank', 'schrank');
+    Brain.addContainer('schlafzimmer', 'schrank4', 'Kleiderschrank', 'schrank');
+
+    // Metallgriff in 3 Containern
+    Brain.addInfrastructureIgnore('kueche', 'schrank1', 'Metallgriff');
+    Brain.addInfrastructureIgnore('kueche', 'schrank2', 'Metallgriff');
+    Brain.addInfrastructureIgnore('bad', 'schrank3', 'Metallgriff');
+
+    // Scharnier nur in 2 Containern
+    Brain.addInfrastructureIgnore('kueche', 'schrank1', 'Scharnier');
+    Brain.addInfrastructureIgnore('bad', 'schrank3', 'Scharnier');
+
+    const global = Brain.getGlobalInfrastructure();
+    assertIncludes(global, 'Metallgriff');
+    assertNotIncludes(global, 'Scharnier');
+  });
+
+  it('gibt leeres Array wenn keine Infrastruktur markiert', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const global = Brain.getGlobalInfrastructure();
+    assertDeepEqual(global, []);
   });
 });
 
