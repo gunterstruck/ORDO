@@ -608,6 +608,38 @@ html, body {
   50% { opacity: 0.7; }
 }
 
+/* Freshness states for item chips */
+.brain-chip--fresh {
+  /* Default look – full accent color, exists for completeness */
+}
+
+.brain-chip--stale {
+  background: rgba(232, 168, 124, 0.45);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+.brain-chip--stale:active { opacity: 0.5; }
+
+.brain-chip--ghost {
+  background: var(--border, #E0E0E0);
+  color: #999;
+  opacity: 0.6;
+  box-shadow: none;
+}
+.brain-chip--ghost:active { opacity: 0.4; }
+
+.brain-chip--unconfirmed {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1.5px dashed var(--border);
+}
+
+.brain-freshness-hint {
+  margin-left: 6px;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
 .brain-chip--archived {
   background: var(--bg-secondary, #e9ecef);
   color: var(--text-muted);

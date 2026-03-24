@@ -2598,8 +2598,24 @@ function buildContainerNode(roomId, cId, c, depth) {
     const name = Brain.getItemName(item);
     const menge = typeof item === 'string' ? (c.quantities?.[item] || 1) : (item.menge || 1);
     const isVermisst = typeof item !== 'string' && item.status === 'vermisst';
-    chip.className = 'brain-chip' + (isVermisst ? ' brain-chip--vermisst' : '');
-    chip.textContent = (menge > 1 ? `${menge}x ` : '') + name + (isVermisst ? ' ⚠' : '');
+    const freshness = Brain.getItemFreshness(item);
+
+    chip.className = 'brain-chip';
+    if (isVermisst) {
+      chip.classList.add('brain-chip--vermisst');
+    } else {
+      chip.classList.add('brain-chip--' + freshness);
+    }
+
+    const prefix = freshness === 'ghost' ? '👻 '
+                 : freshness === 'stale' ? '⏱ '
+                 : '';
+    chip.textContent = (menge > 1 ? `${menge}x ` : '') + prefix + name + (isVermisst ? ' ⚠' : '');
+
+    if (freshness === 'unconfirmed') {
+      chip.title = 'Noch nie per Foto bestätigt';
+    }
+
     chip.addEventListener('click', () => {
       showView('chat');
       const input = document.getElementById('chat-input');
@@ -2609,6 +2625,21 @@ function buildContainerNode(roomId, cId, c, depth) {
     setupLongPress(chip, () => showItemContextMenu(roomId, cId, name));
     chips.appendChild(chip);
   });
+
+  // Container freshness hint – show if all items are ghost or unconfirmed
+  if (activeItems.length > 0) {
+    const staleCount = activeItems.filter(item => {
+      const f = Brain.getItemFreshness(item);
+      return f === 'ghost' || f === 'stale' || f === 'unconfirmed';
+    }).length;
+    if (staleCount === activeItems.length) {
+      const hint = document.createElement('span');
+      hint.className = 'brain-freshness-hint';
+      hint.textContent = '📷';
+      hint.title = 'Längere Zeit nicht aktualisiert';
+      headerLeft.appendChild(hint);
+    }
+  }
 
   // Show archived items toggle
   if (archivedItems.length > 0) {
