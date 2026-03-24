@@ -1284,6 +1284,62 @@ describe('Brain.getGlobalInfrastructure()', () => {
   });
 });
 
+// ── getItemFreshness ────────────────────────────────────
+describe('getItemFreshness', () => {
+  function daysAgo(n) {
+    return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '');
+  }
+
+  it('gibt "fresh" für Item mit last_seen vor 5 Tagen', () => {
+    const item = Brain.createItemObject('Tasse', { last_seen: daysAgo(5) });
+    assertEqual(Brain.getItemFreshness(item), 'fresh');
+  });
+
+  it('gibt "fresh" für Item mit last_seen heute (0 Tage)', () => {
+    const item = Brain.createItemObject('Löffel', { last_seen: daysAgo(0) });
+    assertEqual(Brain.getItemFreshness(item), 'fresh');
+  });
+
+  it('gibt "stale" für Item mit last_seen vor 45 Tagen', () => {
+    const item = Brain.createItemObject('Gabel', { last_seen: daysAgo(45) });
+    assertEqual(Brain.getItemFreshness(item), 'stale');
+  });
+
+  it('gibt "stale" für Item mit last_seen genau 30 Tage her', () => {
+    const item = Brain.createItemObject('Messer', { last_seen: daysAgo(30) });
+    assertEqual(Brain.getItemFreshness(item), 'stale');
+  });
+
+  it('gibt "ghost" für Item mit last_seen vor 120 Tagen', () => {
+    const item = Brain.createItemObject('Teller', { last_seen: daysAgo(120) });
+    assertEqual(Brain.getItemFreshness(item), 'ghost');
+  });
+
+  it('gibt "ghost" für Item mit last_seen genau 90 Tage her', () => {
+    const item = Brain.createItemObject('Schüssel', { last_seen: daysAgo(90) });
+    assertEqual(Brain.getItemFreshness(item), 'ghost');
+  });
+
+  it('gibt "unconfirmed" für Item mit last_seen null', () => {
+    const item = Brain.createItemObject('Topf', { last_seen: null });
+    assertEqual(Brain.getItemFreshness(item), 'unconfirmed');
+  });
+
+  it('gibt "unconfirmed" für String-Item (nicht migriert)', () => {
+    assertEqual(Brain.getItemFreshness('Altes Item'), 'unconfirmed');
+  });
+
+  it('gibt "unconfirmed" für migriertes Item (last_seen null)', () => {
+    const item = Brain.migrateItem('Legacy', {});
+    assertEqual(Brain.getItemFreshness(item), 'unconfirmed');
+  });
+
+  it('gibt "unconfirmed" für null/undefined', () => {
+    assertEqual(Brain.getItemFreshness(null), 'unconfirmed');
+    assertEqual(Brain.getItemFreshness(undefined), 'unconfirmed');
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

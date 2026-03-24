@@ -463,6 +463,18 @@ const Brain = {
     return typeof item === 'string' ? item : (item?.name || '');
   },
 
+  // Calculate freshness state based on last_seen timestamp
+  // Returns: "fresh" | "stale" | "ghost" | "unconfirmed"
+  getItemFreshness(item) {
+    if (typeof item === 'string') return 'unconfirmed';
+    if (!item || !item.last_seen) return 'unconfirmed';
+    const diffMs = Date.now() - new Date(item.last_seen).getTime();
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    if (diffDays < 30) return 'fresh';
+    if (diffDays < 90) return 'stale';
+    return 'ghost';
+  },
+
   // Create a new item object
   createItemObject(name, opts) {
     if (!opts) opts = {};
