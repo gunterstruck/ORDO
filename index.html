@@ -241,14 +241,17 @@
     <div class="settings-section">
       <div class="settings-section-title">API</div>
       <label class="settings-label" for="settings-api-key">Google AI API Key</label>
-      <input
-        type="password"
-        id="settings-api-key"
-        class="settings-input"
-        placeholder="AIza…"
-        autocomplete="off"
-        aria-label="API Key"
-      >
+      <div class="settings-api-key-row">
+        <input
+          type="password"
+          id="settings-api-key"
+          class="settings-input"
+          placeholder="AIza…"
+          autocomplete="off"
+          aria-label="API Key"
+        >
+        <button id="settings-api-key-toggle" class="settings-eye-btn" type="button" aria-label="Key anzeigen/verbergen">👁️</button>
+      </div>
       <button id="settings-save-key" class="settings-btn settings-btn--primary">Speichern</button>
     </div>
 
