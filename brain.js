@@ -188,15 +188,17 @@ const Brain = {
     return this.getRooms()[roomId] || null;
   },
 
-  addRoom(roomId, name, emoji) {
+  addRoom(roomId, name, emoji, spatial) {
     const data = this.getData();
     if (!data.rooms[roomId]) {
-      data.rooms[roomId] = {
+      const room = {
         name,
         emoji: emoji || '🏠',
         containers: {},
         last_updated: Date.now()
       };
+      if (spatial) room.spatial = spatial;
+      data.rooms[roomId] = room;
       this.save(data);
     }
     return data.rooms[roomId];
@@ -314,10 +316,12 @@ const Brain = {
   },
 
   // Add container at root level of a room (backwards compatible)
-  addContainer(roomId, containerId, name, typ, items = [], photoAnalyzed = false) {
+  addContainer(roomId, containerId, name, typ, items, photoAnalyzed, spatial) {
+    if (items === undefined) items = [];
+    if (!photoAnalyzed) photoAnalyzed = false;
     const data = this.getData();
     if (!data.rooms[roomId]) return;
-    data.rooms[roomId].containers[containerId] = {
+    const container = {
       name,
       typ: typ || 'sonstiges',
       items: items || [],
@@ -325,6 +329,8 @@ const Brain = {
       last_updated: Date.now(),
       photo_analyzed: photoAnalyzed
     };
+    if (spatial) container.spatial = spatial;
+    data.rooms[roomId].containers[containerId] = container;
     data.rooms[roomId].last_updated = Date.now();
     this.save(data);
     return data.rooms[roomId].containers[containerId];
@@ -444,9 +450,10 @@ const Brain = {
   },
 
   // Create a new item object
-  createItemObject(name, opts = {}) {
+  createItemObject(name, opts) {
+    if (!opts) opts = {};
     const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
-    return {
+    const item = {
       name,
       status: opts.status || 'aktiv',
       first_seen: opts.first_seen !== undefined ? opts.first_seen : now,
@@ -454,6 +461,9 @@ const Brain = {
       seen_count: opts.seen_count || 1,
       menge: opts.menge || 1
     };
+    if (opts.spatial) item.spatial = opts.spatial;
+    if (opts.object_id) item.object_id = opts.object_id;
+    return item;
   },
 
   // Migrate a single string item to object format
@@ -983,6 +993,136 @@ const Brain = {
     this._cache = null;
     this.deleteAllPhotos().catch(() => {});
     this.init();
+  },
+
+  // --- Deduplication / Fuzzy Matching ---
+
+  // Levenshtein distance between two strings
+  levenshtein(a, b) {
+    if (!a || !b) return Math.max((a || '').length, (b || '').length);
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+    return dp[m][n];
+  },
+
+  // Normalize item name for comparison: lowercase, trim articles, trim whitespace
+  normalizeName(name) {
+    if (!name) return '';
+    let n = name.toLowerCase().trim();
+    // Remove German articles
+    n = n.replace(/\b(der|die|das|ein|eine|einen|einem|einer|eines)\b/g, '');
+    // Remove extra whitespace
+    n = n.replace(/\s+/g, ' ').trim();
+    return n;
+  },
+
+  // Extract core words (sorted) for containment check
+  _coreWords(normalized) {
+    return normalized.split(/[\s,;:\-–]+/).filter(w => w.length > 1).sort();
+  },
+
+  // Check if two item names are a fuzzy match
+  isFuzzyMatch(nameA, nameB) {
+    if (!nameA || !nameB) return false;
+    const a = this.normalizeName(nameA);
+    const b = this.normalizeName(nameB);
+    if (!a || !b) return false;
+
+    // Exact match after normalization
+    if (a === b) return true;
+
+    // Containment check: one name contains the other
+    if (a.includes(b) || b.includes(a)) return true;
+
+    // Levenshtein distance < 3
+    if (this.levenshtein(a, b) < 3) return true;
+
+    // Word-level comparison: check if core words overlap significantly
+    const wordsA = this._coreWords(a);
+    const wordsB = this._coreWords(b);
+    if (wordsA.length > 0 && wordsB.length > 0) {
+      // Check if all words of the shorter set are contained in the longer
+      const shorter = wordsA.length <= wordsB.length ? wordsA : wordsB;
+      const longer = wordsA.length <= wordsB.length ? wordsB : wordsA;
+      const allContained = shorter.every(w =>
+        longer.some(lw => lw.includes(w) || w.includes(lw) || this.levenshtein(w, lw) < 2)
+      );
+      if (allContained && shorter.length >= longer.length - 1) return true;
+    }
+
+    return false;
+  },
+
+  // Find a similar item in a container by fuzzy name matching
+  findSimilarItem(roomId, containerId, itemName) {
+    const c = this.getContainer(roomId, containerId);
+    if (!c || !c.items) return null;
+    this._migrateContainerItems(c);
+    for (const item of c.items) {
+      const existingName = this.getItemName(item);
+      if (this.isFuzzyMatch(existingName, itemName)) {
+        return typeof item === 'object' ? item : { name: item };
+      }
+    }
+    return null;
+  },
+
+  // Get milliseconds since container was last updated
+  getContainerAge(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    if (!c || !c.last_updated) return Infinity;
+    return Date.now() - c.last_updated;
+  },
+
+  // Check if container was recently photographed (within threshold minutes)
+  isRecentlyPhotographed(roomId, containerId, thresholdMinutes) {
+    if (thresholdMinutes === undefined) thresholdMinutes = 10;
+    const age = this.getContainerAge(roomId, containerId);
+    const c = this.getContainer(roomId, containerId);
+    if (!c || !c.photo_analyzed) return false;
+    return age < thresholdMinutes * 60 * 1000;
+  },
+
+  // Get existing item names for a container (for prompt context)
+  getContainerItemNames(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    if (!c || !c.items) return [];
+    this._migrateContainerItems(c);
+    return c.items
+      .filter(item => typeof item === 'string' || item.status !== 'archiviert')
+      .map(item => {
+        const name = this.getItemName(item);
+        const menge = typeof item === 'object' ? (item.menge || 1) : 1;
+        return menge > 1 ? menge + 'x ' + name : name;
+      });
+  },
+
+  // Update an existing item's last_seen (used for dedup merge)
+  updateExistingItem(roomId, containerId, itemName) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.isFuzzyMatch(this.getItemName(i), itemName));
+    if (item && typeof item === 'object') {
+      const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+      item.last_seen = now;
+      item.seen_count = (item.seen_count || 0) + 1;
+      item.status = 'aktiv';
+      c.last_updated = Date.now();
+      this.save(data);
+      return true;
+    }
+    return false;
   },
 
   // --- Helpers ---
