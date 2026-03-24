@@ -2428,6 +2428,36 @@ select.settings-input { appearance: none; }
   color: var(--text-muted);
 }
 
+.onboarding-debug-panel {
+  width: 100%;
+  max-width: 360px;
+  margin-top: 12px;
+}
+
+.onboarding-debug-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+}
+
+.onboarding-debug-log {
+  background: #1a1a2e;
+  color: #0f0;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 6px;
+  text-align: left;
+}
+
 .onboarding-btn-secondary {
   background: var(--surface);
   color: var(--accent);
