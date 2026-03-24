@@ -594,14 +594,15 @@ const Brain = {
       );
       const existing = targetContainers[cId];
       if (existing) {
-        // Merge: keep existing items, add new ones
+        // Merge: keep existing items, add new ones (compare by name for v1.3 objects)
         const mergedItems = [...(existing.items || [])];
+        const itemNames = mergedItems.map(i => this.getItemName(i));
         sicherItems.forEach(item => {
-          if (!mergedItems.includes(item)) mergedItems.push(item);
+          if (!itemNames.includes(item)) mergedItems.push(item);
         });
         const mergedUncertain = [...(existing.uncertain_items || [])];
         unsicherItems.forEach(item => {
-          if (!mergedUncertain.includes(item) && !mergedItems.includes(item)) mergedUncertain.push(item);
+          if (!mergedUncertain.includes(item) && !itemNames.includes(item)) mergedUncertain.push(item);
         });
         existing.items = mergedItems;
         existing.uncertain_items = mergedUncertain;
@@ -649,12 +650,13 @@ const Brain = {
       const existing = parentContainer.containers[cId];
       if (existing) {
         const mergedItems = [...(existing.items || [])];
+        const itemNames = mergedItems.map(i => this.getItemName(i));
         sicherItems.forEach(item => {
-          if (!mergedItems.includes(item)) mergedItems.push(item);
+          if (!itemNames.includes(item)) mergedItems.push(item);
         });
         const mergedUncertain = [...(existing.uncertain_items || [])];
         unsicherItems.forEach(item => {
-          if (!mergedUncertain.includes(item) && !mergedItems.includes(item)) mergedUncertain.push(item);
+          if (!mergedUncertain.includes(item) && !itemNames.includes(item)) mergedUncertain.push(item);
         });
         existing.items = mergedItems;
         existing.uncertain_items = mergedUncertain;

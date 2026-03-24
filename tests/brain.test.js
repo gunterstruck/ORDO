@@ -380,6 +380,24 @@ describe('Brain – applyPhotoAnalysis()', () => {
     const count = Brain.applyPhotoAnalysis('gibts_nicht', { behaelter: [] });
     assertEqual(count, 0);
   });
+
+  it('vermeidet Duplikate bei Merge mit bestehenden Objekt-Items', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    // Re-analyze same container – Teller already exists as object
+    Brain.applyPhotoAnalysis('kueche', {
+      behaelter: [
+        { id: 'schrank', name: 'Schrank', typ: 'schrank', inhalt_sicher: ['Teller', 'Tasse'] }
+      ]
+    });
+    const c = Brain.getContainer('kueche', 'schrank');
+    // Teller should not be duplicated, Tasse should be added
+    const tellerCount = c.items.filter(i => Brain.getItemName(i) === 'Teller').length;
+    assertEqual(tellerCount, 1, 'Teller sollte nicht dupliziert werden');
+    assertIncludes(c.items, 'Tasse');
+  });
 });
 
 // ── Uncertain Items ─────────────────────────────────────
@@ -624,6 +642,29 @@ describe('Brain – Item Object Format (v1.3)', () => {
     assertEqual(Brain.getItemName('Teller'), 'Teller');
     assertEqual(Brain.getItemName({ name: 'Teller', status: 'aktiv' }), 'Teller');
     assertEqual(Brain.getItemName(null), '');
+  });
+
+  it('createItemObject() erzeugt korrektes Item-Objekt', () => {
+    const item = Brain.createItemObject('Schere');
+    assertEqual(item.name, 'Schere');
+    assertEqual(item.status, 'aktiv');
+    assertEqual(item.menge, 1);
+    assertEqual(item.seen_count, 1);
+    assert(item.first_seen !== null, 'first_seen sollte gesetzt sein');
+    assert(item.last_seen !== null, 'last_seen sollte gesetzt sein');
+  });
+
+  it('createItemObject() übernimmt optionale Parameter', () => {
+    const item = Brain.createItemObject('Batterien', { menge: 3, status: 'vermisst' });
+    assertEqual(item.name, 'Batterien');
+    assertEqual(item.menge, 3);
+    assertEqual(item.status, 'vermisst');
+  });
+
+  it('createItemObject() mit Spatial-Daten', () => {
+    const item = Brain.createItemObject('Schere', { spatial: { x: 10, y: 20 } });
+    assertEqual(item.name, 'Schere');
+    assertDeepEqual(item.spatial, { x: 10, y: 20 });
   });
 
   it('migrateItem() wandelt String in Objekt um', () => {
