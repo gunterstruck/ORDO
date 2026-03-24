@@ -1146,5 +1146,62 @@ const Brain = {
 
   setApiKey(key) {
     localStorage.setItem('gemini_api_key', key.trim());
+  },
+
+  // --- Infrastructure Ignore ---
+
+  addInfrastructureIgnore(roomId, containerId, name) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    if (!c.infrastructure_ignore) c.infrastructure_ignore = [];
+    const normalized = (name || '').trim();
+    if (!normalized) return false;
+    const exists = c.infrastructure_ignore.some(entry => entry.name === normalized);
+    if (exists) return false;
+    c.infrastructure_ignore.push({
+      name: normalized,
+      marked_at: new Date().toISOString().replace(/\.\d{3}Z$/, '')
+    });
+    c.last_updated = Date.now();
+    this.save(data);
+    this._globalInfraCache = null;
+    return true;
+  },
+
+  getInfrastructureIgnoreList(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    if (!c || !c.infrastructure_ignore) return [];
+    return c.infrastructure_ignore.map(entry => entry.name);
+  },
+
+  _globalInfraCache: null,
+
+  getGlobalInfrastructure() {
+    if (this._globalInfraCache) return this._globalInfraCache;
+    const data = this.getData();
+    if (!data || !data.rooms) return [];
+    const counts = {};
+    for (const room of Object.values(data.rooms)) {
+      this._collectInfrastructureCounts(room.containers, counts);
+    }
+    const result = Object.entries(counts)
+      .filter(([, count]) => count >= 3)
+      .map(([name]) => name);
+    this._globalInfraCache = result;
+    return result;
+  },
+
+  _collectInfrastructureCounts(containers, counts) {
+    for (const c of Object.values(containers || {})) {
+      if (c.infrastructure_ignore) {
+        c.infrastructure_ignore.forEach(entry => {
+          counts[entry.name] = (counts[entry.name] || 0) + 1;
+        });
+      }
+      if (c.containers) {
+        this._collectInfrastructureCounts(c.containers, counts);
+      }
+    }
   }
 };

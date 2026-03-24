@@ -1138,7 +1138,25 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
         }
       }
 
-      const systemPrompt = `Analysiere dieses Foto eines Raums oder Möbelstücks.
+      // Build infrastructure ignore list for this container
+      let infrastructureBlock = '';
+      if (targetContainerId) {
+        const ignoreNames = Brain.getInfrastructureIgnoreList(roomId, targetContainerId);
+        const globalIgnore = Brain.getGlobalInfrastructure();
+        const allIgnore = [...new Set([...ignoreNames, ...globalIgnore])];
+        if (allIgnore.length > 0) {
+          infrastructureBlock = `\nFolgende Dinge wurden vom Nutzer als fest installiert markiert. Erkenne sie NICHT als Gegenstände: ${allIgnore.join(', ')}.`;
+        }
+      }
+
+      const systemPrompt = `GRUNDREGEL – Was ist ein Gegenstand?
+Inventarisiere ausschließlich lose Gegenstände, also Dinge, die ein Mensch ohne Werkzeug aufheben und woanders hinlegen kann. Stell dir die Umzugskarton-Faustregel vor: Wenn du es beim Umzug nicht in eine Kiste packen würdest, ist es kein Gegenstand – dann ignoriere es.
+
+Möbelstücke erkennst du als Behälter (Schrank, Regal, Kommode usw.), aber ihre fest verbauten Bestandteile sind keine eigenständigen Gegenstände. Griffe, Scharniere, Führungsschienen und Beschläge gehören zum Möbel selbst und werden nicht aufgelistet. Prüfe bei Zweifeln: Besteht das Objekt aus demselben Material wie das Möbelstück und ist nahtlos damit verbunden? Dann ist es ein Teil davon, kein eigener Gegenstand.
+
+Ignoriere grundsätzlich fest installierte Infrastruktur, zum Beispiel: Griffe und Knäufe, Türscharniere, Schubladenführungen, Steckdosen und Lichtschalter, Regalhalterungen und Dübel, fest montierte Kleiderstangen, Heizkörper und Thermostate, Rauchmelder, Fensterbeschläge und Türzargen, Fußleisten, fest eingebaute Deckenleuchten und Wandlampen, Wasserhähne, Spülbecken, Einbaugeräte, Regalboden-Halterungen und Soft-Close-Dämpfer. Das sind nur Beispiele – generell gilt: Alles was verschraubt, verklebt, eingebaut oder fest montiert ist, wird ignoriert.${infrastructureBlock}
+
+Analysiere dieses Foto eines Raums oder Möbelstücks.
 Wenn du ein Möbelstück mit erkennbaren Unterteilungen siehst (Türen, Schubladen, Fächer, Regalböden), bilde die Hierarchie im JSON ab.
 Ein Behälter kann Unterbehälter haben. Nutze das Feld "behaelter" rekursiv.${containerContextBlock}
 Antworte NUR mit diesem JSON, nichts anderes:
@@ -1323,7 +1341,25 @@ async function analyzeHotspots(apiKey, base64, mimeType, roomId, containerId) {
     }
   }
 
-  const systemPrompt = `Analysiere dieses Foto eines Aufbewahrungsorts. Identifiziere einzelne, klar unterscheidbare Gegenstände.
+  // Build infrastructure ignore list for hotspot analysis
+  let infrastructureHint = '';
+  if (roomId && containerId) {
+    const ignoreNames = Brain.getInfrastructureIgnoreList(roomId, containerId);
+    const globalIgnore = Brain.getGlobalInfrastructure();
+    const allIgnore = [...new Set([...ignoreNames, ...globalIgnore])];
+    if (allIgnore.length > 0) {
+      infrastructureHint = `\nFolgende Dinge wurden vom Nutzer als fest installiert markiert. Setze KEINE Hotspots darauf: ${allIgnore.join(', ')}.`;
+    }
+  }
+
+  const systemPrompt = `GRUNDREGEL – Was ist ein Gegenstand?
+Markiere ausschließlich lose Gegenstände, also Dinge, die ein Mensch ohne Werkzeug aufheben und woanders hinlegen kann. Stell dir die Umzugskarton-Faustregel vor: Wenn du es beim Umzug nicht einpacken würdest, ist es kein Gegenstand.
+
+Setze KEINE Hotspots auf fest installierte Infrastruktur. Kein Hotspot auf Griffe, Scharniere, Steckdosen, Lichtschalter, Regalhalterungen, Heizkörper, Fensterbeschläge, Fußleisten, eingebaute Leuchten, Wasserhähne, Spülbecken oder Einbaugeräte. Wenn etwas zum Möbel gehört (gleicher Werkstoff, nahtlos verbunden), ist es Teil des Behälters, nicht ein Gegenstand.
+
+Wenn du bei einem Objekt unsicher bist, ob es fest montiert oder lose ist (z.B. ein Monitorarm, eine Tischlampe mit Klemme), setze trotzdem einen Hotspot, aber markiere ihn mit "typ": "unsicher_fest".${infrastructureHint}
+
+Analysiere dieses Foto eines Aufbewahrungsorts. Identifiziere einzelne, klar unterscheidbare Gegenstände.
 WICHTIG: Versuche NICHT alles zu erkennen. Nur Dinge die du mit Sicherheit als einzelnes Objekt identifizieren kannst.${existingItemsHint}
 Antworte NUR mit JSON:
 {
@@ -1332,7 +1368,8 @@ Antworte NUR mit JSON:
       "id": "obj_1",
       "vermutung": "menschlicher Name, z.B. weißes USB-Netzteil",
       "konfidenz": "hoch",
-      "position": { "x": 0.5, "y": 0.3 }
+      "position": { "x": 0.5, "y": 0.3 },
+      "typ": "item"
     }
   ],
   "zusammenfassung": "kurze Beschreibung was du siehst",
@@ -1344,7 +1381,8 @@ Regeln:
 - position x,y ist der ungefähre Mittelpunkt des Objekts (0=links/oben, 1=rechts/unten)
 - Nur Objekte mit mindestens mittlerer Konfidenz aufnehmen
 - Lieber 5 sichere Hotspots als 15 unsichere
-- Bei komplettem Chaos: Wenige markante Dinge rauspicken`;
+- Bei komplettem Chaos: Wenige markante Dinge rauspicken
+- Das Feld "typ" ist optional: "item" (Standard, normaler Gegenstand), "container" (ein Unterbehälter), "unsicher_fest" (du bist unsicher ob fest montiert oder lose). Setze "typ" nur wenn es nicht "item" ist.`;
 
   const messages = [{
     role: 'user',
@@ -1443,11 +1481,17 @@ function renderPickingHotspots() {
     dot.dataset.id = hs.id;
 
     const isConfirmed = !!confirmed[hs.id];
+    const isUncertain = hs.typ === 'unsicher_fest';
     if (isConfirmed) dot.classList.add('picking-hotspot--confirmed');
+    else if (isUncertain) dot.classList.add('picking-hotspot--uncertain');
     if (activeId === hs.id) dot.classList.add('picking-hotspot--active');
 
     dot.style.left = `${offsetX + hs.position.x * renderW}px`;
     dot.style.top = `${offsetY + hs.position.y * renderH}px`;
+
+    if (isUncertain && !isConfirmed) {
+      dot.textContent = '?';
+    }
 
     const label = document.createElement('span');
     label.className = 'picking-hotspot-label';
@@ -1470,15 +1514,74 @@ function openHotspotPanel(hotspotId) {
   const panel = document.getElementById('picking-panel');
   const labelEl = document.getElementById('picking-panel-label');
   const input = document.getElementById('picking-panel-input');
+  const actionsEl = panel.querySelector('.picking-panel-actions');
 
-  labelEl.textContent = existing
-    ? 'Bestätigt – Name ändern:'
-    : (hs?.vermutung ? `KI-Vorschlag: "${hs.vermutung}"` : 'Was ist das?');
-  input.value = existing ? existing.name : (hs?.vermutung || '');
+  // Remove any previous uncertain buttons
+  const oldUncertain = panel.querySelector('.picking-uncertain-actions');
+  if (oldUncertain) oldUncertain.remove();
+
+  const isUncertain = hs?.typ === 'unsicher_fest' && !existing;
+
+  if (isUncertain) {
+    // Show decision buttons instead of normal input flow
+    labelEl.textContent = hs.vermutung
+      ? `"${hs.vermutung}" – Fest installiert oder loser Gegenstand?`
+      : 'Fest installiert oder loser Gegenstand?';
+    input.style.display = 'none';
+    actionsEl.style.display = 'none';
+
+    const uncertainDiv = document.createElement('div');
+    uncertainDiv.className = 'picking-uncertain-actions';
+
+    const infraBtn = document.createElement('button');
+    infraBtn.className = 'picking-uncertain-btn picking-uncertain-btn--infra';
+    infraBtn.innerHTML = '🔧 Gehört zum Möbel';
+    infraBtn.addEventListener('click', () => {
+      const name = hs.vermutung || 'Unbekannt';
+      Brain.addInfrastructureIgnore(pickingState.roomId, pickingState.containerId, name);
+      // Remove this hotspot entirely
+      pickingState.hotspots = pickingState.hotspots.filter(h => h.id !== hotspotId);
+      pickingState.activeId = null;
+      panel.style.display = 'none';
+      input.style.display = '';
+      actionsEl.style.display = '';
+      renderPickingHotspots();
+    });
+
+    const itemBtn = document.createElement('button');
+    itemBtn.className = 'picking-uncertain-btn picking-uncertain-btn--item';
+    itemBtn.innerHTML = '✅ Ist ein Gegenstand';
+    itemBtn.addEventListener('click', () => {
+      // Switch to normal confirmation flow
+      hs.typ = 'item';
+      input.style.display = '';
+      actionsEl.style.display = '';
+      uncertainDiv.remove();
+      labelEl.textContent = hs.vermutung ? `KI-Vorschlag: "${hs.vermutung}"` : 'Was ist das?';
+      input.value = hs.vermutung || '';
+      renderPickingHotspots();
+      input.focus();
+      input.select();
+    });
+
+    uncertainDiv.appendChild(infraBtn);
+    uncertainDiv.appendChild(itemBtn);
+    panel.appendChild(uncertainDiv);
+  } else {
+    // Normal flow
+    input.style.display = '';
+    actionsEl.style.display = '';
+    labelEl.textContent = existing
+      ? 'Bestätigt – Name ändern:'
+      : (hs?.vermutung ? `KI-Vorschlag: "${hs.vermutung}"` : 'Was ist das?');
+    input.value = existing ? existing.name : (hs?.vermutung || '');
+  }
 
   panel.style.display = 'flex';
-  input.focus();
-  input.select();
+  if (!isUncertain) {
+    input.focus();
+    input.select();
+  }
 }
 
 async function confirmHotspotItem() {
