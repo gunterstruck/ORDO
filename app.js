@@ -3404,15 +3404,17 @@ function toggleMic() {
 function debugLog(msg) {
   const ts = new Date().toLocaleTimeString('de-DE');
   const line = `[${ts}] ${msg}\n`;
-  for (const id of ['debug-log', 'photo-debug-log']) {
+  for (const id of ['debug-log', 'photo-debug-log', 'onboarding-debug-log']) {
     const el = document.getElementById(id);
     if (!el) continue;
     const current = el.textContent === '— noch kein Log —' ? '' : el.textContent;
     el.textContent = line + current;
   }
-  // Auto-open the photo debug panel on first entry
-  const panel = document.getElementById('photo-debug-panel');
-  if (panel) panel.open = true;
+  // Auto-open debug panels on first entry
+  for (const panelId of ['photo-debug-panel', 'onboarding-debug-panel']) {
+    const panel = document.getElementById(panelId);
+    if (panel) panel.open = true;
+  }
 }
 
 // ── GEMINI API ─────────────────────────────────────────
@@ -3754,17 +3756,45 @@ async function onRoomScanPhoto(e) {
   }
 }
 
-// ── VIDEO UPLOAD via Gemini File API ───────────────────
+// ── VIDEO UPLOAD via Gemini File API (Chunked + Retry) ─
+async function fetchWithRetry(url, options, maxRetries = 3, label = 'Request') {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.ok || res.status === 400 || res.status === 403 || res.status === 404) return res;
+      // Retry on 5xx and 429
+      if (attempt < maxRetries && (res.status >= 500 || res.status === 429)) {
+        const wait = Math.pow(2, attempt + 1) * 1000;
+        debugLog(`${label}: HTTP ${res.status} – Retry ${attempt + 1}/${maxRetries} in ${wait / 1000}s…`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (attempt < maxRetries) {
+        const wait = Math.pow(2, attempt + 1) * 1000;
+        debugLog(`${label}: Netzwerkfehler – Retry ${attempt + 1}/${maxRetries} in ${wait / 1000}s… (${err.message})`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function uploadVideoToGemini(apiKey, file, onProgress) {
   const sizeMB = file.size / (1024 * 1024);
+  debugLog(`Video-Upload gestartet: ${file.name} (${sizeMB.toFixed(1)} MB, ${file.type})`);
+
   if (sizeMB > MAX_VIDEO_SIZE_MB) {
     throw new Error(`Video zu groß (${Math.round(sizeMB)} MB). Maximum: ${MAX_VIDEO_SIZE_MB} MB.`);
   }
 
   onProgress?.('upload', 0);
 
-  // Step 1: Start resumable upload
-  const startRes = await fetch(`${FILE_API_URL}?key=${apiKey}`, {
+  // Step 1: Start resumable upload session
+  debugLog('Starte resumable Upload-Session…');
+  const startRes = await fetchWithRetry(`${FILE_API_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: {
       'X-Goog-Upload-Protocol': 'resumable',
@@ -3774,65 +3804,106 @@ async function uploadVideoToGemini(apiKey, file, onProgress) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ file: { displayName: file.name } })
-  });
+  }, 3, 'Upload-Start');
 
   if (!startRes.ok) {
     const errText = await startRes.text().catch(() => '');
+    debugLog(`Upload-Start fehlgeschlagen: HTTP ${startRes.status} – ${errText}`);
     if (startRes.status === 400 || startRes.status === 403) throw new Error('api_key');
-    throw new Error(`Upload-Start fehlgeschlagen: HTTP ${startRes.status}`);
+    throw new Error(`Upload-Start fehlgeschlagen: HTTP ${startRes.status} – ${errText}`);
   }
 
   const uploadUrl = startRes.headers.get('X-Goog-Upload-URL');
   if (!uploadUrl) throw new Error('Kein Upload-URL erhalten');
+  debugLog('Upload-URL erhalten. Starte Chunk-Upload…');
 
-  // Step 2: Upload file data in one chunk
-  onProgress?.('upload', 30);
-  const uploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Length': file.size,
-      'X-Goog-Upload-Offset': '0',
-      'X-Goog-Upload-Command': 'upload, finalize'
-    },
-    body: file
-  });
+  // Step 2: Upload file data in chunks (8 MB each, must be multiple of 256KB)
+  const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  let offset = 0;
 
-  if (!uploadRes.ok) {
-    throw new Error(`Video-Upload fehlgeschlagen: HTTP ${uploadRes.status}`);
-  }
+  for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+    const isLast = chunkIdx === totalChunks - 1;
+    const end = Math.min(offset + CHUNK_SIZE, file.size);
+    const chunkBlob = file.slice(offset, end);
+    const command = isLast ? 'upload, finalize' : 'upload';
 
-  const uploadData = await uploadRes.json();
-  const fileObj = uploadData.file;
-  if (!fileObj?.name) throw new Error('Keine Datei-Referenz erhalten');
+    debugLog(`Chunk ${chunkIdx + 1}/${totalChunks} senden (${(offset / 1024 / 1024).toFixed(1)}–${(end / 1024 / 1024).toFixed(1)} MB)…`);
 
-  onProgress?.('processing', 50);
+    const chunkRes = await fetchWithRetry(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': end - offset,
+        'X-Goog-Upload-Offset': String(offset),
+        'X-Goog-Upload-Command': command
+      },
+      body: chunkBlob
+    }, 4, `Chunk ${chunkIdx + 1}/${totalChunks}`);
 
-  // Step 3: Poll until processing is complete
-  let attempts = 0;
-  const maxAttempts = 120; // 5 min max polling (2.5s * 120)
-  while (attempts < maxAttempts) {
-    const checkRes = await fetch(`${FILE_API_GET_URL}/${fileObj.name}?key=${apiKey}`);
-    if (!checkRes.ok) throw new Error('Status-Abfrage fehlgeschlagen');
-
-    const checkData = await checkRes.json();
-    const state = checkData.state;
-
-    if (state === 'ACTIVE') {
-      onProgress?.('ready', 100);
-      return { fileUri: checkData.uri, mimeType: checkData.mimeType, fileName: fileObj.name };
-    }
-    if (state === 'FAILED') {
-      throw new Error('Video-Verarbeitung fehlgeschlagen. Bitte ein kürzeres Video versuchen.');
+    if (!chunkRes.ok) {
+      const errText = await chunkRes.text().catch(() => '');
+      debugLog(`Chunk-Upload fehlgeschlagen: HTTP ${chunkRes.status} – ${errText}`);
+      throw new Error(`Video-Upload fehlgeschlagen bei Chunk ${chunkIdx + 1}/${totalChunks}: HTTP ${chunkRes.status} – ${errText}`);
     }
 
-    // Still PROCESSING
-    attempts++;
-    const progress = 50 + Math.min(45, (attempts / maxAttempts) * 45);
-    onProgress?.('processing', progress);
-    await new Promise(r => setTimeout(r, 2500));
-  }
+    offset = end;
+    const uploadPct = Math.round(((chunkIdx + 1) / totalChunks) * 45);
+    onProgress?.('upload', uploadPct);
 
-  throw new Error('Video-Verarbeitung dauert zu lange. Bitte ein kürzeres Video versuchen.');
+    // On last chunk, parse response to get file reference
+    if (isLast) {
+      const uploadData = await chunkRes.json();
+      debugLog(`Upload abgeschlossen. Response: ${JSON.stringify(uploadData).slice(0, 300)}`);
+      const fileObj = uploadData.file;
+      if (!fileObj?.name) throw new Error('Keine Datei-Referenz erhalten');
+
+      onProgress?.('processing', 50);
+      debugLog(`Datei hochgeladen: ${fileObj.name}. Warte auf Verarbeitung…`);
+
+      // Step 3: Poll until processing is complete (with retry)
+      let attempts = 0;
+      const maxAttempts = 120;
+      let pollErrors = 0;
+
+      while (attempts < maxAttempts) {
+        const checkRes = await fetchWithRetry(
+          `${FILE_API_GET_URL}/${fileObj.name}?key=${apiKey}`,
+          {}, 2, 'Status-Poll'
+        );
+
+        if (!checkRes.ok) {
+          pollErrors++;
+          const errText = await checkRes.text().catch(() => '');
+          debugLog(`Status-Abfrage fehlgeschlagen: HTTP ${checkRes.status} – ${errText}`);
+          if (pollErrors >= 5) throw new Error(`Status-Abfrage fehlgeschlagen nach ${pollErrors} Fehlern: HTTP ${checkRes.status}`);
+          await new Promise(r => setTimeout(r, 3000));
+          attempts++;
+          continue;
+        }
+
+        const checkData = await checkRes.json();
+        const state = checkData.state;
+        debugLog(`Poll #${attempts + 1}: state=${state}`);
+
+        if (state === 'ACTIVE') {
+          debugLog(`Datei bereit: ${checkData.uri}`);
+          onProgress?.('ready', 100);
+          return { fileUri: checkData.uri, mimeType: checkData.mimeType, fileName: fileObj.name };
+        }
+        if (state === 'FAILED') {
+          debugLog(`Verarbeitung fehlgeschlagen. Response: ${JSON.stringify(checkData).slice(0, 300)}`);
+          throw new Error('Video-Verarbeitung fehlgeschlagen. Bitte ein kürzeres Video versuchen.');
+        }
+
+        attempts++;
+        const progress = 50 + Math.min(45, (attempts / maxAttempts) * 45);
+        onProgress?.('processing', progress);
+        await new Promise(r => setTimeout(r, 2500));
+      }
+
+      throw new Error('Video-Verarbeitung dauert zu lange. Bitte ein kürzeres Video versuchen.');
+    }
+  }
 }
 
 async function deleteGeminiFile(apiKey, fileName) {
@@ -3866,6 +3937,12 @@ async function onRoomScanVideo(e) {
 
   let uploadedFile = null;
 
+  // Reset debug log for this upload
+  const dbgEl = document.getElementById('onboarding-debug-log');
+  if (dbgEl) dbgEl.textContent = '';
+  const dbgPanel = document.getElementById('onboarding-debug-panel');
+  if (dbgPanel) dbgPanel.open = true;
+
   try {
     // Upload video to Gemini File API
     uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
@@ -3880,6 +3957,7 @@ async function onRoomScanVideo(e) {
     });
 
     // Analyze with Gemini
+    debugLog('Sende Video an Gemini zur Raumanalyse…');
     document.getElementById('onboarding-scan-status-text').textContent = 'KI erkennt Räume und Möbel…';
     progressFill.style.width = '100%';
 
@@ -3892,11 +3970,16 @@ async function onRoomScanVideo(e) {
     }];
 
     const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_VIDEO, messages);
+    debugLog(`Gemini-Antwort erhalten (${raw.length} Zeichen)`);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+    if (!jsonMatch) {
+      debugLog(`FEHLER: Kein JSON in Antwort. Rohe Antwort: ${raw.slice(0, 500)}`);
+      throw new Error('Kein JSON in Antwort');
+    }
 
     const result = JSON.parse(jsonMatch[0]);
     const rooms = result.raeume || [];
+    debugLog(`${rooms.length} Räume erkannt: ${rooms.map(r => r.name || r.id).join(', ')}`);
 
     if (rooms.length === 0) {
       showToast('Keine Räume im Video erkannt. Bitte erneut versuchen.', 'error');
@@ -3910,6 +3993,7 @@ async function onRoomScanVideo(e) {
     showOnboardingScreen('review');
 
   } catch (err) {
+    debugLog(`FEHLER: ${err.message}`);
     hideScanSpinner();
     showToast(getErrorMessage(err), 'error');
   } finally {
