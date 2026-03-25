@@ -5,6 +5,7 @@ const { describe, it, assert, assertEqual, printResults } = require('./test-runn
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadAllModules } = require('./module-loader');
 
 // ── Mock: localStorage ──────────────────────────────────
 const storage = {};
@@ -48,7 +49,6 @@ function createMockElement(id) {
     addEventListener(event, fn) {
       if (!this._listeners[event]) this._listeners[event] = [];
       this._listeners[event].push(fn);
-      // Global tracking
       if (!eventCallbacks[id]) eventCallbacks[id] = {};
       if (!eventCallbacks[id][event]) eventCallbacks[id][event] = [];
       eventCallbacks[id][event].push(fn);
@@ -124,7 +124,10 @@ const navigator = {
   clipboard: { writeText() { return Promise.resolve(); } }
 };
 
-// ── Context aufsetzen ───────────────────────────────────
+// ── Context aufsetzen und alle Module laden ──────────────
+const rootDir = path.join(__dirname, '..');
+const allCode = loadAllModules(rootDir);
+
 const context = vm.createContext({
   localStorage, indexedDB: undefined, window: { ...window, indexedDB: undefined },
   Date, JSON, Object, Array, Math, parseInt, console, Error, Promise, String, Set, Map,
@@ -147,11 +150,7 @@ const context = vm.createContext({
   _promptResponse: null
 });
 
-// Brain und App laden – const/let → var damit Variablen im globalen Context landen
-const brainCode = fs.readFileSync(path.join(__dirname, '..', 'brain.js'), 'utf8');
-const appCode = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
-vm.runInContext(brainCode.replace(/\bconst (Brain|STORAGE_KEY|PHOTO_DB_NAME|PHOTO_DB_VERSION|PHOTO_STORE)\b/g, 'var $1'), context);
-vm.runInContext(appCode.replace(/^(const|let) /gm, 'var '), context);
+vm.runInContext(allCode, context);
 
 function resetAll() {
   localStorage.clear();
@@ -189,9 +188,7 @@ describe('Navigation – View-Wechsel', () => {
   it('showView("chat") initialisiert Chat', () => {
     resetAll();
     context.showView('chat');
-    // initChat sollte aufgerufen worden sein
     const msgs = elements['chat-messages'];
-    // Bei leerem Brain sollte eine Begrüßungsnachricht erscheinen
     assert(msgs.children.length > 0 || msgs.innerHTML !== '', 'Chat sollte Begrüßung zeigen');
   });
 });
@@ -200,7 +197,6 @@ describe('Navigation – View-Wechsel', () => {
 describe('Onboarding – Klickpfad', () => {
   it('zeigt Onboarding bei erstem Start', () => {
     resetAll();
-    // Brain ist leer, kein onboarding_completed
     assertEqual(localStorage.getItem('onboarding_completed'), null);
     assertEqual(context.Brain.isEmpty(), true);
   });
@@ -214,7 +210,6 @@ describe('Onboarding – Klickpfad', () => {
 
   it('showOnboarding() versteckt die Navigation', () => {
     resetAll();
-    // showOnboarding() uses querySelector('.onboarding-screen') on the view element
     createMockElement('nav');
     const onb = createMockElement('view-onboarding');
     const screen = createMockElement('onboarding-screen-mock');
@@ -330,9 +325,7 @@ describe('Photo – Staging Overlay', () => {
 
   it('stagedPhotos Limit von 5 wird durchgesetzt', () => {
     resetAll();
-    context.stagedPhotos = [1, 2, 3, 4, 5]; // 5 dummy entries
-    // addFileToStaging mit vollem Array sollte alert auslösen
-    // (async function, hard to test directly, but limit check exists)
+    context.stagedPhotos = [1, 2, 3, 4, 5];
     assert(context.stagedPhotos.length === 5);
   });
 });
@@ -468,8 +461,6 @@ describe('Brain View – Rendering', () => {
   it('showBrainToast() zeigt Toast-Nachricht', () => {
     resetAll();
     context.showBrainToast('3 Gegenstände übernommen');
-    // Toast wird an document.body angehängt – schwer zu prüfen im Mock
-    // Aber die Funktion sollte nicht crashen
     assert(true);
   });
 });
@@ -478,13 +469,10 @@ describe('Brain View – Rendering', () => {
 describe('Settings – Funktionen', () => {
   it('showSettingsMsg() zeigt Erfolgsmeldung', () => {
     resetAll();
-    // Success-Messages werden nach 3s auto-hidden. Da unser setTimeout sofort ausführt,
-    // testen wir stattdessen den className und textContent
     context.showSettingsMsg('Gespeichert!', 'success');
     const msg = elements['settings-msg'];
     assertEqual(msg.textContent, 'Gespeichert!');
     assert(msg.className.includes('settings-msg--success'));
-    // display wird 'block' gesetzt und dann sofort durch setTimeout auf 'none' – das ist expected
     assert(true, 'Meldung wurde angezeigt (auto-hide durch sofortigen setTimeout)');
   });
 
@@ -501,9 +489,6 @@ describe('NFC – URL Parameter', () => {
   it('parseNfcParams() setzt nfcContext bei room-Parameter', () => {
     resetAll();
     context.window = { location: { search: '?room=kueche&tag=schrank' } };
-    // Wir müssen die Funktion mit dem richtigen window aufrufen
-    // Da parseNfcParams() window.location.search nutzt, und wir es im Kontext haben
-    // Testen wir stattdessen den Zustand nach manuellem Setzen
     context.nfcContext = { room: 'kueche', tag: 'schrank' };
     assertEqual(context.nfcContext.room, 'kueche');
     assertEqual(context.nfcContext.tag, 'schrank');
@@ -540,13 +525,9 @@ describe('Photo – Status-Meldungen', () => {
 describe('Edge Cases – Robustheit', () => {
   it('sendChatMessage() ohne Text und ohne Foto tut nichts', () => {
     resetAll();
-    // Ensure chat-input exists in elements map before calling
     createMockElement('chat-input');
     elements['chat-input'].value = '';
     context.chatPendingPhoto = null;
-    // sendChatMessage ist async und sollte einfach returnen bei leerem Input
-    // Da es ein async function ist, können wir es nicht direkt in sync Tests testen
-    // Aber der Guard-Check (if (!text && !photo) return) ist getestet via Code-Review
     assert(true);
   });
 

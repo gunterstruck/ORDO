@@ -5,6 +5,7 @@ const { describe, it, assert, assertEqual, assertDeepEqual, assertIncludes, asse
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadAllModules } = require('./module-loader');
 
 // ── Mock: Browser-APIs ──────────────────────────────────
 const storage = {};
@@ -89,8 +90,10 @@ const window = {
 
 const navigator = { onLine: true, serviceWorker: { register() { return Promise.resolve(); }, addEventListener() {} }, clipboard: { writeText() { return Promise.resolve(); } } };
 
-// ── Brain laden ─────────────────────────────────────────
-const brainCode = fs.readFileSync(path.join(__dirname, '..', 'brain.js'), 'utf8');
+// ── Alle Module laden ───────────────────────────────────
+const rootDir = path.join(__dirname, '..');
+const allCode = loadAllModules(rootDir);
+
 const context = vm.createContext({
   localStorage, indexedDB: undefined, window: { ...window, indexedDB: undefined },
   Date, JSON, Object, Array, Math, parseInt, console, Error, Promise,
@@ -104,20 +107,12 @@ const context = vm.createContext({
   requestAnimationFrame: (fn) => fn(),
   alert() {},
   prompt() { return null; },
-  confirm: () => true,
   Blob: class {},
   HTMLCanvasElement: class {},
   NDEFReader: undefined
 });
 
-// const → var damit Variablen im globalen Context landen
-vm.runInContext(brainCode.replace(/\bconst (Brain|STORAGE_KEY|PHOTO_DB_NAME|PHOTO_DB_VERSION|PHOTO_STORE)\b/g, 'var $1'), context);
-
-// ── App-Code laden (nur bestimmte Funktionen) ───────────
-const appCode = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
-// const/let top-level → var
-const modifiedAppCode = appCode.replace(/^(const|let) /gm, 'var ');
-vm.runInContext(modifiedAppCode, context);
+vm.runInContext(allCode, context);
 
 function resetAll() {
   localStorage.clear();
@@ -217,7 +212,6 @@ describe('processMarkers() – Legacy Marker', () => {
     const input = 'Aktualisiert.<!--ACTION:{"type":"replace_items","room":"kueche","container":"schrank","items":["Teller","Tasse"]}-->';
     const result = processMarkers(input);
     assertEqual(result.actions[0].type, 'replace_items');
-    // Legacy format gets converted – items become objects
     assert(result.actions[0].items.length === 2);
   });
 });
@@ -265,7 +259,6 @@ describe('buildMessages()', () => {
       { role: 'assistant', content: 'C' }
     ];
     const result = buildMessages(history, 'D');
-    // Nur erste user-msg wird behalten (Duplikat-Logik)
     assertEqual(result[0].role, 'user');
     assertEqual(result[0].content, 'A');
     assertEqual(result[1].role, 'assistant');
@@ -312,6 +305,140 @@ describe('getErrorMessage()', () => {
   it('gibt generische Meldung für unbekannte Fehler', () => {
     const msg = getErrorMessage(new Error('whatever'));
     assert(msg.includes('Verbindungsstörung') || msg.includes('nochmal'), 'Sollte generische Meldung sein');
+  });
+});
+
+// ── normalizeOrdoAction ─────────────────────────────────
+describe('normalizeOrdoAction()', () => {
+  const normalizeOrdoAction = context.normalizeOrdoAction;
+  const Brain = context.Brain;
+
+  it('gibt null für nicht-Objekte zurück', () => {
+    assertEqual(normalizeOrdoAction(null), null);
+    assertEqual(normalizeOrdoAction('string'), null);
+    assertEqual(normalizeOrdoAction(42), null);
+    assertEqual(normalizeOrdoAction(undefined), null);
+  });
+
+  it('gibt null für fehlenden type zurück', () => {
+    assertEqual(normalizeOrdoAction({ room: 'kueche' }), null);
+    assertEqual(normalizeOrdoAction({ type: 123 }), null);
+  });
+
+  it('gibt null für unbekannte Typen zurück', () => {
+    assertEqual(normalizeOrdoAction({ type: 'hack_system' }), null);
+    assertEqual(normalizeOrdoAction({ type: 'drop_table' }), null);
+  });
+
+  it('trimmt String-Felder', () => {
+    resetAll();
+    const result = normalizeOrdoAction({
+      type: 'add_item',
+      room: '  kueche  ',
+      path: ['schrank'],
+      item: '  Teller  ',
+      menge: 1
+    });
+    assertEqual(result.room, 'kueche');
+    assertEqual(result.item, 'Teller');
+  });
+
+  it('bereinigt Path-Arrays (entfernt leere Strings)', () => {
+    resetAll();
+    const result = normalizeOrdoAction({
+      type: 'add_item',
+      room: 'kueche',
+      path: ['schrank', '', '  ', 'fach'],
+      item: 'Teller',
+      menge: 1
+    });
+    assertEqual(result.path.length, 2);
+    assertEqual(result.path[0], 'schrank');
+    assertEqual(result.path[1], 'fach');
+  });
+
+  it('normalisiert Menge auf mindestens 1', () => {
+    resetAll();
+    const result = normalizeOrdoAction({
+      type: 'add_item',
+      room: 'kueche',
+      path: ['schrank'],
+      item: 'Teller',
+      menge: 0
+    });
+    assertEqual(result.menge, 1);
+
+    const result2 = normalizeOrdoAction({
+      type: 'add_item',
+      room: 'kueche',
+      path: ['schrank'],
+      item: 'Teller',
+      menge: -5
+    });
+    assertEqual(result2.menge, 1);
+  });
+
+  it('lässt nur erlaubte Felder durch (Whitelist)', () => {
+    resetAll();
+    const result = normalizeOrdoAction({
+      type: 'add_item',
+      room: 'kueche',
+      path: ['schrank'],
+      item: 'Teller',
+      menge: 1,
+      hack: 'evil',
+      __proto__: 'bad'
+    });
+    assertEqual(result.hack, undefined);
+    assertEqual(result.type, 'add_item');
+    assertEqual(result.item, 'Teller');
+  });
+
+  it('gibt null zurück bei delete_room wenn Raum nicht existiert', () => {
+    resetAll();
+    const result = normalizeOrdoAction({ type: 'delete_room', room: 'nicht_vorhanden' });
+    assertEqual(result, null);
+  });
+
+  it('gibt null zurück bei delete_container wenn Container nicht existiert', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    const result = normalizeOrdoAction({ type: 'delete_container', room: 'kueche', path: ['nicht_vorhanden'] });
+    assertEqual(result, null);
+  });
+
+  it('lässt gültige delete_room durch wenn Raum existiert', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    const result = normalizeOrdoAction({ type: 'delete_room', room: 'kueche' });
+    assert(result !== null);
+    assertEqual(result.type, 'delete_room');
+    assertEqual(result.room, 'kueche');
+  });
+
+  it('lässt gültige delete_container durch wenn Container existiert', () => {
+    resetAll();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    const result = normalizeOrdoAction({ type: 'delete_container', room: 'kueche', path: ['schrank'] });
+    assert(result !== null);
+    assertEqual(result.type, 'delete_container');
+  });
+
+  it('verarbeitet move_item korrekt', () => {
+    resetAll();
+    const result = normalizeOrdoAction({
+      type: 'move_item',
+      from_room: 'kueche',
+      from_path: ['schrank'],
+      to_room: 'wohnzimmer',
+      to_path: ['regal'],
+      item: 'Vase'
+    });
+    assertEqual(result.type, 'move_item');
+    assertEqual(result.from_room, 'kueche');
+    assertEqual(result.to_room, 'wohnzimmer');
+    assertEqual(result.item, 'Vase');
   });
 });
 
@@ -494,14 +621,10 @@ describe('Delta Review – Brain Integration', () => {
     Brain.addItem('kueche', 'schrank', 'Klebeband');
     Brain.addItem('kueche', 'schrank', 'Alter Adapter');
 
-    // Simulate delta review result:
-    // 1. Schere + Klebeband confirmed
     Brain.updateItemsLastSeen('kueche', 'schrank', ['Schere', 'Klebeband']);
-    // 2. Taschenlampe is new
     Brain.addItemsFromReview('kueche', 'schrank', [
       { name: 'Taschenlampe', menge: 1, checked: true }
     ]);
-    // 3. Alter Adapter is gone
     Brain.archiveItem('kueche', 'schrank', 'Alter Adapter');
 
     const active = Brain.getActiveItems('kueche', 'schrank');
@@ -514,7 +637,6 @@ describe('Delta Review – Brain Integration', () => {
     assertEqual(archived.length, 1);
     assertEqual(archived[0].name, 'Alter Adapter');
 
-    // buildContext should only show active items
     const ctx = Brain.buildContext();
     assert(ctx.includes('Schere'));
     assert(ctx.includes('Taschenlampe'));
@@ -528,8 +650,6 @@ describe('Delta Review – Brain Integration', () => {
     Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
     Brain.addItem('kueche', 'schrank', 'USB-Stick');
     const beforeLastSeen = Brain.getContainer('kueche', 'schrank').items[0].last_seen;
-    // "Verdeckt" means: do nothing, don't update last_seen
-    // (no Brain call needed – item stays as-is)
     const afterItem = Brain.getContainer('kueche', 'schrank').items[0];
     assertEqual(afterItem.status, 'aktiv');
     assertEqual(afterItem.last_seen, beforeLastSeen);
