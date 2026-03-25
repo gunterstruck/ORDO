@@ -40,8 +40,10 @@ const context = vm.createContext({
   confirm: () => true
 });
 
-// const → var, damit Variablen im globalen Scope des Kontexts landen
-const modifiedBrainCode = brainCode.replace(/\bconst (Brain|STORAGE_KEY|PHOTO_DB_NAME|PHOTO_DB_VERSION|PHOTO_STORE)\b/g, 'var $1');
+// ES Module Syntax entfernen und const → var
+const { stripModuleSyntax } = require('./module-loader');
+let modifiedBrainCode = stripModuleSyntax(brainCode);
+modifiedBrainCode = modifiedBrainCode.replace(/\bconst (Brain|STORAGE_KEY|PHOTO_DB_NAME|PHOTO_DB_VERSION|PHOTO_STORE)\b/g, 'var $1');
 vm.runInContext(modifiedBrainCode, context);
 const Brain = context.Brain;
 
