@@ -393,8 +393,6 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
 
 // ── MAP VIEW ─────────────────────────────────────────────
 
-let brainViewMode = localStorage.getItem('brain_view_mode') || 'list';
-
 function setupMapViewToggle() {
   const toggle = document.getElementById('brain-view-toggle');
   if (!toggle) return;
@@ -658,7 +656,6 @@ function updateBreadcrumb(roomId, containerId) {
 }
 
 // ── NFC CONTEXT VIEW ──────────────────────────────────
-let nfcCtxInactivityTimer = null;
 
 function setupNfcContextView() {
   document.getElementById('nfc-ctx-back').addEventListener('click', () => {
