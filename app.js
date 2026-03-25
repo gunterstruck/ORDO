@@ -6,6 +6,7 @@ import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, 
 import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay } from './brain-view.js';
 import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
+import { setupCamera } from './camera.js';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
@@ -123,6 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPhotoTimeline();
   setupMoveContainerOverlay();
   setupNfcContextView();
+  setupCamera();
 
   if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {
     showOnboarding();

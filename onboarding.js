@@ -3,6 +3,7 @@ import { callGemini, getErrorMessage, deleteGeminiFile, uploadVideoToGemini } fr
 import { showToast } from './modal.js';
 import { debugLog, showView, ROOM_PRESETS } from './app.js';
 import { resizeImage, blobToBase64, showStagingOverlay, addFileToStaging, showReviewPopup, setStagingTarget, closeStagingOverlay } from './photo-flow.js';
+import { capturePhoto } from './camera.js';
 
 let scannedRooms = [];
 let videoScanAbortController = null;
@@ -10,13 +11,13 @@ let videoScanAbortController = null;
 export function setupOnboarding() {
   document.getElementById('onboarding-start').addEventListener('click', () => showOnboardingScreen('scan'));
   document.getElementById('onboarding-skip').addEventListener('click', finishOnboarding);
-  document.getElementById('onboarding-scan-photo-btn').addEventListener('click', () => {
-    document.getElementById('onboarding-scan-input').click();
+  document.getElementById('onboarding-scan-photo-btn').addEventListener('click', async () => {
+    const file = await capturePhoto();
+    if (file) onRoomScanPhoto(file);
   });
   document.getElementById('onboarding-scan-video-btn').addEventListener('click', () => {
     document.getElementById('onboarding-video-input').click();
   });
-  document.getElementById('onboarding-scan-input').addEventListener('change', onRoomScanPhoto);
   document.getElementById('onboarding-video-input').addEventListener('change', onRoomScanVideo);
   document.getElementById('onboarding-add-more').addEventListener('click', () => showOnboardingScreen('scan'));
   document.getElementById('onboarding-confirm-all').addEventListener('click', confirmAllScannedRooms);
@@ -219,9 +220,7 @@ function mergeDetectedRoom(result) {
   }
 }
 
-async function onRoomScanPhoto(e) {
-  const file = e.target.files[0];
-  e.target.value = '';
+async function onRoomScanPhoto(file) {
   if (!file) return;
 
   const apiKey = Brain.getApiKey();

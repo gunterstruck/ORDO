@@ -481,6 +481,16 @@
   </div>
 </div>
 
+<!-- ── CAMERA CAPTURE OVERLAY ─────────────────────────── -->
+<div id="camera-overlay" class="camera-overlay" style="display:none">
+  <video id="camera-video" class="camera-video" autoplay playsinline muted></video>
+  <div class="camera-controls">
+    <button id="camera-cancel-btn" class="camera-cancel-btn" aria-label="Abbrechen">✕</button>
+    <button id="camera-shutter-btn" class="camera-shutter-btn" aria-label="Foto aufnehmen"></button>
+    <button id="camera-switch-btn" class="camera-switch-btn" aria-label="Kamera wechseln">🔄</button>
+  </div>
+</div>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>
