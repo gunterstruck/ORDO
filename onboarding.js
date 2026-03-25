@@ -2,9 +2,10 @@ import Brain from './brain.js';
 import { callGemini, getErrorMessage, deleteGeminiFile, uploadVideoToGemini } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog, showView, ROOM_PRESETS } from './app.js';
-import { resizeImage, blobToBase64, showStagingOverlay, addFileToStaging, showReviewPopup } from './photo-flow.js';
+import { resizeImage, blobToBase64, showStagingOverlay, addFileToStaging, showReviewPopup, setStagingTarget, closeStagingOverlay } from './photo-flow.js';
 
 let scannedRooms = [];
+let videoScanAbortController = null;
 
 export function setupOnboarding() {
   document.getElementById('onboarding-start').addEventListener('click', () => showOnboardingScreen('scan'));
@@ -86,6 +87,30 @@ Regeln:
 - Erkenne nur deutlich sichtbare Möbel, erfinde keine
 - konfidenz: hoch/mittel/niedrig – wie sicher bist du beim Raumtyp?`;
 
+const ROOM_DETECT_SYSTEM_PROMPT_MULTI = (n) => `Du bist ein Raumerkennungs-Assistent. Du siehst ${n} Fotos desselben Raums aus verschiedenen Blickwinkeln.
+Identifiziere jedes Möbelstück nur EINMAL, auch wenn es in mehreren Fotos sichtbar ist.
+
+Antworte NUR mit diesem JSON:
+{
+  "raum_typ": "kueche",
+  "raum_name": "Küche",
+  "raum_emoji": "🍳",
+  "moebel": [
+    {"name": "Hängeschrank über Spüle", "typ": "schrank"},
+    {"name": "Gewürzregal", "typ": "regal"}
+  ],
+  "konfidenz": "hoch"
+}
+
+Regeln:
+- raum_typ muss einer dieser IDs sein: kueche, wohnzimmer, schlafzimmer, bad, arbeitszimmer, keller, flur, kinderzimmer, garage, balkon, dachboden, gaestezimmer, sonstiges
+- Für raum_name verwende den deutschen Namen
+- moebel.typ muss sein: schrank, regal, schublade, kiste, tisch, kommode, sonstiges
+- Benenne Möbel spezifisch nach Position/Eigenschaft (z.B. "Schrank links neben Tür", "Bücherregal an der Wand")
+- Erkenne nur deutlich sichtbare Möbel, erfinde keine
+- WICHTIG: Jedes Möbelstück nur EINMAL auflisten, auch wenn es in mehreren Fotos aus verschiedenen Winkeln zu sehen ist
+- konfidenz: hoch/mittel/niedrig – wie sicher bist du beim Raumtyp?`;
+
 const ROOM_DETECT_SYSTEM_PROMPT_VIDEO = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Video eines Wohnungsrundgangs.
 Erkenne ALLE verschiedenen Räume, die im Video zu sehen sind, und die sichtbaren Aufbewahrungsmöbel in jedem Raum.
 
@@ -122,7 +147,7 @@ Regeln:
 - Jeden Raum nur einmal auflisten, auch wenn er mehrfach im Video erscheint
 - Bei Fluren/Durchgängen nur auflisten wenn dort Möbel stehen`;
 
-function showScanSpinner(text) {
+function showScanSpinner(text, showCancel = false) {
   const btns = document.querySelector('.onboarding-scan-buttons');
   if (btns) btns.style.display = 'none';
   const labels = document.querySelector('.onboarding-scan-labels');
@@ -130,6 +155,30 @@ function showScanSpinner(text) {
   const status = document.getElementById('onboarding-scan-status');
   status.style.display = 'flex';
   document.getElementById('onboarding-scan-status-text').textContent = text || 'KI analysiert…';
+
+  // Cancel button for video processing
+  let cancelBtn = document.getElementById('onboarding-scan-cancel');
+  if (showCancel) {
+    if (!cancelBtn) {
+      cancelBtn = document.createElement('button');
+      cancelBtn.id = 'onboarding-scan-cancel';
+      cancelBtn.className = 'onboarding-btn-skip';
+      cancelBtn.style.marginTop = '12px';
+      cancelBtn.textContent = 'Abbrechen';
+      status.appendChild(cancelBtn);
+    }
+    cancelBtn.style.display = '';
+    cancelBtn.onclick = () => {
+      if (videoScanAbortController) {
+        videoScanAbortController.abort();
+        videoScanAbortController = null;
+      }
+      hideScanSpinner();
+      showToast('Video-Verarbeitung abgebrochen.', 'warning');
+    };
+  } else if (cancelBtn) {
+    cancelBtn.style.display = 'none';
+  }
 }
 
 function hideScanSpinner() {
@@ -139,6 +188,9 @@ function hideScanSpinner() {
   if (labels) labels.style.display = 'flex';
   document.getElementById('onboarding-scan-status').style.display = 'none';
   document.getElementById('onboarding-scan-progress').style.display = 'none';
+  const cancelBtn = document.getElementById('onboarding-scan-cancel');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  videoScanAbortController = null;
 }
 
 function mergeDetectedRoom(result) {
@@ -178,22 +230,43 @@ async function onRoomScanPhoto(e) {
     return;
   }
 
+  // Open staging overlay so user can collect multiple photos
+  setStagingTarget({ roomId: '__roomscan__', containerId: '__roomscan__', containerName: 'Raumscan', mode: 'add', roomScanFlow: true });
+  showStagingOverlay('📷 Raum erfassen');
+  addFileToStaging(file);
+}
+
+// Called from analyzeAllStagedPhotos when roomScanFlow is detected
+export async function analyzeRoomScanPhotos(photos) {
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
+    return;
+  }
+
+  closeStagingOverlay();
   showScanSpinner('KI analysiert den Raum…');
 
   try {
-    const resized = await resizeImage(file, 1200);
-    const base64 = await blobToBase64(resized);
-    const mimeType = file.type || 'image/jpeg';
+    const photoCount = photos.length;
+    const prompt = photoCount > 1 ? ROOM_DETECT_SYSTEM_PROMPT_MULTI(photoCount) : ROOM_DETECT_SYSTEM_PROMPT_SINGLE;
+
+    const imageContents = photos.map(p => ({
+      type: 'image',
+      source: { type: 'base64', media_type: p.mimeType, data: p.base64 }
+    }));
 
     const messages = [{
       role: 'user',
       content: [
-        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-        { type: 'text', text: 'Erkenne diesen Raum und die sichtbaren Aufbewahrungsmöbel.' }
+        ...imageContents,
+        { type: 'text', text: photoCount > 1
+          ? `Du siehst ${photoCount} Fotos desselben Raums aus verschiedenen Blickwinkeln. Erkenne den Raum und alle sichtbaren Aufbewahrungsmöbel.`
+          : 'Erkenne diesen Raum und die sichtbaren Aufbewahrungsmöbel.' }
       ]
     }];
 
-    const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_SINGLE, messages);
+    const raw = await callGemini(apiKey, prompt, messages);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('Kein JSON in Antwort');
 
@@ -223,9 +296,13 @@ async function onRoomScanVideo(e) {
     return;
   }
 
+  // Abort controller for cancellation
+  videoScanAbortController = new AbortController();
+  const abortSignal = videoScanAbortController;
+
   const progressBar = document.getElementById('onboarding-scan-progress');
   const progressFill = document.getElementById('onboarding-scan-progress-fill');
-  showScanSpinner('Video wird hochgeladen…');
+  showScanSpinner('Video wird hochgeladen…', true);
   progressBar.style.display = 'block';
   progressFill.style.width = '0%';
 
@@ -238,8 +315,12 @@ async function onRoomScanVideo(e) {
   if (dbgPanel) dbgPanel.open = true;
 
   try {
+    // Check if cancelled before each major step
+    if (abortSignal.signal.aborted) throw new Error('aborted');
+
     // Upload video to Gemini File API
     uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
+      if (abortSignal.signal.aborted) return;
       progressFill.style.width = `${pct}%`;
       if (phase === 'upload') {
         document.getElementById('onboarding-scan-status-text').textContent = 'Video wird hochgeladen…';
@@ -249,6 +330,8 @@ async function onRoomScanVideo(e) {
         document.getElementById('onboarding-scan-status-text').textContent = 'KI analysiert Räume…';
       }
     });
+
+    if (abortSignal.signal.aborted) throw new Error('aborted');
 
     // Analyze with Gemini
     debugLog('Sende Video an Gemini zur Raumanalyse…');
@@ -264,6 +347,9 @@ async function onRoomScanVideo(e) {
     }];
 
     const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_VIDEO, messages);
+
+    if (abortSignal.signal.aborted) throw new Error('aborted');
+
     debugLog(`Gemini-Antwort erhalten (${raw.length} Zeichen)`);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -289,8 +375,19 @@ async function onRoomScanVideo(e) {
   } catch (err) {
     debugLog(`FEHLER: ${err.message}`);
     hideScanSpinner();
-    showToast(getErrorMessage(err), 'error');
+    if (err.message === 'aborted') {
+      // User cancelled – already handled by cancel button
+      return;
+    }
+    // Show fallback hint for video failures
+    const isVideoError = err.message?.includes('Video') || err.message?.includes('Upload') || err.message?.includes('Status-Abfrage');
+    if (isVideoError) {
+      showToast('Video-Verarbeitung fehlgeschlagen. Versuche es mit einzelnen Fotos.', 'error');
+    } else {
+      showToast(getErrorMessage(err), 'error');
+    }
   } finally {
+    videoScanAbortController = null;
     // Cleanup: delete uploaded file from Gemini
     if (uploadedFile?.fileName) {
       deleteGeminiFile(apiKey, uploadedFile.fileName);

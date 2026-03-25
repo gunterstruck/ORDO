@@ -96,7 +96,7 @@
       <div class="chat-controls">
         <button id="chat-mic" aria-label="Spracheingabe">🎤</button>
         <button id="chat-camera" aria-label="Foto hinzufügen">📎</button>
-        <input type="file" id="chat-photo-input" accept="image/*" style="display:none" aria-label="Foto auswählen">
+        <input type="file" id="chat-photo-input" accept="image/*" capture="environment" style="display:none" aria-label="Foto auswählen">
         <textarea
           id="chat-input"
           placeholder="Wo ist die Schere?"
@@ -453,7 +453,7 @@
     <div id="staging-thumbnails" class="staging-thumbnails"></div>
     <div class="staging-add-row">
       <button id="staging-add-btn" class="staging-add-btn">+ Foto hinzufügen</button>
-      <input type="file" id="staging-photo-input" accept="image/*" style="display:none" aria-label="Weiteres Foto">
+      <input type="file" id="staging-photo-input" accept="image/*" capture="environment" style="display:none" aria-label="Weiteres Foto">
     </div>
     <p id="staging-hint" class="staging-hint" style="display:none"></p>
     <div class="staging-footer">
