@@ -4,6 +4,7 @@ import Brain from './brain.js';
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { showView, debugLog, ensureRoom, getNfcContext, setNfcContext, getCurrentView } from './app.js';
 import { openCameraForContainer, showStagingOverlay, addFileToStaging, setStagingTarget } from './photo-flow.js';
+import { capturePhoto } from './camera.js';
 import { startRoomScan } from './onboarding.js';
 import { sendChatMessage } from './chat.js';
 
@@ -668,12 +669,8 @@ function setupNfcContextView() {
     showView('chat');
   });
 
-  document.getElementById('nfc-ctx-photo-btn').addEventListener('click', () => {
-    document.getElementById('nfc-ctx-photo-input').click();
-  });
-
-  document.getElementById('nfc-ctx-photo-input').addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
+  document.getElementById('nfc-ctx-photo-btn').addEventListener('click', async () => {
+    const file = await capturePhoto();
     if (!file || !getNfcContext()) return;
 
     const roomId = getNfcContext().room;
@@ -698,7 +695,6 @@ function setupNfcContextView() {
 
     showStagingOverlay(`📷 ${containerName}`);
     await addFileToStaging(file);
-    e.target.value = '';
   });
 
   // Touch/click resets inactivity timer

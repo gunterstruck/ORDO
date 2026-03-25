@@ -7,6 +7,7 @@ import { ROOM_PRESETS, ensureRoom, debugLog, showView, getNfcContext, getCurrent
 import { renderBrainView, showBrainToast } from './brain-view.js';
 import { showOnboardingDoneStep, analyzeRoomScanPhotos } from './onboarding.js';
 import { appendMessage } from './chat.js';
+import { capturePhoto } from './camera.js';
 
 // ── State ──────────────────────────────────────────────
 let pickingState = null;
@@ -66,13 +67,22 @@ function blobToBase64(blob) {
 
 // ── Photo View ───────────────────────────────────────
 function setupPhoto() {
-  document.getElementById('photo-camera-btn').addEventListener('click', () => {
+  document.getElementById('photo-camera-btn').addEventListener('click', async () => {
     const roomId = document.getElementById('photo-room-select').value;
     if (!roomId) { showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error'); return; }
     const customName = document.getElementById('photo-custom-name').value.trim();
     const containerId = customName ? Brain.slugify(customName) : 'inhalt';
     stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
-    document.getElementById('photo-input-camera').click();
+    const file = await capturePhoto();
+    if (file) {
+      if (!document.getElementById('staging-overlay').style.display || document.getElementById('staging-overlay').style.display === 'none') {
+        const title = stagingTarget?.containerName ? `📷 ${stagingTarget.containerName}` : '📷 Fotos sammeln';
+        showStagingOverlay(title);
+      }
+      addFileToStaging(file);
+    } else {
+      if (stagedPhotos.length === 0) { stagingTarget = null; }
+    }
   });
   document.getElementById('photo-gallery-btn').addEventListener('click', () => {
     const roomId = document.getElementById('photo-room-select').value;
@@ -834,13 +844,10 @@ function togglePickingMic() {
 function setupStagingOverlay() {
   document.getElementById('staging-close').addEventListener('click', closeStagingOverlay);
   document.getElementById('staging-cancel-btn').addEventListener('click', closeStagingOverlay);
-  document.getElementById('staging-add-btn').addEventListener('click', () => {
-    document.getElementById('staging-photo-input').click();
-  });
-  document.getElementById('staging-photo-input').addEventListener('change', e => {
-    if (e.target.files[0]) addFileToStaging(e.target.files[0]);
+  document.getElementById('staging-add-btn').addEventListener('click', async () => {
+    const file = await capturePhoto();
+    if (file) addFileToStaging(file);
     else if (stagedPhotos.length === 0) closeStagingOverlay();
-    e.target.value = '';
   });
   document.getElementById('staging-analyze-btn').addEventListener('click', analyzeAllStagedPhotos);
 }
@@ -1469,12 +1476,14 @@ async function addManualReviewItem() {
 }
 
 // ── Open Camera for Container (used by brain-view) ────
-function openCameraForContainer(roomId, cId) {
+async function openCameraForContainer(roomId, cId) {
   const container = Brain.getContainer(roomId, cId);
   const containerName = container?.name || cId;
   stagingTarget = { roomId, containerId: cId, containerName, mode: 'add' };
   showStagingOverlay(`📷 ${containerName}`);
-  document.getElementById('staging-photo-input').click();
+  const file = await capturePhoto();
+  if (file) addFileToStaging(file);
+  else if (stagedPhotos.length === 0) closeStagingOverlay();
 }
 
 function setStagingTarget(val) { stagingTarget = val; }

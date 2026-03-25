@@ -6,6 +6,7 @@ import { showToast } from './modal.js';
 import { debugLog, showView, getNfcContext, ensureRoom } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
 import { resizeImageForChat, renderRoomDropdown } from './photo-flow.js';
+import { capturePhoto } from './camera.js';
 
 // ── State ──────────────────────────────────────────────
 let recognition = null;
@@ -31,7 +32,26 @@ function setupChatCamera() {
   const input = document.getElementById('chat-photo-input');
   const removeBtn = document.getElementById('chat-photo-remove');
 
-  btn.addEventListener('click', () => input.click());
+  btn.addEventListener('click', async () => {
+    const file = await capturePhoto();
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      showToast('Foto zu groß – bitte ein kleineres wählen.', 'error');
+      return;
+    }
+
+    try {
+      const { base64, mimeType } = await resizeImageForChat(file);
+      chatPendingPhoto = { base64, mimeType };
+
+      const thumb = document.getElementById('chat-photo-thumb');
+      thumb.src = `data:${mimeType};base64,${base64}`;
+      document.getElementById('chat-photo-preview').hidden = false;
+    } catch {
+      showToast('Foto konnte nicht geladen werden.', 'error');
+    }
+  });
 
   input.addEventListener('change', async e => {
     const file = e.target.files[0];
