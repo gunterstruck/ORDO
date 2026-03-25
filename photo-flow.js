@@ -151,7 +151,7 @@ function applyNfcContextToPhotoView() {
   const containerName = container?.name || getNfcContext()?.tag || '';
 
   const select = document.getElementById('photo-room-select');
-  if (select && getNfcContext()?.room) select.value = nfcContext.room;
+  if (select && getNfcContext()?.room) select.value = getNfcContext().room;
 
   const customName = document.getElementById('photo-custom-name');
   if (customName && containerName) customName.value = containerName;
