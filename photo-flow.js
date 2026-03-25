@@ -5,7 +5,7 @@ import { callGemini, getErrorMessage } from './ai.js';
 import { showToast, showInputModal } from './modal.js';
 import { ROOM_PRESETS, ensureRoom, debugLog, showView, getNfcContext, getCurrentView } from './app.js';
 import { renderBrainView, showBrainToast } from './brain-view.js';
-import { showOnboardingDoneStep } from './onboarding.js';
+import { showOnboardingDoneStep, analyzeRoomScanPhotos } from './onboarding.js';
 import { appendMessage } from './chat.js';
 
 // ── State ──────────────────────────────────────────────
@@ -912,6 +912,13 @@ function renderStagingThumbnails() {
 async function analyzeAllStagedPhotos() {
   if (stagedPhotos.length === 0 || !stagingTarget) return;
 
+  // Room scan flow: delegate to onboarding module
+  if (stagingTarget.roomScanFlow) {
+    const photos = stagedPhotos.map(p => ({ base64: p.base64, mimeType: p.mimeType }));
+    analyzeRoomScanPhotos(photos);
+    return;
+  }
+
   const apiKey = Brain.getApiKey();
   if (!apiKey) {
     showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
@@ -1477,7 +1484,7 @@ export {
   setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay,
   renderRoomDropdown, applyNfcContextToPhotoView,
   resizeImage, resizeImageForChat, blobToBase64,
-  showStagingOverlay, addFileToStaging, showReviewPopup,
+  showStagingOverlay, closeStagingOverlay, addFileToStaging, showReviewPopup,
   openCameraForContainer, handlePhotoFile, showPhotoStatus,
   setStagingTarget
 };
