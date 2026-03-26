@@ -127,11 +127,52 @@ export function showOnboardingScreen(screen) {
   }
 }
 
+// Build a prompt block listing existing containers for a room so the AI reuses names
+function buildExistingContainersBlock(roomId) {
+  // Check Brain for already-saved containers
+  const room = Brain.getRoom(roomId);
+  let containers = [];
+  if (room) {
+    const flat = Brain.getAllContainersFlat(roomId);
+    containers = flat.map(c => ({ name: c.name, typ: '' }));
+  }
+  // Also check scannedRooms (onboarding flow, not yet saved)
+  const scanned = scannedRooms.find(r => r.id === roomId);
+  if (scanned && scanned.containers) {
+    for (const sc of scanned.containers) {
+      // Avoid duplicates between Brain and scannedRooms
+      if (!containers.some(c => c.name === sc.name)) {
+        containers.push({ name: sc.name, typ: sc.typ || '' });
+      }
+    }
+  }
+  if (containers.length === 0) return '';
+  const list = containers.map(c => `- ${c.name}${c.typ ? ' (' + c.typ + ')' : ''}`).join('\n');
+  return `\n\nIn diesem Raum existieren bereits folgende Möbelstücke:\n${list}\n\nWenn du eines dieser Möbelstücke auf dem Foto wiedererkennst, verwende EXAKT den bestehenden Namen. Lege nur neue Container an für Möbel die wirklich NOCH NICHT in der obigen Liste stehen. Wenn du ein Möbelstück siehst das der bestehenden Liste ähnelt, verwende den EXAKTEN bestehenden Namen – NICHT eine Variante davon.`;
+}
+
+// Build a combined existing-containers block for all known rooms (Brain + scannedRooms)
+function buildExistingContainersBlockForAllKnownRooms() {
+  const roomIds = new Set();
+  // Collect from scannedRooms
+  for (const r of scannedRooms) roomIds.add(r.id);
+  // Collect from Brain
+  const brainRooms = Brain.getRooms();
+  for (const id of Object.keys(brainRooms)) roomIds.add(id);
+
+  const blocks = [];
+  for (const id of roomIds) {
+    const block = buildExistingContainersBlock(id);
+    if (block) blocks.push(block);
+  }
+  return blocks.length > 0 ? blocks.join('\n') : '';
+}
+
 // Shared prompt for room detection (photo + video)
-const ROOM_DETECT_SYSTEM_PROMPT_SINGLE = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Foto und erkenne:
+const ROOM_DETECT_SYSTEM_PROMPT_SINGLE = (existingBlock = '') => `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Foto und erkenne:
 1. Um welchen Raum es sich handelt (z.B. Küche, Wohnzimmer, Schlafzimmer, Bad, Arbeitszimmer, Keller, Flur, Kinderzimmer, Garage, Balkon, Dachboden, Gästezimmer)
 2. Welche Aufbewahrungsmöbel sichtbar sind (Schränke, Regale, Schubladen, Kommoden, Tische, Kisten etc.)
-
+${existingBlock}
 Antworte NUR mit diesem JSON:
 {
   "raum_typ": "kueche",
@@ -152,9 +193,9 @@ Regeln:
 - Erkenne nur deutlich sichtbare Möbel, erfinde keine
 - konfidenz: hoch/mittel/niedrig – wie sicher bist du beim Raumtyp?`;
 
-const ROOM_DETECT_SYSTEM_PROMPT_MULTI = (n) => `Du bist ein Raumerkennungs-Assistent. Du siehst ${n} Fotos desselben Raums aus verschiedenen Blickwinkeln.
+const ROOM_DETECT_SYSTEM_PROMPT_MULTI = (n, existingBlock = '') => `Du bist ein Raumerkennungs-Assistent. Du siehst ${n} Fotos desselben Raums aus verschiedenen Blickwinkeln.
 Identifiziere jedes Möbelstück nur EINMAL, auch wenn es in mehreren Fotos sichtbar ist.
-
+${existingBlock}
 Antworte NUR mit diesem JSON:
 {
   "raum_typ": "kueche",
@@ -176,9 +217,9 @@ Regeln:
 - WICHTIG: Jedes Möbelstück nur EINMAL auflisten, auch wenn es in mehreren Fotos aus verschiedenen Winkeln zu sehen ist
 - konfidenz: hoch/mittel/niedrig – wie sicher bist du beim Raumtyp?`;
 
-const ROOM_DETECT_SYSTEM_PROMPT_VIDEO = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Video eines Wohnungsrundgangs.
+const ROOM_DETECT_SYSTEM_PROMPT_VIDEO = (existingBlock = '') => `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Video eines Wohnungsrundgangs.
 Erkenne ALLE verschiedenen Räume, die im Video zu sehen sind, und die sichtbaren Aufbewahrungsmöbel in jedem Raum.
-
+${existingBlock}
 Antworte NUR mit diesem JSON:
 {
   "raeume": [
@@ -210,7 +251,8 @@ Regeln:
 - Benenne Möbel spezifisch nach Position/Eigenschaft (z.B. "Schrank links neben Tür", "Bücherregal an der Wand")
 - Erkenne nur deutlich sichtbare Möbel, erfinde keine
 - Jeden Raum nur einmal auflisten, auch wenn er mehrfach im Video erscheint
-- Bei Fluren/Durchgängen nur auflisten wenn dort Möbel stehen`;
+- Bei Fluren/Durchgängen nur auflisten wenn dort Möbel stehen
+- Wenn bereits Möbelstücke bekannt sind, verwende EXAKT deren bestehende Namen – NICHT eine Variante davon`;
 
 function showScanSpinner(text, showCancel = false) {
   const btns = document.querySelector('.onboarding-scan-buttons');
@@ -258,6 +300,23 @@ function hideScanSpinner() {
   videoScanAbortController = null;
 }
 
+// Check if a new container name is a fuzzy duplicate of any existing container
+function isContainerDuplicate(newName, existingContainers) {
+  for (const existing of existingContainers) {
+    if (Brain.isFuzzyMatch(existing.name, newName)) return existing;
+  }
+  return null;
+}
+
+// Also check against saved Brain containers for a room
+function isContainerDuplicateInBrain(newName, roomId) {
+  const flat = Brain.getAllContainersFlat(roomId);
+  for (const c of flat) {
+    if (Brain.isFuzzyMatch(c.name, newName)) return c;
+  }
+  return null;
+}
+
 function mergeDetectedRoom(result) {
   const existingIdx = scannedRooms.findIndex(r => r.id === result.raum_typ);
   if (existingIdx >= 0) {
@@ -266,20 +325,28 @@ function mergeDetectedRoom(result) {
       name: m.name || 'Möbel',
       typ: m.typ || 'sonstiges'
     }));
-    existing.containers = [...existing.containers, ...newContainers];
+    // Deduplicate: only add containers that don't fuzzy-match existing ones
+    for (const nc of newContainers) {
+      const dupInScanned = isContainerDuplicate(nc.name, existing.containers);
+      const dupInBrain = isContainerDuplicateInBrain(nc.name, existing.id);
+      if (!dupInScanned && !dupInBrain) {
+        existing.containers.push(nc);
+      }
+    }
   } else {
     let roomId = result.raum_typ || 'sonstiges';
     if (scannedRooms.some(r => r.id === roomId) && roomId === 'sonstiges') {
       roomId = 'sonstiges_' + Date.now();
     }
+    // Filter out containers that already exist in Brain for this room
+    const newContainers = (result.moebel || [])
+      .map(m => ({ name: m.name || 'Möbel', typ: m.typ || 'sonstiges' }))
+      .filter(c => !isContainerDuplicateInBrain(c.name, roomId));
     scannedRooms.push({
       id: roomId,
       name: result.raum_name || ROOM_PRESETS[roomId]?.[1] || 'Raum',
       emoji: result.raum_emoji || ROOM_PRESETS[roomId]?.[0] || '🏠',
-      containers: (result.moebel || []).map(m => ({
-        name: m.name || 'Möbel',
-        typ: m.typ || 'sonstiges'
-      }))
+      containers: newContainers
     });
   }
 }
@@ -312,7 +379,9 @@ export async function analyzeRoomScanPhotos(photos) {
 
   try {
     const photoCount = photos.length;
-    const prompt = photoCount > 1 ? ROOM_DETECT_SYSTEM_PROMPT_MULTI(photoCount) : ROOM_DETECT_SYSTEM_PROMPT_SINGLE;
+    // Build existing containers block from scannedRooms + Brain for context
+    const existingBlock = buildExistingContainersBlockForAllKnownRooms();
+    const prompt = photoCount > 1 ? ROOM_DETECT_SYSTEM_PROMPT_MULTI(photoCount, existingBlock) : ROOM_DETECT_SYSTEM_PROMPT_SINGLE(existingBlock);
 
     const imageContents = photos.map(p => ({
       type: 'image',
@@ -407,7 +476,9 @@ async function onRoomScanVideo(file) {
       ]
     }];
 
-    const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_VIDEO, messages);
+    // Build existing containers block from all known rooms
+    const videoExistingBlock = buildExistingContainersBlockForAllKnownRooms();
+    const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_VIDEO(videoExistingBlock), messages);
 
     if (abortSignal.signal.aborted) throw new Error('aborted');
 
@@ -558,8 +629,11 @@ function confirmAllScannedRooms() {
     Brain.addRoom(room.id, room.name, room.emoji || (preset ? preset[0] : '🏠'));
     roomCount++;
 
-    // Create first-level containers
+    // Create first-level containers (skip duplicates already saved in Brain)
     room.containers.forEach((c, i) => {
+      // Check if a similar container already exists in Brain for this room
+      if (isContainerDuplicateInBrain(c.name, room.id)) return;
+
       const cId = room.id + '_' + (c.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20) || 'moebel') + '_' + i;
       Brain.addContainer(room.id, cId, c.name, c.typ || 'sonstiges', [], false);
       containerCount++;
