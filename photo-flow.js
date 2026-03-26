@@ -686,12 +686,26 @@ async function confirmHotspotItem() {
   if (similarItem) {
     // Update existing item instead of creating a new one
     Brain.updateExistingItem(roomId, containerId, similarItem.name);
+    // Attach crop_ref to existing item if crop was created
+    if (cropId) {
+      const data2 = Brain.getData();
+      const c2 = Brain._findContainerInTree(data2.rooms?.[roomId]?.containers, containerId);
+      if (c2) {
+        Brain._migrateContainerItems(c2);
+        const item = c2.items.find(i => Brain.getItemName(i) === similarItem.name);
+        if (item && typeof item === 'object') {
+          item.crop_ref = `crop_${cropId}`;
+          Brain.save(data2);
+        }
+      }
+    }
   } else {
     // Save new item with spatial position from hotspot
     const spatialOpts = {};
     if (hs && hs.position) {
       spatialOpts.spatial = { position: { x: hs.position.x, y: hs.position.y } };
     }
+    if (cropId) spatialOpts.crop_ref = `crop_${cropId}`;
     const data = Brain.getData();
     const c = Brain._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (c) {
