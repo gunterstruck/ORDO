@@ -547,9 +547,14 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
       const maxAttempts = 48; // 48 × 2.5s = 120s timeout
       let pollErrors = 0;
 
+      // fileObj.name is e.g. "files/abc123" – strip "files/" prefix to avoid double "files/" in URL
+      const fileId = fileObj.name.startsWith('files/') ? fileObj.name.slice(6) : fileObj.name;
+
       while (attempts < maxAttempts) {
+        const pollUrl = `${FILE_API_GET_URL}/${fileId}?key=${apiKey}`;
+        debugLog(`Poll-URL: ${pollUrl}`);
         const checkRes = await fetchWithRetry(
-          `${FILE_API_GET_URL}/${fileObj.name}?key=${apiKey}`,
+          pollUrl,
           {}, 2, 'Status-Poll'
         );
 
@@ -590,7 +595,8 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
 
 export async function deleteGeminiFile(apiKey, fileName) {
   try {
-    await fetch(`${FILE_API_GET_URL}/${fileName}?key=${apiKey}`, { method: 'DELETE' });
+    const fileId = fileName.startsWith('files/') ? fileName.slice(6) : fileName;
+    await fetch(`${FILE_API_GET_URL}/${fileId}?key=${apiKey}`, { method: 'DELETE' });
   } catch (err) { debugLog(`Gemini-Datei löschen fehlgeschlagen: ${err.message}`); }
 }
 
