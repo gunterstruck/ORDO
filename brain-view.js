@@ -218,8 +218,11 @@ function buildContainerNode(roomId, cId, c, depth) {
     const name = Brain.getItemName(item);
     const menge = typeof item === 'string' ? (c.quantities?.[item] || 1) : (item.menge || 1);
     const isVermisst = typeof item !== 'string' && item.status === 'vermisst';
-    chip.className = 'brain-chip' + (isVermisst ? ' brain-chip--vermisst' : '');
-    chip.textContent = (menge > 1 ? `${menge}x ` : '') + name + (isVermisst ? ' ⚠' : '');
+    const freshness = Brain.getItemFreshness(item);
+    chip.className = 'brain-chip' + (isVermisst ? ' brain-chip--vermisst' : '') + ` brain-chip--${freshness}`;
+    const emojiPrefix = freshness === 'stale' ? '⏱ ' : freshness === 'ghost' ? '👻 ' : '';
+    chip.textContent = emojiPrefix + (menge > 1 ? `${menge}x ` : '') + name + (isVermisst ? ' ⚠' : '');
+    if (freshness === 'unconfirmed') chip.title = 'Noch nie per Foto bestätigt';
     chip.addEventListener('click', () => {
       showView('chat');
       const input = document.getElementById('chat-input');
