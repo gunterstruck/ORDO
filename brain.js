@@ -924,22 +924,22 @@ const Brain = {
 
     let ctx = '';
     for (const [rId, room] of Object.entries(rooms)) {
-      ctx += `\nRaum: ${room.emoji} ${room.name}`;
+      ctx += `\nRaum: ${room.emoji} ${room.name} [id: ${rId}]`;
       const containers = Object.entries(room.containers || {});
       if (containers.length === 0) {
         ctx += ' (keine Behälter erfasst)';
       } else {
         for (const [cId, c] of containers) {
-          ctx += this._buildContainerContext(c, 1);
+          ctx += this._buildContainerContext(cId, c, 1);
         }
       }
     }
     return ctx.trim();
   },
 
-  _buildContainerContext(c, depth) {
+  _buildContainerContext(cId, c, depth) {
     const indent = '  '.repeat(depth);
-    let ctx = `\n${indent}${c.typ}: ${c.name}`;
+    let ctx = `\n${indent}${c.typ}: ${c.name} [id: ${cId}]`;
 
     // Filter: only show active and vermisst items
     const activeItems = (c.items || []).filter(item => {
@@ -976,7 +976,7 @@ const Brain = {
     // Recurse into children
     if (c.containers) {
       for (const [childId, child] of Object.entries(c.containers)) {
-        ctx += this._buildContainerContext(child, depth + 1);
+        ctx += this._buildContainerContext(childId, child, depth + 1);
       }
     }
     return ctx;
