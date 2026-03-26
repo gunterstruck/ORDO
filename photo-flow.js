@@ -858,7 +858,13 @@ function showStagingOverlay(title) {
   document.getElementById('staging-analyze-btn').disabled = true;
   document.getElementById('staging-analyze-btn').textContent = 'Analysieren';
   document.getElementById('staging-title').textContent = title || 'Fotos sammeln';
-  document.getElementById('staging-hint').style.display = 'none';
+  const hint = document.getElementById('staging-hint');
+  if (stagingTarget?.roomScanFlow) {
+    hint.textContent = 'Tipp: Fotografiere den Raum aus mehreren Blickwinkeln für bessere Ergebnisse. Jedes Möbelstück wird nur einmal erkannt.';
+    hint.style.display = '';
+  } else {
+    hint.style.display = 'none';
+  }
   document.getElementById('staging-overlay').style.display = 'flex';
 }
 
@@ -883,7 +889,11 @@ async function addFileToStaging(file) {
     const previewUrl = `data:${mimeType};base64,${base64}`;
     stagedPhotos.push({ base64, mimeType, previewUrl, originalFile: file });
     renderStagingThumbnails();
-    document.getElementById('staging-analyze-btn').disabled = false;
+    const analyzeBtn = document.getElementById('staging-analyze-btn');
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = stagedPhotos.length > 1
+      ? `${stagedPhotos.length} Fotos analysieren`
+      : 'Analysieren';
   } catch {
     showToast('Foto konnte nicht geladen werden.', 'error');
   }
@@ -905,7 +915,11 @@ function renderStagingThumbnails() {
     removeBtn.addEventListener('click', () => {
       stagedPhotos.splice(index, 1);
       renderStagingThumbnails();
-      document.getElementById('staging-analyze-btn').disabled = stagedPhotos.length === 0;
+      const analyzeBtn = document.getElementById('staging-analyze-btn');
+      analyzeBtn.disabled = stagedPhotos.length === 0;
+      analyzeBtn.textContent = stagedPhotos.length > 1
+        ? `${stagedPhotos.length} Fotos analysieren`
+        : 'Analysieren';
     });
     thumb.appendChild(img);
     thumb.appendChild(removeBtn);
