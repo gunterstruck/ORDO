@@ -83,9 +83,24 @@ function setupNavigation() {
     btn.addEventListener('click', () => showView(btn.dataset.view));
   });
   document.getElementById('settings-gear').addEventListener('click', () => showView('settings'));
+
+  // Back button on photo view
+  document.getElementById('photo-back-btn').addEventListener('click', () => showView('chat'));
+}
+
+function closeAllOverlays() {
+  const overlayIds = ['camera-overlay', 'staging-overlay', 'review-overlay', 'picking-overlay', 'photo-timeline-overlay', 'move-container-overlay', 'lightbox'];
+  overlayIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.display = 'none';
+      el.classList.remove('lightbox--visible');
+    }
+  });
 }
 
 function showView(name) {
+  closeAllOverlays();
   currentView = name;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));

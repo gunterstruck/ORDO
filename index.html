@@ -24,12 +24,33 @@
         <p class="onboarding-subtitle">Dein Haushalt bekommt ein Gedächtnis.</p>
       </div>
       <div class="onboarding-steps">
-        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Fotografiere oder filme deine Räume</div>
-        <div class="onboarding-step"><span class="onboarding-step-num">2</span> KI erkennt Möbel automatisch</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">1</span> KI-Verbindung einrichten</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">2</span> Räume fotografieren oder filmen</div>
         <div class="onboarding-step"><span class="onboarding-step-num">3</span> Frag später einfach</div>
       </div>
       <button id="onboarding-start" class="onboarding-btn-primary">Räume scannen →</button>
       <button id="onboarding-skip" class="onboarding-btn-skip">Überspringen</button>
+    </div>
+
+    <!-- API-Key einrichten (NEU) -->
+    <div id="onboarding-step-apikey" class="onboarding-screen" style="display:none">
+      <span class="onboarding-icon">🔗</span>
+      <h2 class="onboarding-step-title">KI-Verbindung einrichten</h2>
+      <p class="onboarding-step-desc">ORDO nutzt Google Gemini, um deine Fotos zu verstehen. Dafür brauchst du einen kostenlosen Schlüssel.</p>
+      <div class="onboarding-apikey-instructions">
+        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Auf den Link tippen</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">2</span> Mit Google-Konto anmelden</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">3</span> „Create API Key" tippen</div>
+        <div class="onboarding-step"><span class="onboarding-step-num">4</span> Schlüssel kopieren und hier einfügen</div>
+      </div>
+      <a id="onboarding-apikey-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="onboarding-btn-secondary onboarding-apikey-link-btn">Schlüssel erstellen →</a>
+      <input type="text" id="onboarding-apikey-input" class="onboarding-apikey-input" placeholder="Schlüssel hier einfügen…" autocomplete="off">
+      <div id="onboarding-apikey-status" class="onboarding-apikey-status" style="display:none"></div>
+      <div class="onboarding-apikey-actions">
+        <button id="onboarding-apikey-test" class="onboarding-btn-secondary" disabled>Testen</button>
+        <button id="onboarding-apikey-next" class="onboarding-btn-primary" disabled>Weiter →</button>
+      </div>
+      <button id="onboarding-apikey-skip" class="onboarding-btn-skip">Später einrichten</button>
     </div>
 
     <!-- Raum-Scan: Foto oder Video aufnehmen -->
@@ -107,6 +128,10 @@
 
   <!-- ── PHOTO VIEW ─────────────────────────────── -->
   <div id="view-photo" class="view">
+    <div class="photo-view-header">
+      <button id="photo-back-btn" class="photo-back-btn" aria-label="Zurück">← Zurück</button>
+      <span class="photo-view-header-title">Erfassen</span>
+    </div>
     <p class="photo-section-title">Raum auswählen</p>
     <select id="photo-room-select" aria-label="Raum auswählen"></select>
 

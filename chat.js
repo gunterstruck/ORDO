@@ -25,6 +25,43 @@ export function setupChat() {
   });
   document.getElementById('chat-mic').addEventListener('click', toggleMic);
   setupChatCamera();
+  setupKeyboardHandling();
+}
+
+function setupKeyboardHandling() {
+  const chatInput = document.getElementById('chat-input');
+  const inputRow = document.getElementById('chat-input-row');
+
+  // Scroll input into view when focused (important for Android soft keyboard)
+  chatInput.addEventListener('focus', () => {
+    setTimeout(() => {
+      chatInput.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    }, 300);
+  });
+
+  // Use visualViewport API to adjust for soft keyboard on mobile
+  if (window.visualViewport) {
+    let pendingUpdate = false;
+    const onViewportResize = () => {
+      if (pendingUpdate) return;
+      pendingUpdate = true;
+      requestAnimationFrame(() => {
+        pendingUpdate = false;
+        const keyboardOffset = window.innerHeight - window.visualViewport.height;
+        if (keyboardOffset > 50) {
+          // Keyboard is open — lift input row above keyboard
+          inputRow.style.paddingBottom = `${keyboardOffset + 8}px`;
+        } else {
+          // Keyboard closed — reset to CSS default
+          inputRow.style.paddingBottom = '';
+        }
+        // Keep messages scrolled to bottom
+        const messages = document.getElementById('chat-messages');
+        messages.scrollTop = messages.scrollHeight;
+      });
+    };
+    window.visualViewport.addEventListener('resize', onViewportResize);
+  }
 }
 
 function setupChatCamera() {
