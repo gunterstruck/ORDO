@@ -597,6 +597,17 @@ const Brain = {
 
   // --- Photo Analysis Result ---
   // Supports new recursive format with behaelter containing behaelter
+  // Find an existing container by fuzzy name match within a containers object.
+  // Returns [matchedId, matchedContainer] or null if no match.
+  _findFuzzyContainer(containers, newName) {
+    for (const [existingId, existingC] of Object.entries(containers || {})) {
+      if (this.isFuzzyMatch(existingC.name, newName)) {
+        return [existingId, existingC];
+      }
+    }
+    return null;
+  },
+
   applyPhotoAnalysis(roomId, analysisResult, parentContainerId) {
     const data = this.getData();
     if (!data.rooms[roomId]) return 0;
@@ -619,17 +630,26 @@ const Brain = {
       const unsicherItems = (b.inhalt_unsicher || []).map(u =>
         typeof u === 'string' ? u : u.name
       );
-      const existing = targetContainers[cId];
+      // Check exact ID match first, then fuzzy name match
+      let existing = targetContainers[cId];
+      let resolvedId = cId;
+      if (!existing) {
+        const fuzzyMatch = this._findFuzzyContainer(targetContainers, b.name);
+        if (fuzzyMatch) {
+          resolvedId = fuzzyMatch[0];
+          existing = fuzzyMatch[1];
+        }
+      }
       if (existing) {
-        // Merge: keep existing items, add new ones (compare by name for v1.3 objects)
+        // Merge: keep existing items, add new ones (fuzzy-match to avoid duplicates)
         const mergedItems = [...(existing.items || [])];
         const itemNames = mergedItems.map(i => this.getItemName(i));
         sicherItems.forEach(item => {
-          if (!itemNames.includes(item)) mergedItems.push(item);
+          if (!itemNames.some(n => this.isFuzzyMatch(n, item))) mergedItems.push(item);
         });
         const mergedUncertain = [...(existing.uncertain_items || [])];
         unsicherItems.forEach(item => {
-          if (!mergedUncertain.includes(item) && !itemNames.includes(item)) mergedUncertain.push(item);
+          if (!mergedUncertain.some(u => this.isFuzzyMatch(u, item)) && !itemNames.some(n => this.isFuzzyMatch(n, item))) mergedUncertain.push(item);
         });
         existing.items = mergedItems;
         existing.uncertain_items = mergedUncertain;
@@ -638,6 +658,7 @@ const Brain = {
         existing.last_updated = Date.now();
         existing.photo_analyzed = true;
       } else {
+        resolvedId = cId;
         targetContainers[cId] = {
           name: b.name,
           typ: b.typ || 'sonstiges',
@@ -651,8 +672,9 @@ const Brain = {
 
       // Recursively handle nested containers
       if (b.behaelter?.length > 0) {
-        if (!targetContainers[cId].containers) targetContainers[cId].containers = {};
-        count += this._applyNestedAnalysis(targetContainers[cId], b.behaelter);
+        const resolvedContainer = targetContainers[resolvedId];
+        if (!resolvedContainer.containers) resolvedContainer.containers = {};
+        count += this._applyNestedAnalysis(resolvedContainer, b.behaelter);
       }
     });
 
@@ -674,16 +696,25 @@ const Brain = {
       const unsicherItems = (b.inhalt_unsicher || []).map(u =>
         typeof u === 'string' ? u : u.name
       );
-      const existing = parentContainer.containers[cId];
+      // Check exact ID match first, then fuzzy name match
+      let existing = parentContainer.containers[cId];
+      let resolvedId = cId;
+      if (!existing) {
+        const fuzzyMatch = this._findFuzzyContainer(parentContainer.containers, b.name);
+        if (fuzzyMatch) {
+          resolvedId = fuzzyMatch[0];
+          existing = fuzzyMatch[1];
+        }
+      }
       if (existing) {
         const mergedItems = [...(existing.items || [])];
         const itemNames = mergedItems.map(i => this.getItemName(i));
         sicherItems.forEach(item => {
-          if (!itemNames.includes(item)) mergedItems.push(item);
+          if (!itemNames.some(n => this.isFuzzyMatch(n, item))) mergedItems.push(item);
         });
         const mergedUncertain = [...(existing.uncertain_items || [])];
         unsicherItems.forEach(item => {
-          if (!mergedUncertain.includes(item) && !itemNames.includes(item)) mergedUncertain.push(item);
+          if (!mergedUncertain.some(u => this.isFuzzyMatch(u, item)) && !itemNames.some(n => this.isFuzzyMatch(n, item))) mergedUncertain.push(item);
         });
         existing.items = mergedItems;
         existing.uncertain_items = mergedUncertain;
@@ -692,6 +723,7 @@ const Brain = {
         existing.last_updated = Date.now();
         existing.photo_analyzed = true;
       } else {
+        resolvedId = cId;
         parentContainer.containers[cId] = {
           name: b.name,
           typ: b.typ || 'sonstiges',
@@ -703,7 +735,9 @@ const Brain = {
       }
       count++;
       if (b.behaelter?.length > 0) {
-        count += this._applyNestedAnalysis(parentContainer.containers[cId], b.behaelter);
+        const resolvedContainer = parentContainer.containers[resolvedId];
+        if (!resolvedContainer.containers) resolvedContainer.containers = {};
+        count += this._applyNestedAnalysis(resolvedContainer, b.behaelter);
       }
     });
     return count;
@@ -924,22 +958,22 @@ const Brain = {
 
     let ctx = '';
     for (const [rId, room] of Object.entries(rooms)) {
-      ctx += `\nRaum: ${room.emoji} ${room.name}`;
+      ctx += `\nRaum: ${room.emoji} ${room.name} [id: ${rId}]`;
       const containers = Object.entries(room.containers || {});
       if (containers.length === 0) {
         ctx += ' (keine Behälter erfasst)';
       } else {
         for (const [cId, c] of containers) {
-          ctx += this._buildContainerContext(c, 1);
+          ctx += this._buildContainerContext(cId, c, 1);
         }
       }
     }
     return ctx.trim();
   },
 
-  _buildContainerContext(c, depth) {
+  _buildContainerContext(cId, c, depth) {
     const indent = '  '.repeat(depth);
-    let ctx = `\n${indent}${c.typ}: ${c.name}`;
+    let ctx = `\n${indent}${c.typ}: ${c.name} [id: ${cId}]`;
 
     // Filter: only show active and vermisst items
     const activeItems = (c.items || []).filter(item => {
@@ -976,7 +1010,7 @@ const Brain = {
     // Recurse into children
     if (c.containers) {
       for (const [childId, child] of Object.entries(c.containers)) {
-        ctx += this._buildContainerContext(child, depth + 1);
+        ctx += this._buildContainerContext(childId, child, depth + 1);
       }
     }
     return ctx;
