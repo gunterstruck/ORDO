@@ -92,7 +92,7 @@ export function getErrorMessage(err) {
   if (err.message === 'max_tokens') return 'Antwort zu lang – bitte ein übersichtlicheres Foto wählen.';
   if (err.message === 'Kein JSON in Antwort') return 'Die KI hat keine auswertbare Antwort geliefert. Bitte nochmal versuchen.';
   if (err.message?.includes('Video zu groß')) return err.message;
-  if (err.message?.includes('Video-Verarbeitung')) return err.message;
+  if (err.message?.includes('Video-Verarbeitung') || err.message?.includes('Timeout')) return err.message;
   if (err.message?.includes('too large') || err.message?.includes('size')) return 'Datei zu groß – bitte eine kleinere wählen oder Auflösung reduzieren.';
   if (err instanceof SyntaxError || err.message?.includes('JSON')) return 'Antwort war unvollständig – bitte nochmal versuchen.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
@@ -544,7 +544,7 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
       debugLog(`Datei hochgeladen: ${fileObj.name}. Warte auf Verarbeitung…`);
 
       let attempts = 0;
-      const maxAttempts = 120;
+      const maxAttempts = 48; // 48 × 2.5s = 120s timeout
       let pollErrors = 0;
 
       while (attempts < maxAttempts) {
@@ -583,7 +583,7 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
         await new Promise(r => setTimeout(r, 2500));
       }
 
-      throw new Error('Video-Verarbeitung dauert zu lange. Bitte ein kürzeres Video versuchen.');
+      throw new Error('Video-Verarbeitung dauert zu lange (Timeout nach 120 s). Bitte ein kürzeres Video versuchen oder stattdessen einzelne Fotos verwenden.');
     }
   }
 }

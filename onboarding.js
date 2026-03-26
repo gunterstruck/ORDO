@@ -378,13 +378,13 @@ async function onRoomScanVideo(e) {
       // User cancelled – already handled by cancel button
       return;
     }
-    // Show fallback hint for video failures
-    const isVideoError = err.message?.includes('Video') || err.message?.includes('Upload') || err.message?.includes('Status-Abfrage');
-    if (isVideoError) {
-      showToast('Video-Verarbeitung fehlgeschlagen. Versuche es mit einzelnen Fotos.', 'error');
-    } else {
-      showToast(getErrorMessage(err), 'error');
-    }
+    // Always show fallback hint to use single photos instead
+    const baseMsg = getErrorMessage(err);
+    const isVideoError = err.message?.includes('Video') || err.message?.includes('Upload') || err.message?.includes('Status-Abfrage') || err.message?.includes('Timeout');
+    const fallbackHint = '\n💡 Tipp: Verwende stattdessen die Foto-Funktion – mehrere Fotos liefern oft bessere Ergebnisse als ein Video.';
+    showToast(isVideoError
+      ? 'Video-Verarbeitung fehlgeschlagen.' + fallbackHint
+      : baseMsg + fallbackHint, 'error');
   } finally {
     videoScanAbortController = null;
     // Cleanup: delete uploaded file from Gemini

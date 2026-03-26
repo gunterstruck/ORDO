@@ -33,10 +33,19 @@ async function startCamera() {
   stopStream();
 
   try {
-    currentStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: currentFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      audio: false
-    });
+    // Try exact facingMode first to force rear camera, fall back to ideal if device rejects it
+    try {
+      currentStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: currentFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+    } catch {
+      // exact constraint rejected (e.g. device has only one camera) → try ideal
+      currentStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: currentFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+    }
     video.srcObject = currentStream;
     overlay.style.display = 'flex';
   } catch (err) {
