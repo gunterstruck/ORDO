@@ -9,8 +9,19 @@ let scannedRooms = [];
 let videoScanAbortController = null;
 
 export function setupOnboarding() {
-  document.getElementById('onboarding-start').addEventListener('click', () => showOnboardingScreen('scan'));
+  document.getElementById('onboarding-start').addEventListener('click', () => {
+    // Skip API-key step if key already exists
+    if (Brain.getApiKey()) {
+      showOnboardingScreen('scan');
+    } else {
+      showOnboardingScreen('apikey');
+    }
+  });
   document.getElementById('onboarding-skip').addEventListener('click', finishOnboarding);
+
+  // API-Key step
+  setupApiKeyStep();
+
   document.getElementById('onboarding-scan-photo-btn').addEventListener('click', async () => {
     const file = await capturePhoto();
     if (file) onRoomScanPhoto(file);
@@ -27,6 +38,59 @@ export function setupOnboarding() {
   document.getElementById('settings-room-scan').addEventListener('click', startRoomScan);
 }
 
+function setupApiKeyStep() {
+  const input = document.getElementById('onboarding-apikey-input');
+  const testBtn = document.getElementById('onboarding-apikey-test');
+  const nextBtn = document.getElementById('onboarding-apikey-next');
+  const skipBtn = document.getElementById('onboarding-apikey-skip');
+  const statusEl = document.getElementById('onboarding-apikey-status');
+
+  input.addEventListener('input', () => {
+    const hasValue = input.value.trim().length > 0;
+    testBtn.disabled = !hasValue;
+    nextBtn.disabled = !hasValue;
+    statusEl.style.display = 'none';
+  });
+
+  testBtn.addEventListener('click', async () => {
+    const key = input.value.trim();
+    if (!key) return;
+
+    testBtn.disabled = true;
+    testBtn.textContent = 'Teste…';
+    statusEl.style.display = 'block';
+    statusEl.className = 'onboarding-apikey-status onboarding-apikey-status--pending';
+    statusEl.textContent = 'Verbindung wird geprüft…';
+
+    try {
+      await callGemini(key, 'Antworte mit genau einem Wort: OK', [{ role: 'user', content: 'Test' }]);
+      statusEl.className = 'onboarding-apikey-status onboarding-apikey-status--ok';
+      statusEl.textContent = 'Verbindung OK ✓';
+      Brain.setApiKey(key);
+      nextBtn.disabled = false;
+    } catch (err) {
+      statusEl.className = 'onboarding-apikey-status onboarding-apikey-status--error';
+      statusEl.textContent = 'Schlüssel ungültig oder Fehler: ' + getErrorMessage(err);
+    } finally {
+      testBtn.disabled = false;
+      testBtn.textContent = 'Testen';
+    }
+  });
+
+  nextBtn.addEventListener('click', () => {
+    const key = input.value.trim();
+    if (key) {
+      Brain.setApiKey(key);
+    }
+    showOnboardingScreen('scan');
+  });
+
+  skipBtn.addEventListener('click', () => {
+    showToast('Ohne Schlüssel kann die App keine Fotos analysieren. Du kannst ihn später in den Einstellungen eintragen.', 'warning');
+    showOnboardingScreen('scan');
+  });
+}
+
 export function showOnboarding() {
   scannedRooms = [];
   document.getElementById('nav').style.display = 'none';
@@ -38,12 +102,12 @@ export function showOnboarding() {
 }
 
 export function showOnboardingScreen(screen) {
-  const screens = ['onboarding-welcome', 'onboarding-step-scan', 'onboarding-step-review', 'onboarding-step-done'];
+  const screens = ['onboarding-welcome', 'onboarding-step-apikey', 'onboarding-step-scan', 'onboarding-step-review', 'onboarding-step-done'];
   screens.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
-  const map = { welcome: 'onboarding-welcome', scan: 'onboarding-step-scan', review: 'onboarding-step-review', done: 'onboarding-step-done' };
+  const map = { welcome: 'onboarding-welcome', apikey: 'onboarding-step-apikey', scan: 'onboarding-step-scan', review: 'onboarding-step-review', done: 'onboarding-step-done' };
   const el = document.getElementById(map[screen]);
   if (el) el.style.display = 'flex';
 
