@@ -29,7 +29,6 @@ export function setupChat() {
 
 function setupChatCamera() {
   const btn = document.getElementById('chat-camera');
-  const input = document.getElementById('chat-photo-input');
   const removeBtn = document.getElementById('chat-photo-remove');
 
   btn.addEventListener('click', async () => {
@@ -49,30 +48,6 @@ function setupChatCamera() {
       thumb.src = `data:${mimeType};base64,${base64}`;
       document.getElementById('chat-photo-preview').hidden = false;
     } catch {
-      showToast('Foto konnte nicht geladen werden.', 'error');
-    }
-  });
-
-  input.addEventListener('change', async e => {
-    const file = e.target.files[0];
-    input.value = '';
-    if (!file) return;
-
-    if (file.size > 4 * 1024 * 1024) {
-      showToast('Foto zu groß – bitte ein kleineres wählen.', 'error');
-      return;
-    }
-
-    try {
-      const { base64, mimeType } = await resizeImageForChat(file);
-      chatPendingPhoto = { base64, mimeType };
-
-      const thumb = document.getElementById('chat-photo-thumb');
-      thumb.src = `data:${mimeType};base64,${base64}`;
-      document.getElementById('chat-photo-preview').hidden = false;
-      document.getElementById('chat-input').focus();
-    } catch {
-      debugLog('Chat-Foto konnte nicht geladen werden');
       showToast('Foto konnte nicht geladen werden.', 'error');
     }
   });

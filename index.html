@@ -44,7 +44,6 @@
         <span>Foto</span>
         <span>Video</span>
       </div>
-      <input type="file" id="onboarding-scan-input" accept="image/*" capture="environment" style="display:none">
       <input type="file" id="onboarding-video-input" accept="video/*" capture="environment" style="display:none">
       <div id="onboarding-scan-status" class="onboarding-scan-status" style="display:none">
         <div class="onboarding-spinner"></div>
@@ -96,7 +95,6 @@
       <div class="chat-controls">
         <button id="chat-mic" aria-label="Spracheingabe">🎤</button>
         <button id="chat-camera" aria-label="Foto hinzufügen">📎</button>
-        <input type="file" id="chat-photo-input" accept="image/*" capture="environment" style="display:none" aria-label="Foto auswählen">
         <textarea
           id="chat-input"
           placeholder="Wo ist die Schere?"
@@ -130,8 +128,7 @@
       <button id="photo-gallery-btn" aria-label="Galerie öffnen">🖼️</button>
     </div>
 
-    <!-- Hidden file inputs -->
-    <input type="file" id="photo-input-camera" accept="image/*" capture="environment" style="display:none" aria-label="Kamerafoto">
+    <!-- Hidden file input for gallery only (camera uses getUserMedia via capturePhoto()) -->
     <input type="file" id="photo-input-gallery" accept="image/*" style="display:none" aria-label="Bild aus Galerie">
 
     <img id="photo-preview" alt="Vorschau" aria-live="polite">
@@ -205,7 +202,6 @@
         💬 Frage stellen
       </button>
     </div>
-    <input type="file" id="nfc-ctx-photo-input" accept="image/*" capture="environment" style="display:none" aria-label="Foto aufnehmen">
   </div>
 
   <!-- ── PHOTO TIMELINE OVERLAY ────────────────────── -->
@@ -453,7 +449,6 @@
     <div id="staging-thumbnails" class="staging-thumbnails"></div>
     <div class="staging-add-row">
       <button id="staging-add-btn" class="staging-add-btn">+ Foto hinzufügen</button>
-      <input type="file" id="staging-photo-input" accept="image/*" capture="environment" style="display:none" aria-label="Weiteres Foto">
     </div>
     <p id="staging-hint" class="staging-hint" style="display:none"></p>
     <div class="staging-footer">
