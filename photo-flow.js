@@ -92,19 +92,7 @@ function setupPhoto() {
     stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
     document.getElementById('photo-input-gallery').click();
   });
-  // Both hidden inputs feed into the staging area – open overlay only after file selection
-  document.getElementById('photo-input-camera').addEventListener('change', e => {
-    if (e.target.files[0]) {
-      if (!document.getElementById('staging-overlay').style.display || document.getElementById('staging-overlay').style.display === 'none') {
-        const title = stagingTarget?.containerName ? `📷 ${stagingTarget.containerName}` : '📷 Fotos sammeln';
-        showStagingOverlay(title);
-      }
-      addFileToStaging(e.target.files[0]);
-    } else {
-      if (stagedPhotos.length === 0) { closeStagingOverlay(); stagingTarget = null; }
-    }
-    e.target.value = '';
-  });
+  // Gallery file input feeds into the staging area
   document.getElementById('photo-input-gallery').addEventListener('change', e => {
     if (e.target.files[0]) {
       if (!document.getElementById('staging-overlay').style.display || document.getElementById('staging-overlay').style.display === 'none') {
