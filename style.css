@@ -590,6 +590,24 @@ html, body {
 
 .brain-chip:active { opacity: 0.7; }
 
+/* Chip with crop thumbnail */
+.brain-chip--has-crop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 4px;
+}
+
+.brain-chip-crop {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: 1.5px solid rgba(255,255,255,0.5);
+}
+
 .brain-chip--uncertain {
   background: none;
   color: var(--accent-dark);
@@ -2832,19 +2850,63 @@ select.settings-input { appearance: none; }
   border-radius: 12px;
   padding: 14px 12px;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1), box-shadow 0.2s, opacity 0.2s;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   border: 2.5px solid transparent;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 90px;
+  min-height: 110px;
   position: relative;
   overflow: hidden;
+  justify-content: flex-end;
 }
 
 .map-room-cell:active {
   transform: scale(0.97);
+}
+
+/* Background photo for room cell */
+.map-room-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.map-room-cell--has-photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(transparent 30%, rgba(0,0,0,0.55));
+  z-index: 1;
+  pointer-events: none;
+}
+
+.map-room-cell--has-photo .map-room-emoji,
+.map-room-cell--has-photo .map-room-name,
+.map-room-cell--has-photo .map-room-count {
+  position: relative;
+  z-index: 2;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+/* Transition: zooming cell */
+.map-room-cell--zooming {
+  transform: scale(1.05);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  z-index: 10;
+}
+
+/* Transition: fading siblings */
+.map-room-cell--fading {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
 }
 
 /* Freshness indicator border */
@@ -2852,7 +2914,7 @@ select.settings-input { appearance: none; }
 .map-room-cell--stale { border-color: #F9C74F; }
 .map-room-cell--old   { border-color: #ccc; }
 
-/* Room type colors */
+/* Room type colors (fallback when no photo) */
 .map-room-cell--kueche   { background: #FFF3E8; }
 .map-room-cell--bad       { background: #E8F4FD; }
 .map-room-cell--schlafzimmer { background: #F0E8FD; }
@@ -2885,12 +2947,21 @@ select.settings-input { appearance: none; }
 
 /* Room detail (Zoom level 2) */
 .map-room-detail {
-  animation: mapZoomIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: mapZoomIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.map-room-detail--exiting {
+  animation: mapZoomOut 0.2s ease forwards;
 }
 
 @keyframes mapZoomIn {
   from { opacity: 0; transform: scale(0.92); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes mapZoomOut {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.92); }
 }
 
 .map-detail-header {
@@ -2926,37 +2997,58 @@ select.settings-input { appearance: none; }
 
 .map-container-tile {
   background: #fff;
-  border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-height: 80px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  overflow: hidden;
+  position: relative;
+  border: 2.5px solid transparent;
 }
+
+/* Freshness border on container tiles */
+.map-container-tile--fresh { border-color: var(--success); }
+.map-container-tile--stale { border-color: #F9C74F; }
+.map-container-tile--old   { border-color: #ccc; }
 
 .map-container-tile:active {
   transform: scale(0.97);
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
-.map-container-thumb {
+/* Photo area: top half */
+.map-container-photo-area {
   width: 100%;
-  height: 60px;
-  object-fit: cover;
-  border-radius: 6px;
+  aspect-ratio: 4/3;
+  overflow: hidden;
   background: var(--surface);
 }
 
+.map-container-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .map-container-emoji {
-  font-size: 24px;
+  font-size: 32px;
   text-align: center;
-  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   background: var(--surface);
-  border-radius: 6px;
+}
+
+/* Info area: bottom half */
+.map-container-info {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .map-container-name {
@@ -2971,6 +3063,41 @@ select.settings-input { appearance: none; }
 .map-container-meta {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Camera button on container tile */
+.map-container-cam-btn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.85);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  transition: background 0.15s;
+  z-index: 2;
+  padding: 0;
+  line-height: 1;
+}
+
+.map-container-cam-btn:active {
+  background: rgba(255,255,255,1);
+}
+
+.map-container-cam-btn--cta {
+  background: var(--primary);
+  color: #fff;
+  width: 34px;
+  height: 34px;
+  font-size: 16px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
 
 .map-empty-state {

@@ -489,6 +489,7 @@ const Brain = {
     };
     if (opts.spatial) item.spatial = opts.spatial;
     if (opts.object_id) item.object_id = opts.object_id;
+    if (opts.crop_ref) item.crop_ref = opts.crop_ref;
     return item;
   },
 
