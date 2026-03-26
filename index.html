@@ -44,7 +44,6 @@
         <span>Foto</span>
         <span>Video</span>
       </div>
-      <input type="file" id="onboarding-video-input" accept="video/*" capture="environment" style="display:none">
       <div id="onboarding-scan-status" class="onboarding-scan-status" style="display:none">
         <div class="onboarding-spinner"></div>
         <p class="onboarding-scan-status-text" id="onboarding-scan-status-text">KI analysiert den Raum…</p>
@@ -479,6 +478,7 @@
 <!-- ── CAMERA CAPTURE OVERLAY ─────────────────────────── -->
 <div id="camera-overlay" class="camera-overlay" style="display:none">
   <video id="camera-video" class="camera-video" autoplay playsinline muted></video>
+  <div id="camera-record-timer" class="camera-record-timer" style="display:none">0:00</div>
   <div class="camera-controls">
     <button id="camera-cancel-btn" class="camera-cancel-btn" aria-label="Abbrechen">✕</button>
     <button id="camera-shutter-btn" class="camera-shutter-btn" aria-label="Foto aufnehmen"></button>

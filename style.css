@@ -3034,3 +3034,53 @@ select.settings-input { appearance: none; }
   font-size: 20px;
   cursor: pointer;
 }
+
+/* Video mode: red inner circle indicates record */
+.camera-shutter-btn--video {
+  background: transparent;
+  position: relative;
+}
+.camera-shutter-btn--video::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #E53935;
+  transition: border-radius 0.2s, width 0.2s, height 0.2s;
+}
+
+/* Recording: red square (stop icon) */
+.camera-shutter-btn--recording::after {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+
+/* Pulse animation on recording border */
+.camera-shutter-btn--recording {
+  animation: camera-pulse 1.2s ease-in-out infinite;
+}
+@keyframes camera-pulse {
+  0%, 100% { border-color: #fff; }
+  50% { border-color: #E53935; }
+}
+
+/* Record timer */
+.camera-record-timer {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(229, 57, 53, 0.85);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 14px;
+  border-radius: 20px;
+  z-index: 1;
+}
