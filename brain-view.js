@@ -51,6 +51,9 @@ function setupBrain() {
   const lb = document.getElementById('lightbox');
   document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
   lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
+
+  // Event delegation for brain-tree (single listeners instead of per-element)
+  setupBrainTreeDelegation();
 }
 
 function renderBrainView() {
@@ -86,7 +89,7 @@ function renderBrainView() {
     const btn = document.createElement('button');
     btn.className = 'brain-empty-cta-btn';
     btn.textContent = '📷 Erstes Foto machen';
-    btn.addEventListener('click', () => showView('photo'));
+    // Click handled by delegation on #brain-tree
     emptyEl.appendChild(btn);
     container.appendChild(emptyEl);
     return;
@@ -100,6 +103,7 @@ function renderBrainView() {
 function buildRoomNode(roomId, room) {
   const roomEl = document.createElement('div');
   roomEl.className = 'brain-room';
+  roomEl.dataset.roomId = roomId;
 
   const totalContainers = Brain.countContainers(room.containers);
 
@@ -118,18 +122,10 @@ function buildRoomNode(roomId, room) {
   header.appendChild(nameSpanR);
   header.appendChild(countSpanR);
 
-  let open = true;
   const body = document.createElement('div');
   body.className = 'brain-room-body';
 
-  header.addEventListener('click', () => {
-    open = !open;
-    body.style.display = open ? 'block' : 'none';
-    header.classList.toggle('collapsed', !open);
-  });
-
-  // Long press to rename/delete
-  setupLongPress(header, () => showRoomContextMenu(roomId, room));
+  // Click toggle and long-press handled by delegation on #brain-tree
 
   if (totalContainers === 0) {
     const empty = document.createElement('p');
@@ -146,7 +142,8 @@ function buildRoomNode(roomId, room) {
   const addBtn = document.createElement('button');
   addBtn.className = 'brain-add-btn';
   addBtn.textContent = '+ Bereich hinzufügen';
-  addBtn.addEventListener('click', () => showAddContainerDialog(roomId));
+  addBtn.dataset.action = 'add-container';
+  addBtn.dataset.room = roomId;
   body.appendChild(addBtn);
 
   roomEl.appendChild(header);
@@ -162,6 +159,7 @@ function buildContainerNode(roomId, cId, c, depth) {
   const hasChildren = c.containers && Object.keys(c.containers).length > 0;
   el.className = `brain-container ${hasItems ? 'has-items' : 'empty'}`;
   el.setAttribute('data-container-id', cId);
+  el.dataset.roomId = roomId;
   if (depth > 0) {
     el.classList.add('brain-container--nested');
     el.style.marginLeft = `${depth * 18}px`;
@@ -191,22 +189,11 @@ function buildContainerNode(roomId, cId, c, depth) {
   header.appendChild(headerLeft);
   header.appendChild(headerRight);
 
-  let open = false;
   const body = document.createElement('div');
   body.className = 'brain-container-body';
   body.style.display = 'none';
 
-  header.addEventListener('click', () => {
-    open = !open;
-    body.style.display = open ? 'block' : 'none';
-    header.classList.toggle('brain-container-header--open', open);
-    if (open) {
-      loadThumbnail(roomId, cId, c, thumbnailWrapper);
-      updateBreadcrumb(roomId, cId);
-    }
-  });
-
-  setupLongPress(header, () => showContainerContextMenu(roomId, cId, c));
+  // Click toggle and long-press handled by delegation on #brain-tree
 
   // Thumbnail area
   const thumbnailWrapper = document.createElement('div');
@@ -228,6 +215,9 @@ function buildContainerNode(roomId, cId, c, depth) {
     const isVermisst = typeof item !== 'string' && item.status === 'vermisst';
     const freshness = Brain.getItemFreshness(item);
     chip.className = 'brain-chip' + (isVermisst ? ' brain-chip--vermisst' : '') + ` brain-chip--${freshness}`;
+    chip.dataset.action = 'item-chat';
+    chip.dataset.itemName = name;
+    chip.dataset.draggable = 'item';
 
     // Crop thumbnail if available
     const cropRef = typeof item === 'object' ? item.crop_ref : null;
@@ -242,10 +232,7 @@ function buildContainerNode(roomId, cId, c, depth) {
           if (blob) {
             const url = URL.createObjectURL(blob);
             cropImg.src = url;
-            cropImg.addEventListener('click', e => {
-              e.stopPropagation();
-              showLightbox(url);
-            });
+            cropImg.dataset.blobUrl = url;
           }
         } catch { /* crop not found */ }
       })();
@@ -258,15 +245,7 @@ function buildContainerNode(roomId, cId, c, depth) {
     chip.appendChild(textSpan);
 
     if (freshness === 'unconfirmed') chip.title = 'Noch nie per Foto bestätigt';
-    chip.addEventListener('click', () => {
-      showView('chat');
-      const input = document.getElementById('chat-input');
-      input.value = `Wo ist die ${name}?`;
-      setTimeout(() => sendChatMessage(), 100);
-    });
-    setupLongPress(chip, () => showItemContextMenu(roomId, cId, name));
-    // Drag-and-drop for items (touch devices)
-    setupItemDrag(chip, roomId, cId, name);
+    // Click, long-press, and drag handled by delegation on #brain-tree
     chips.appendChild(chip);
   });
 
@@ -275,7 +254,8 @@ function buildContainerNode(roomId, cId, c, depth) {
     const archiveToggle = document.createElement('div');
     archiveToggle.className = 'brain-archive-toggle';
     archiveToggle.textContent = `📦 ${archivedItems.length} archiviert`;
-    let archiveOpen = false;
+    archiveToggle.dataset.count = archivedItems.length;
+    archiveToggle.dataset.open = 'false';
     const archiveChips = document.createElement('div');
     archiveChips.className = 'brain-chips brain-chips--archived';
     archiveChips.style.display = 'none';
@@ -284,26 +264,11 @@ function buildContainerNode(roomId, cId, c, depth) {
       chip.className = 'brain-chip brain-chip--archived';
       chip.textContent = item.name;
       chip.title = item.archived_at ? `Archiviert am ${Brain.formatDate(new Date(item.archived_at).getTime())}` : 'Archiviert';
-      chip.addEventListener('click', async () => {
-        const ok = await showConfirmModal({
-          title: 'Wiederherstellen',
-          description: `"${item.name}" wiederherstellen?`,
-          confirmLabel: 'Wiederherstellen'
-        });
-        if (ok) {
-          Brain.restoreItem(roomId, cId, item.name);
-          renderBrainView();
-        }
-      });
+      chip.dataset.action = 'archive-restore';
+      chip.dataset.itemName = item.name;
       archiveChips.appendChild(chip);
     });
-    archiveToggle.addEventListener('click', () => {
-      archiveOpen = !archiveOpen;
-      archiveChips.style.display = archiveOpen ? 'flex' : 'none';
-      archiveToggle.textContent = archiveOpen
-        ? `📦 ${archivedItems.length} archiviert ▲`
-        : `📦 ${archivedItems.length} archiviert`;
-    });
+    // Click handled by delegation on #brain-tree
     chips.appendChild(archiveToggle);
     chips.appendChild(archiveChips);
   }
@@ -314,12 +279,10 @@ function buildContainerNode(roomId, cId, c, depth) {
     chip.className = 'brain-chip brain-chip--uncertain';
     chip.textContent = `${item} ?`;
     chip.title = 'Noch nicht bestätigt';
-    chip.addEventListener('click', () => {
-      showView('chat');
-      const input = document.getElementById('chat-input');
-      input.value = `Ist "${item}" wirklich in "${c.name}"?`;
-      setTimeout(() => sendChatMessage(), 100);
-    });
+    chip.dataset.action = 'uncertain-chat';
+    chip.dataset.itemName = item;
+    chip.dataset.containerName = c.name;
+    // Click handled by delegation on #brain-tree
     chips.appendChild(chip);
   });
 
@@ -336,34 +299,26 @@ function buildContainerNode(roomId, cId, c, depth) {
   const addItemBtn = document.createElement('button');
   addItemBtn.className = 'brain-add-item-btn';
   addItemBtn.textContent = '+ Gegenstand';
-  addItemBtn.addEventListener('click', async () => {
-    const result = await showInputModal({
-      title: 'Gegenstand hinzufügen',
-      fields: [{ placeholder: 'Name des Gegenstands' }]
-    });
-    if (result && result[0]?.trim()) {
-      Brain.addItem(roomId, cId, result[0].trim());
-      renderBrainView();
-    }
-  });
+  addItemBtn.dataset.action = 'add-item';
+  addItemBtn.dataset.room = roomId;
+  addItemBtn.dataset.container = cId;
 
   // Add child container button
   const addChildBtn = document.createElement('button');
   addChildBtn.className = 'brain-add-item-btn';
   addChildBtn.textContent = '+ Bereich darunter';
-  addChildBtn.addEventListener('click', () => {
-    showAddChildContainerDialog(roomId, cId);
-  });
+  addChildBtn.dataset.action = 'add-child-container';
+  addChildBtn.dataset.room = roomId;
+  addChildBtn.dataset.container = cId;
 
   // Camera button – opens staging overlay for this container
   const cameraItemBtn = document.createElement('button');
   cameraItemBtn.className = 'brain-camera-item-btn';
   cameraItemBtn.innerHTML = '📷 Foto';
   cameraItemBtn.title = 'Foto machen und Inhalt per KI erkennen';
-  cameraItemBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    openCameraForContainer(roomId, cId);
-  });
+  cameraItemBtn.dataset.action = 'container-camera';
+  cameraItemBtn.dataset.room = roomId;
+  cameraItemBtn.dataset.container = cId;
 
   const btnRow = document.createElement('div');
   btnRow.className = 'brain-item-btn-row';
@@ -433,53 +388,6 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
 }
 
 // ── DRAG-AND-DROP SYSTEM ─────────────────────────────────
-
-function setupItemDrag(chipEl, roomId, containerId, itemName) {
-  let longPressTimer = null;
-  let startX = 0, startY = 0;
-  let moved = false;
-
-  chipEl.addEventListener('touchstart', e => {
-    if (dragState) return;
-    const touch = e.touches[0];
-    startX = touch.clientX;
-    startY = touch.clientY;
-    moved = false;
-
-    longPressTimer = setTimeout(() => {
-      if (!moved) {
-        e.preventDefault();
-        startItemDrag(chipEl, roomId, containerId, itemName, startX, startY);
-      }
-    }, 500);
-  }, { passive: false });
-
-  chipEl.addEventListener('touchmove', e => {
-    if (dragState?.active) {
-      e.preventDefault();
-      handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
-      return;
-    }
-    const touch = e.touches[0];
-    if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
-      moved = true;
-      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-    }
-  }, { passive: false });
-
-  chipEl.addEventListener('touchend', e => {
-    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-    if (dragState?.active) {
-      e.preventDefault();
-      handleDragEnd();
-    }
-  });
-
-  chipEl.addEventListener('touchcancel', () => {
-    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-    if (dragState?.active) cancelDrag();
-  });
-}
 
 function startItemDrag(chipEl, roomId, containerId, itemName, x, y) {
   if (typeof navigator.vibrate === 'function') navigator.vibrate(50);
@@ -599,10 +507,10 @@ function handleDragMove(x, y) {
     const elUnder = document.elementFromPoint(x, y);
     const dropZone = elUnder?.closest?.('.drop-zone') || elUnder?.closest?.('.map-container-tile[data-drop-container]');
 
-    // Clear previous highlights
-    document.querySelectorAll('.drop-zone--hover, .map-container-tile--drop-hover').forEach(el => {
-      el.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
-    });
+    // Clear previous highlight (cached, no querySelectorAll)
+    if (dragState.currentDropTarget) {
+      dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+    }
 
     if (dropZone) {
       dropZone.classList.add(dropZone.classList.contains('drop-zone') ? 'drop-zone--hover' : 'map-container-tile--drop-hover');
@@ -668,9 +576,9 @@ function cancelDrag() {
     setTimeout(() => dragState.dropBarEl.remove(), 200);
   }
 
-  document.querySelectorAll('.drop-zone--hover, .map-container-tile--drop-hover').forEach(el => {
-    el.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
-  });
+  if (dragState.currentDropTarget) {
+    dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+  }
 
   if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
   dragState = null;
@@ -684,9 +592,9 @@ function cleanupDrag() {
     dragState.dropBarEl.classList.remove('drop-bar--visible');
     setTimeout(() => dragState.dropBarEl.remove(), 200);
   }
-  document.querySelectorAll('.drop-zone--hover, .map-container-tile--drop-hover').forEach(el => {
-    el.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
-  });
+  if (dragState.currentDropTarget) {
+    dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+  }
   if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
   dragState = null;
 }
@@ -1763,6 +1671,242 @@ async function showContainerContextMenu(roomId, cId, c) {
   } else if (result[0] === '3') {
     showMoveContainerOverlay(roomId, cId);
   }
+}
+
+// ── EVENT DELEGATION (brain-tree) ──────────────────────
+
+function setupBrainTreeDelegation() {
+  const root = document.getElementById('brain-tree');
+  let lpTimer = null;
+  let lpFired = false;
+
+  // -- Click delegation: one handler for all brain-tree interactions --
+  root.addEventListener('click', async (e) => {
+    if (lpFired) { lpFired = false; return; }
+
+    // Crop image → lightbox (must be before item-chat to catch stopPropagation)
+    const cropImg = e.target.closest('.brain-chip-crop');
+    if (cropImg && cropImg.dataset.blobUrl) {
+      e.stopPropagation();
+      showLightbox(cropImg.dataset.blobUrl);
+      return;
+    }
+
+    // Active item chip → navigate to chat and ask
+    const itemChip = e.target.closest('[data-action="item-chat"]');
+    if (itemChip) {
+      showView('chat');
+      const input = document.getElementById('chat-input');
+      input.value = `Wo ist die ${itemChip.dataset.itemName}?`;
+      setTimeout(() => sendChatMessage(), 100);
+      return;
+    }
+
+    // Archived item → restore confirmation
+    const archiveChip = e.target.closest('[data-action="archive-restore"]');
+    if (archiveChip) {
+      const containerEl = archiveChip.closest('.brain-container');
+      const ok = await showConfirmModal({
+        title: 'Wiederherstellen',
+        description: `"${archiveChip.dataset.itemName}" wiederherstellen?`,
+        confirmLabel: 'Wiederherstellen'
+      });
+      if (ok) {
+        Brain.restoreItem(containerEl.dataset.roomId, containerEl.dataset.containerId, archiveChip.dataset.itemName);
+        renderBrainView();
+      }
+      return;
+    }
+
+    // Archive toggle → show/hide archived items
+    const archiveToggle = e.target.closest('.brain-archive-toggle');
+    if (archiveToggle) {
+      const archiveChips = archiveToggle.nextElementSibling;
+      const isOpen = archiveToggle.dataset.open === 'true';
+      archiveToggle.dataset.open = String(!isOpen);
+      archiveChips.style.display = !isOpen ? 'flex' : 'none';
+      const count = archiveToggle.dataset.count;
+      archiveToggle.textContent = !isOpen
+        ? `📦 ${count} archiviert ▲`
+        : `📦 ${count} archiviert`;
+      return;
+    }
+
+    // Uncertain item → chat
+    const uncertainChip = e.target.closest('[data-action="uncertain-chat"]');
+    if (uncertainChip) {
+      showView('chat');
+      const input = document.getElementById('chat-input');
+      input.value = `Ist "${uncertainChip.dataset.itemName}" wirklich in "${uncertainChip.dataset.containerName}"?`;
+      setTimeout(() => sendChatMessage(), 100);
+      return;
+    }
+
+    // Add item button
+    const addItemBtn = e.target.closest('[data-action="add-item"]');
+    if (addItemBtn) {
+      const result = await showInputModal({
+        title: 'Gegenstand hinzufügen',
+        fields: [{ placeholder: 'Name des Gegenstands' }]
+      });
+      if (result && result[0]?.trim()) {
+        Brain.addItem(addItemBtn.dataset.room, addItemBtn.dataset.container, result[0].trim());
+        renderBrainView();
+      }
+      return;
+    }
+
+    // Add child container button
+    const addChildBtn = e.target.closest('[data-action="add-child-container"]');
+    if (addChildBtn) {
+      showAddChildContainerDialog(addChildBtn.dataset.room, addChildBtn.dataset.container);
+      return;
+    }
+
+    // Camera button
+    const cameraBtn = e.target.closest('[data-action="container-camera"]');
+    if (cameraBtn) {
+      e.stopPropagation();
+      openCameraForContainer(cameraBtn.dataset.room, cameraBtn.dataset.container);
+      return;
+    }
+
+    // Add container button (room level)
+    const addContainerBtn = e.target.closest('[data-action="add-container"]');
+    if (addContainerBtn) {
+      showAddContainerDialog(addContainerBtn.dataset.room);
+      return;
+    }
+
+    // Empty CTA button
+    if (e.target.closest('.brain-empty-cta-btn')) {
+      showView('photo');
+      return;
+    }
+
+    // Container header toggle
+    const containerHeader = e.target.closest('.brain-container-header');
+    if (containerHeader) {
+      const containerEl = containerHeader.closest('.brain-container');
+      const body = containerEl.querySelector(':scope > .brain-container-body');
+      const isOpen = containerHeader.classList.contains('brain-container-header--open');
+      body.style.display = isOpen ? 'none' : 'block';
+      containerHeader.classList.toggle('brain-container-header--open', !isOpen);
+      if (!isOpen) {
+        const roomId = containerEl.dataset.roomId;
+        const cId = containerEl.dataset.containerId;
+        const thumbnailWrapper = body.querySelector('.brain-thumbnail-wrapper');
+        const c = Brain.getContainer(roomId, cId);
+        if (c) loadThumbnail(roomId, cId, c, thumbnailWrapper);
+        updateBreadcrumb(roomId, cId);
+      }
+      return;
+    }
+
+    // Room header toggle
+    const roomHeader = e.target.closest('.brain-room-header');
+    if (roomHeader) {
+      const roomEl = roomHeader.closest('.brain-room');
+      const body = roomEl.querySelector('.brain-room-body');
+      const isOpen = !roomHeader.classList.contains('collapsed');
+      body.style.display = isOpen ? 'none' : 'block';
+      roomHeader.classList.toggle('collapsed', isOpen);
+      return;
+    }
+  });
+
+  // -- Long-press delegation for context menus --
+  root.addEventListener('pointerdown', (e) => {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    lpFired = false;
+
+    const chip = e.target.closest('.brain-chip[data-action="item-chat"]');
+    if (chip) {
+      const containerEl = chip.closest('.brain-container');
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        showItemContextMenu(containerEl.dataset.roomId, containerEl.dataset.containerId, chip.dataset.itemName);
+      }, 600);
+      return;
+    }
+
+    const containerHeader = e.target.closest('.brain-container-header');
+    if (containerHeader) {
+      const containerEl = containerHeader.closest('.brain-container');
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        const c = Brain.getContainer(containerEl.dataset.roomId, containerEl.dataset.containerId);
+        if (c) showContainerContextMenu(containerEl.dataset.roomId, containerEl.dataset.containerId, c);
+      }, 600);
+      return;
+    }
+
+    const roomHeader = e.target.closest('.brain-room-header');
+    if (roomHeader) {
+      const roomEl = roomHeader.closest('.brain-room');
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        const room = Brain.getRoom(roomEl.dataset.roomId);
+        if (room) showRoomContextMenu(roomEl.dataset.roomId, room);
+      }, 600);
+    }
+  });
+
+  root.addEventListener('pointerup', () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } });
+  root.addEventListener('pointercancel', () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } });
+
+  // -- Touch drag delegation for item chips --
+  let dragTimer = null;
+  let dragStartX = 0, dragStartY = 0;
+  let dragMoved = false;
+
+  root.addEventListener('touchstart', (e) => {
+    if (dragState) return;
+    const chip = e.target.closest('[data-draggable="item"]');
+    if (!chip) return;
+
+    const touch = e.touches[0];
+    dragStartX = touch.clientX;
+    dragStartY = touch.clientY;
+    dragMoved = false;
+
+    dragTimer = setTimeout(() => {
+      if (!dragMoved) {
+        e.preventDefault();
+        const containerEl = chip.closest('.brain-container');
+        startItemDrag(chip, containerEl.dataset.roomId, containerEl.dataset.containerId, chip.dataset.itemName, dragStartX, dragStartY);
+      }
+    }, 500);
+  }, { passive: false });
+
+  root.addEventListener('touchmove', (e) => {
+    if (dragState?.active) {
+      e.preventDefault();
+      handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      return;
+    }
+    if (dragTimer) {
+      const touch = e.touches[0];
+      if (Math.abs(touch.clientX - dragStartX) > 10 || Math.abs(touch.clientY - dragStartY) > 10) {
+        dragMoved = true;
+        clearTimeout(dragTimer);
+        dragTimer = null;
+      }
+    }
+  }, { passive: false });
+
+  root.addEventListener('touchend', (e) => {
+    if (dragTimer) { clearTimeout(dragTimer); dragTimer = null; }
+    if (dragState?.active) {
+      e.preventDefault();
+      handleDragEnd();
+    }
+  });
+
+  root.addEventListener('touchcancel', () => {
+    if (dragTimer) { clearTimeout(dragTimer); dragTimer = null; }
+    if (dragState?.active) cancelDrag();
+  });
 }
 
 // ── Exports ────────────────────────────────────────────

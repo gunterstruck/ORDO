@@ -852,6 +852,21 @@ function setupStagingOverlay() {
     else if (stagedPhotos.length === 0) closeStagingOverlay();
   });
   document.getElementById('staging-analyze-btn').addEventListener('click', analyzeAllStagedPhotos);
+
+  // Delegated click handler for staging thumbnails (avoids per-element listeners)
+  document.getElementById('staging-thumbnails').addEventListener('click', (e) => {
+    const removeBtn = e.target.closest('.staging-thumb-remove');
+    if (!removeBtn) return;
+    const thumb = removeBtn.closest('.staging-thumb');
+    const index = parseInt(thumb.dataset.index);
+    stagedPhotos.splice(index, 1);
+    renderStagingThumbnails();
+    const analyzeBtn = document.getElementById('staging-analyze-btn');
+    analyzeBtn.disabled = stagedPhotos.length === 0;
+    analyzeBtn.textContent = stagedPhotos.length > 1
+      ? `${stagedPhotos.length} Fotos analysieren`
+      : 'Analysieren';
+  });
 }
 
 function showStagingOverlay(title) {
@@ -907,6 +922,7 @@ function renderStagingThumbnails() {
   stagedPhotos.forEach((photo, index) => {
     const thumb = document.createElement('div');
     thumb.className = 'staging-thumb';
+    thumb.dataset.index = index;
     const img = document.createElement('img');
     img.src = photo.previewUrl;
     img.alt = `Foto ${index + 1}`;
@@ -914,15 +930,7 @@ function renderStagingThumbnails() {
     removeBtn.className = 'staging-thumb-remove';
     removeBtn.textContent = '✕';
     removeBtn.setAttribute('aria-label', `Foto ${index + 1} entfernen`);
-    removeBtn.addEventListener('click', () => {
-      stagedPhotos.splice(index, 1);
-      renderStagingThumbnails();
-      const analyzeBtn = document.getElementById('staging-analyze-btn');
-      analyzeBtn.disabled = stagedPhotos.length === 0;
-      analyzeBtn.textContent = stagedPhotos.length > 1
-        ? `${stagedPhotos.length} Fotos analysieren`
-        : 'Analysieren';
-    });
+    // Click handled by delegation on #staging-thumbnails
     thumb.appendChild(img);
     thumb.appendChild(removeBtn);
     container.appendChild(thumb);

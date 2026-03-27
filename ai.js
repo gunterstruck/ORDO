@@ -95,6 +95,8 @@ export function getErrorMessage(err) {
   if (err.message?.includes('Video-Verarbeitung') || err.message?.includes('Timeout')) return err.message;
   if (err.message?.includes('too large') || err.message?.includes('size')) return 'Datei zu groß – bitte eine kleinere wählen oder Auflösung reduzieren.';
   if (err instanceof SyntaxError || err.message?.includes('JSON')) return 'Antwort war unvollständig – bitte nochmal versuchen.';
+  if (err instanceof TypeError) return 'Keine Internetverbindung. Versuch es gleich nochmal.';
+  if (err.message?.startsWith('HTTP 5')) return 'Der KI-Dienst ist gerade nicht erreichbar. Versuch es später.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
 }
 
@@ -514,15 +516,26 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
 
     debugLog(`Chunk ${chunkIdx + 1}/${totalChunks} senden (${(offset / 1024 / 1024).toFixed(1)}–${(end / 1024 / 1024).toFixed(1)} MB)…`);
 
-    const chunkRes = await fetchWithRetry(uploadUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Length': end - offset,
-        'X-Goog-Upload-Offset': String(offset),
-        'X-Goog-Upload-Command': command
-      },
-      body: chunkBlob
-    }, 4, `Chunk ${chunkIdx + 1}/${totalChunks}`);
+    const chunkController = new AbortController();
+    const chunkTimeout = setTimeout(() => chunkController.abort(), 120000);
+    let chunkRes;
+    try {
+      chunkRes = await fetchWithRetry(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Length': end - offset,
+          'X-Goog-Upload-Offset': String(offset),
+          'X-Goog-Upload-Command': command
+        },
+        body: chunkBlob,
+        signal: chunkController.signal
+      }, 4, `Chunk ${chunkIdx + 1}/${totalChunks}`);
+    } catch (err) {
+      clearTimeout(chunkTimeout);
+      if (err.name === 'AbortError') throw new Error('Timeout beim Video-Upload – Verbindung zu langsam.');
+      throw err;
+    }
+    clearTimeout(chunkTimeout);
 
     if (!chunkRes.ok) {
       const errText = await chunkRes.text().catch(() => '');

@@ -245,11 +245,15 @@ const Brain = {
       // Delete all history photos
       if (c.photo_history?.length > 0) {
         c.photo_history.forEach(ts => {
-          this.deletePhoto(`${roomId}_${cId}_${ts}`).catch(() => {});
+          this.deletePhoto(`${roomId}_${cId}_${ts}`).catch(err => {
+            console.warn(`Foto löschen fehlgeschlagen (${roomId}_${cId}_${ts}):`, err);
+          });
         });
       }
       // Delete legacy photo key
-      this.deletePhoto(`${roomId}_${cId}`).catch(() => {});
+      this.deletePhoto(`${roomId}_${cId}`).catch(err => {
+        console.warn(`Legacy-Foto löschen fehlgeschlagen (${roomId}_${cId}):`, err);
+      });
       // Recurse into children
       if (c.containers) {
         this._deleteContainerPhotosRecursive(roomId, c.containers);
@@ -427,13 +431,17 @@ const Brain = {
       }
       if (container.photo_history?.length > 0) {
         container.photo_history.forEach(ts => {
-          this.deletePhoto(`${roomId}_${containerId}_${ts}`).catch(() => {});
+          this.deletePhoto(`${roomId}_${containerId}_${ts}`).catch(err => {
+            console.warn(`Foto löschen fehlgeschlagen (${roomId}_${containerId}_${ts}):`, err);
+          });
         });
       }
     }
     delete parent[containerId];
     this.save(data);
-    this.deletePhoto(`${roomId}_${containerId}`).catch(() => {});
+    this.deletePhoto(`${roomId}_${containerId}`).catch(err => {
+      console.warn(`Legacy-Foto löschen fehlgeschlagen (${roomId}_${containerId}):`, err);
+    });
   },
 
   // Get all container IDs and names as flat list (for move dialog)
@@ -843,7 +851,9 @@ const Brain = {
     const maxPhotos = this.getPhotoHistoryLimit();
     while (c.photo_history.length > maxPhotos) {
       const oldest = c.photo_history.shift();
-      this.deletePhoto(`${roomId}_${containerId}_${oldest}`).catch(() => {});
+      this.deletePhoto(`${roomId}_${containerId}_${oldest}`).catch(err => {
+        console.warn(`Altes Foto löschen fehlgeschlagen (${roomId}_${containerId}_${oldest}):`, err);
+      });
     }
 
     c.has_photo = true;
@@ -1107,7 +1117,9 @@ const Brain = {
   resetAll() {
     localStorage.removeItem(STORAGE_KEY);
     this._cache = null;
-    this.deleteAllPhotos().catch(() => {});
+    this.deleteAllPhotos().catch(err => {
+      console.warn('Alle Fotos löschen fehlgeschlagen:', err);
+    });
     this.init();
   },
 

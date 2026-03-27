@@ -136,7 +136,9 @@ export function setupSettings() {
   // Copy NFC URL
   document.getElementById('nfc-copy-btn')?.addEventListener('click', () => {
     const url = document.getElementById('nfc-fallback-url').textContent;
-    navigator.clipboard.writeText(url).then(() => showSettingsMsg('URL kopiert.', 'success'));
+    navigator.clipboard.writeText(url)
+      .then(() => showSettingsMsg('URL kopiert.', 'success'))
+      .catch(() => showSettingsMsg('Kopieren fehlgeschlagen.', 'error'));
   });
 }
 
