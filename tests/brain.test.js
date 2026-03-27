@@ -67,7 +67,7 @@ describe('Brain.init()', () => {
     resetBrain();
     const data = Brain.getData();
     assert(data !== null, 'Data sollte nicht null sein');
-    assertEqual(data.version, '1.4');
+    assertEqual(data.version, '1.5');
     assertDeepEqual(data.rooms, {});
     assertDeepEqual(data.chat_history, []);
     assert(data.created > 0, 'created timestamp fehlt');
@@ -811,7 +811,7 @@ describe('Brain – Version Upgrade', () => {
     Brain._cache = null;
     Brain.init();
     const data = Brain.getData();
-    assertEqual(data.version, '1.4');
+    assertEqual(data.version, '1.5');
   });
 });
 

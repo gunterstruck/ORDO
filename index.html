@@ -183,6 +183,7 @@
         <button class="brain-toggle-btn active" data-mode="list">☰</button>
         <button class="brain-toggle-btn" data-mode="map">⊞</button>
       </div>
+      <button id="brain-report-btn" class="brain-report-btn" title="Versicherungsbericht">📄</button>
       <button id="brain-warranty-overview" class="brain-warranty-btn" title="Garantie-Übersicht">🛡️</button>
       <button id="brain-scan-rooms" class="brain-scan-btn">📷 Scannen</button>
       <button id="brain-add-room">+ Raum</button>
@@ -341,6 +342,7 @@
     <!-- Daten -->
     <div class="settings-section">
       <div class="settings-section-title">Daten</div>
+      <button id="settings-report" class="settings-btn settings-btn--primary">📄 Versicherungsbericht (PDF)</button>
       <button id="settings-export" class="settings-btn settings-btn--secondary">Haushalt exportieren</button>
       <button id="settings-import" class="settings-btn settings-btn--secondary">Haushalt importieren</button>
       <input type="file" id="settings-import-file" accept=".json" style="display:none" aria-label="Import-Datei">
@@ -512,6 +514,8 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -7,7 +7,8 @@ import { openCameraForContainer, showStagingOverlay, addFileToStaging, setStagin
 import { capturePhoto } from './camera.js';
 import { startRoomScan } from './onboarding.js';
 import { sendChatMessage } from './chat.js';
-import { analyzeReceipt } from './ai.js';
+import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
+import { showReportDialog } from './report.js';
 
 // ── State ──────────────────────────────────────────────
 let brainViewMode = localStorage.getItem('brain_view_mode') || 'list';
@@ -48,6 +49,7 @@ function setupBrain() {
   document.getElementById('brain-add-room').addEventListener('click', showAddRoomDialog);
   document.getElementById('brain-scan-rooms').addEventListener('click', startRoomScan);
   document.getElementById('brain-warranty-overview').addEventListener('click', showWarrantyOverview);
+  document.getElementById('brain-report-btn').addEventListener('click', () => showReportDialog());
 
   // Map view toggle
   setupMapViewToggle();
@@ -75,6 +77,20 @@ function renderBrainView() {
   const container = document.getElementById('brain-tree');
   const rooms = Brain.getRooms();
   container.innerHTML = '';
+
+  // Update header with total household value
+  const totalValue = Brain.getTotalHouseholdValue();
+  const headerTitle = document.querySelector('.brain-view-title');
+  if (headerTitle) {
+    if (totalValue.itemCount > 0) {
+      const valText = totalValue.min === totalValue.max
+        ? `${formatValueDE(totalValue.min)}`
+        : `~${formatValueDE(totalValue.min)}–${formatValueDE(totalValue.max)}`;
+      headerTitle.innerHTML = `🏠 Mein Zuhause <span class="brain-header-value">${valText}</span>`;
+    } else {
+      headerTitle.textContent = '🏠 Mein Zuhause';
+    }
+  }
 
   // Hide breadcrumb when rendering full view
   const breadcrumb = document.getElementById('brain-breadcrumb');
@@ -227,6 +243,17 @@ function buildContainerNode(roomId, cId, c, depth) {
     headerLeft.appendChild(childCount);
   }
 
+  // Container value sum
+  const cVal = Brain.getContainerValue(roomId, cId);
+  if (cVal.min > 0 || cVal.max > 0) {
+    const valSpan = document.createElement('span');
+    valSpan.className = 'brain-container-value';
+    valSpan.textContent = cVal.min === cVal.max
+      ? `${formatValueDE(cVal.min)}`
+      : `~${formatValueDE(cVal.min)}–${formatValueDE(cVal.max)}`;
+    headerLeft.appendChild(valSpan);
+  }
+
   const headerRight = document.createElement('small');
   headerRight.textContent = c.last_updated ? Brain.formatDate(c.last_updated) : '';
 
@@ -310,6 +337,17 @@ function buildContainerNode(roomId, cId, c, depth) {
         badge.title = `Garantie bis ${item.purchase.warranty_expires}`;
       }
       chip.appendChild(badge);
+    }
+
+    // Value badge
+    const displayValue = Brain.getItemDisplayValue(item);
+    if (displayValue) {
+      const vBadge = document.createElement('span');
+      vBadge.className = `value-badge value-badge--${displayValue.type}`;
+      vBadge.textContent = displayValue.type === 'documented'
+        ? `${Math.round(displayValue.value)}€ ✓`
+        : `~${Math.round(displayValue.value)}€`;
+      chip.appendChild(vBadge);
     }
 
     // Quantity stepper for items with menge > 1
@@ -2212,6 +2250,20 @@ function showItemDetailPanel(roomId, containerId, itemName) {
   purchaseSection.appendChild(purchaseContent);
   sheet.appendChild(purchaseSection);
 
+  // Valuation section
+  const valuationSection = document.createElement('div');
+  valuationSection.className = 'item-detail-section';
+  const valuationHeader = document.createElement('div');
+  valuationHeader.className = 'item-detail-section-header';
+  valuationHeader.textContent = 'Wert';
+  valuationSection.appendChild(valuationHeader);
+
+  const valuationContent = document.createElement('div');
+  valuationContent.className = 'item-detail-valuation-content';
+  renderValuationSection(valuationContent, itemObj, roomId, containerId, itemName, panel);
+  valuationSection.appendChild(valuationContent);
+  sheet.appendChild(valuationSection);
+
   // Actions section
   const actionsSection = document.createElement('div');
   actionsSection.className = 'item-detail-section';
@@ -2265,6 +2317,179 @@ function showItemDetailPanel(roomId, containerId, itemName) {
   // Animate in
   requestAnimationFrame(() => {
     panel.classList.add('item-detail-panel--visible');
+  });
+}
+
+function renderValuationSection(container, item, roomId, containerId, itemName, panel) {
+  const v = item.valuation;
+
+  if (v && v.replacement_value != null) {
+    // Show existing valuation
+    const valueField = document.createElement('div');
+    valueField.className = 'item-detail-field';
+    let valueText = '💰 Wiederbeschaffungswert: ';
+    if (v.replacement_range_min && v.replacement_range_max) {
+      valueText += `~${Math.round(v.replacement_range_min)}–${Math.round(v.replacement_range_max)} €`;
+    } else {
+      valueText += `~${Math.round(v.replacement_value)} €`;
+    }
+    const sourceLabel = v.source === 'photo_ai' ? 'KI-Schätzung (Foto)' : v.source === 'batch_ai' ? 'KI-Schätzung' : 'Manuell';
+    const dateStr = v.estimated_at ? ` vom ${formatDateDE(v.estimated_at.slice(0, 10))}` : '';
+    valueText += `\n   (${sourceLabel}${dateStr})`;
+    if (v.model_recognized) {
+      valueText += `\n   Erkannt als: ${v.model_recognized}`;
+    }
+    valueField.style.whiteSpace = 'pre-line';
+    valueField.textContent = valueText;
+    container.appendChild(valueField);
+
+    // Also show documented price if available
+    if (item.purchase?.price != null) {
+      const priceField = document.createElement('div');
+      priceField.className = 'item-detail-field';
+      priceField.textContent = `🛒 Kaufpreis: ${Number(item.purchase.price).toFixed(2).replace('.', ',')} € (Beleg vorhanden)`;
+      container.appendChild(priceField);
+    }
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'item-detail-purchase-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'item-detail-action-btn';
+    editBtn.textContent = '✏️ Bearbeiten';
+    editBtn.addEventListener('click', () => {
+      showManualValuationInput(roomId, containerId, itemName, v.replacement_value, panel);
+    });
+    btnRow.appendChild(editBtn);
+
+    const reEstBtn = document.createElement('button');
+    reEstBtn.className = 'item-detail-action-btn';
+    reEstBtn.textContent = '🔄 Neu schätzen';
+    reEstBtn.addEventListener('click', () => {
+      aiEstimateItemValue(roomId, containerId, itemName, panel);
+    });
+    btnRow.appendChild(reEstBtn);
+
+    container.appendChild(btnRow);
+  } else if (item.purchase?.price != null) {
+    // No valuation but has purchase price
+    const priceField = document.createElement('div');
+    priceField.className = 'item-detail-field';
+    priceField.textContent = `🛒 Kaufpreis: ${Number(item.purchase.price).toFixed(2).replace('.', ',')} € (Beleg vorhanden)`;
+    container.appendChild(priceField);
+  } else {
+    // No value at all
+    const hint = document.createElement('p');
+    hint.className = 'item-detail-empty-hint';
+    hint.textContent = 'Noch kein Wert hinterlegt';
+    container.appendChild(hint);
+
+    const estimateBtn = document.createElement('button');
+    estimateBtn.className = 'item-detail-action-btn';
+    estimateBtn.textContent = '💰 Wert schätzen lassen';
+    estimateBtn.addEventListener('click', () => {
+      aiEstimateItemValue(roomId, containerId, itemName, panel);
+    });
+    container.appendChild(estimateBtn);
+
+    const manualBtn = document.createElement('button');
+    manualBtn.className = 'item-detail-action-btn';
+    manualBtn.textContent = '✏️ Wert manuell eingeben';
+    manualBtn.addEventListener('click', () => {
+      showManualValuationInput(roomId, containerId, itemName, null, panel);
+    });
+    container.appendChild(manualBtn);
+  }
+}
+
+async function aiEstimateItemValue(roomId, containerId, itemName, panel) {
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    showToast('Kein API Key hinterlegt', 'error');
+    return;
+  }
+
+  showToast('Schätze Wert...');
+
+  try {
+    // Try to get container photo for better estimate
+    const photoKey = Brain.getLatestPhotoKey(roomId, containerId);
+    let result;
+
+    if (photoKey) {
+      const blob = await Brain.getPhoto(photoKey);
+      if (blob) {
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(blob);
+        });
+        result = await estimateSingleItemValue(apiKey, base64, itemName);
+      }
+    }
+
+    if (!result) {
+      // Fallback: text-only batch for single item
+      const { batchEstimateValues } = await import('./ai.js');
+      const roomObj = Brain.getRoom(roomId);
+      const containerObj = Brain.getContainer(roomId, containerId);
+      const batch = await batchEstimateValues(apiKey, [{
+        name: itemName, menge: 1,
+        roomName: roomObj?.name || roomId,
+        containerName: containerObj?.name || containerId
+      }]);
+      if (batch.length > 0) {
+        result = batch[0];
+        result.source = 'batch_ai';
+      }
+    }
+
+    if (result && result.replacement_value != null) {
+      Brain.setValuation(roomId, containerId, itemName, {
+        replacement_value: result.replacement_value,
+        replacement_range_min: Array.isArray(result.replacement_range) ? result.replacement_range[0] : null,
+        replacement_range_max: Array.isArray(result.replacement_range) ? result.replacement_range[1] : null,
+        source: result.source || 'photo_ai',
+        model_recognized: result.brand_model || null
+      });
+      showToast('Wert geschätzt ✓');
+      panel.remove();
+      renderBrainView();
+      showItemDetailPanel(roomId, containerId, itemName);
+    } else {
+      showToast('Keine Schätzung möglich', 'error');
+    }
+  } catch (err) {
+    showToast('Schätzung fehlgeschlagen', 'error');
+    debugLog(`Wertschätzung fehlgeschlagen: ${err.message}`);
+  }
+}
+
+function showManualValuationInput(roomId, containerId, itemName, currentValue, panel) {
+  showInputModal({
+    title: 'Wiederbeschaffungswert',
+    description: `Wie viel würde "${itemName}" heute neu kosten?`,
+    placeholder: 'z.B. 120',
+    type: 'number',
+    value: currentValue ? String(currentValue) : '',
+    confirmLabel: 'Speichern'
+  }).then(value => {
+    if (value === null || value === undefined) return;
+    const numVal = parseFloat(String(value).replace(',', '.'));
+    if (isNaN(numVal) || numVal < 0) {
+      showToast('Ungültiger Wert', 'error');
+      return;
+    }
+    Brain.setValuation(roomId, containerId, itemName, {
+      replacement_value: numVal,
+      replacement_range_min: numVal,
+      replacement_range_max: numVal,
+      source: 'manual'
+    });
+    showToast('Wert gespeichert ✓');
+    panel.remove();
+    renderBrainView();
+    showItemDetailPanel(roomId, containerId, itemName);
   });
 }
 
@@ -2390,6 +2615,11 @@ function formatDateDE(dateStr) {
   const parts = dateStr.split('-');
   if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
   return dateStr;
+}
+
+function formatValueDE(value) {
+  if (value >= 1000) return `${(value / 1000).toFixed(1).replace('.', ',')} T€`;
+  return `${Math.round(value)} €`;
 }
 
 // ── RECEIPT CAPTURE FLOW ──────────────────────────────

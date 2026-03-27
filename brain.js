@@ -97,7 +97,7 @@ const Brain = {
         req.onerror = () => resolve();
       });
     }
-    const exportData = { ...data, version: '1.4', photos };
+    const exportData = { ...data, version: '1.5', photos };
     const sizeEstimate = JSON.stringify(exportData).length;
     return { exportData, sizeEstimate };
   },
@@ -141,7 +141,7 @@ const Brain = {
       this._cache = null;
       // Corrupted data – reinitialize with fresh structure
       const fresh = {
-        version: '1.4',
+        version: '1.5',
         created: Date.now(),
         rooms: {},
         chat_history: [],
@@ -167,15 +167,15 @@ const Brain = {
     const existing = this.getData();
     if (!existing) {
       this.save({
-        version: '1.4',
+        version: '1.5',
         created: Date.now(),
         rooms: {},
         chat_history: [],
         last_updated: Date.now()
       });
-    } else if (existing.version === '1.2' || existing.version === '1.3' || !existing.version) {
-      // Upgrade version marker (items migrated lazily on access, purchase fields are optional)
-      existing.version = '1.4';
+    } else if (existing.version === '1.2' || existing.version === '1.3' || existing.version === '1.4' || !existing.version) {
+      // Upgrade version marker (items migrated lazily on access, purchase/valuation fields are optional)
+      existing.version = '1.5';
       this.save(existing);
     }
     this.initPhotoDB().catch(err => { if (typeof debugLog === 'function') debugLog(`IndexedDB init fehlgeschlagen: ${err.message}`); });
@@ -498,6 +498,7 @@ const Brain = {
     if (opts.spatial) item.spatial = opts.spatial;
     if (opts.object_id) item.object_id = opts.object_id;
     if (opts.crop_ref) item.crop_ref = opts.crop_ref;
+    if (opts.valuation) item.valuation = opts.valuation;
     return item;
   },
 
@@ -1065,6 +1066,11 @@ const Brain = {
         const menge = typeof item === 'string' ? (c.quantities?.[item] || 1) : (item.menge || 1);
         let str = menge > 1 ? `${menge}x ${name}` : name;
         if (typeof item !== 'string' && item.status === 'vermisst') str += ' (vermisst)';
+        // Add value hint to context
+        if (typeof item === 'object') {
+          if (item.purchase?.price != null) str += ` [${item.purchase.price}€, Beleg]`;
+          else if (item.valuation?.replacement_value != null) str += ` [~${item.valuation.replacement_value}€]`;
+        }
         return str;
       }).join(', ');
       ctx += ` → ${itemsStr}`;
@@ -1379,6 +1385,156 @@ const Brain = {
         this._collectInfrastructureCounts(c.containers, counts);
       }
     }
+  },
+
+  // --- Valuation ---
+
+  setValuation(roomId, containerId, itemName, valuationData) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item !== 'object') return false;
+
+    item.valuation = {
+      replacement_value: valuationData.replacement_value ?? null,
+      replacement_range_min: valuationData.replacement_range_min ?? null,
+      replacement_range_max: valuationData.replacement_range_max ?? null,
+      source: valuationData.source || 'manual',
+      estimated_at: new Date().toISOString().replace(/\.\d{3}Z$/, ''),
+      model_recognized: valuationData.model_recognized || null
+    };
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  deleteValuation(roomId, containerId, itemName) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item !== 'object') return false;
+    delete item.valuation;
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  // Get all items without any value (no purchase.price and no valuation)
+  getItemsWithoutValue() {
+    const results = [];
+    const data = this.getData();
+    if (!data?.rooms) return results;
+    for (const [roomId, room] of Object.entries(data.rooms)) {
+      this._collectItemsWithoutValue(roomId, room.name, room.containers, results);
+    }
+    return results;
+  },
+
+  _collectItemsWithoutValue(roomId, roomName, containers, results) {
+    for (const [cId, c] of Object.entries(containers || {})) {
+      (c.items || []).forEach(item => {
+        if (typeof item === 'string') {
+          results.push({ name: item, menge: 1, roomId, roomName, containerId: cId, containerName: c.name });
+          return;
+        }
+        if (item.status === 'archiviert') return;
+        if (item.purchase?.price != null) return;
+        if (item.valuation?.replacement_value != null) return;
+        results.push({
+          name: item.name,
+          menge: item.menge || 1,
+          roomId,
+          roomName,
+          containerId: cId,
+          containerName: c.name
+        });
+      });
+      if (c.containers) {
+        this._collectItemsWithoutValue(roomId, roomName, c.containers, results);
+      }
+    }
+  },
+
+  // Calculate total household value across all rooms
+  getTotalHouseholdValue() {
+    const result = { min: 0, max: 0, documented: 0, estimated: 0, itemCount: 0, documentedCount: 0, estimatedCount: 0 };
+    const data = this.getData();
+    if (!data?.rooms) return result;
+    for (const room of Object.values(data.rooms)) {
+      this._sumContainerValues(room.containers, result);
+    }
+    return result;
+  },
+
+  // Calculate value for a specific room
+  getRoomValue(roomId) {
+    const result = { min: 0, max: 0, documented: 0, estimated: 0 };
+    const data = this.getData();
+    const room = data?.rooms?.[roomId];
+    if (!room) return result;
+    this._sumContainerValues(room.containers, result);
+    return result;
+  },
+
+  // Calculate value for a specific container
+  getContainerValue(roomId, containerId) {
+    const result = { min: 0, max: 0, documented: 0, estimated: 0 };
+    const c = this.getContainer(roomId, containerId);
+    if (!c) return result;
+    this._sumSingleContainerItems(c, result);
+    return result;
+  },
+
+  _sumContainerValues(containers, result) {
+    for (const c of Object.values(containers || {})) {
+      this._sumSingleContainerItems(c, result);
+      if (c.containers) this._sumContainerValues(c.containers, result);
+    }
+  },
+
+  _sumSingleContainerItems(c, result) {
+    (c.items || []).forEach(item => {
+      if (typeof item === 'string') return;
+      if (item.status === 'archiviert') return;
+      const menge = item.menge || 1;
+      if (item.purchase?.price != null) {
+        const total = item.purchase.price * menge;
+        result.documented += total;
+        result.min += total;
+        result.max += total;
+        result.documentedCount = (result.documentedCount || 0) + 1;
+        result.itemCount = (result.itemCount || 0) + 1;
+      } else if (item.valuation?.replacement_value != null) {
+        const val = item.valuation.replacement_value * menge;
+        const valMin = (item.valuation.replacement_range_min || item.valuation.replacement_value) * menge;
+        const valMax = (item.valuation.replacement_range_max || item.valuation.replacement_value) * menge;
+        result.estimated += val;
+        result.min += valMin;
+        result.max += valMax;
+        result.estimatedCount = (result.estimatedCount || 0) + 1;
+        result.itemCount = (result.itemCount || 0) + 1;
+      }
+    });
+  },
+
+  // Get the best display value for an item
+  getItemDisplayValue(item) {
+    if (typeof item !== 'object') return null;
+    if (item.purchase?.price != null) {
+      return { value: item.purchase.price, type: 'documented', label: `${Number(item.purchase.price).toFixed(2).replace('.', ',')} € ✓` };
+    }
+    if (item.valuation?.replacement_value != null) {
+      const v = item.valuation;
+      if (v.replacement_range_min && v.replacement_range_max) {
+        return { value: v.replacement_value, type: 'estimated', label: `~${Math.round(v.replacement_range_min)}–${Math.round(v.replacement_range_max)} €` };
+      }
+      return { value: v.replacement_value, type: 'estimated', label: `~${Math.round(v.replacement_value)} €` };
+    }
+    return null;
   },
 
   // --- Purchase & Warranty ---

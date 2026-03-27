@@ -617,6 +617,92 @@ export function checkForItemExtraction(userText, assistantResponse) {
   // Handled via <!--SAVE:--> markers in the AI response
 }
 
+// ── Valuation ─────────────────────────────────────────
+
+// Batch estimate replacement values for items without price (text-only, no photos)
+export async function batchEstimateValues(apiKey, items) {
+  if (!items || items.length === 0) return [];
+
+  const CHUNK_SIZE = 100;
+  const allResults = [];
+
+  for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+    const chunk = items.slice(i, i + CHUNK_SIZE);
+    const itemList = chunk.map(item =>
+      `- ${item.name}${item.menge > 1 ? ` (${item.menge}x)` : ''} – ${item.roomName} > ${item.containerName}`
+    ).join('\n');
+
+    const prompt = `Du bist ein Versicherungsberater. Schätze den Wiederbeschaffungswert (Neupreis in Deutschland, 2026) für folgende Haushaltsgegenstände.
+
+Antworte NUR mit JSON-Array:
+[
+  {
+    "name": "Exakter Name wie in der Liste",
+    "replacement_value": Zahl,
+    "replacement_range": [min, max],
+    "confidence": "hoch" | "mittel" | "niedrig"
+  }
+]
+
+Regeln:
+- Neupreis = Was kostet ein vergleichbares Produkt heute neu im deutschen Einzelhandel?
+- Bei Mengenangaben (z.B. "5x Teller"): Einzelpreis angeben, nicht Gesamtpreis
+- Bei Kleinkram < 3€: replacement_value: 0
+- Wenn du keine sinnvolle Schätzung machen kannst: replacement_value: null
+- Sei konservativ – lieber etwas höher schätzen
+
+Gegenstände:
+${itemList}`;
+
+    const messages = [{ role: 'user', content: prompt }];
+    const raw = await callGemini(apiKey, 'Du bist ein Versicherungsberater für Hausratversicherungen. Antworte nur mit JSON.', messages);
+
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        allResults.push(...parsed);
+      } catch { /* chunk parse failed */ }
+    }
+  }
+
+  return allResults;
+}
+
+// Estimate single item value using container photo
+export async function estimateSingleItemValue(apiKey, imageBase64, itemName) {
+  const prompt = `Du siehst ein Foto eines Aufbewahrungsorts. Darin befindet sich: "${itemName}".
+
+Schätze den Wiederbeschaffungswert (Neupreis heute in Euro) für diesen Gegenstand.
+
+Antworte NUR mit JSON:
+{
+  "replacement_value": Zahl oder null,
+  "replacement_range": [min, max] oder null,
+  "brand_model": "Erkannte Marke/Modell" oder null,
+  "confidence": "hoch" | "mittel" | "niedrig"
+}
+
+Regeln:
+- Wenn du Marke/Modell erkennen kannst, nenne sie
+- Gib immer eine Bandbreite an
+- Bei Kleinkram unter 5€ → null
+- Wenn unsicher → replacement_value: null`;
+
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
+      { type: 'text', text: prompt }
+    ]
+  }];
+
+  const response = await callGemini(apiKey, 'Du bist ein Wertgutachter. Antworte nur mit JSON.', messages);
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+  return JSON.parse(jsonMatch[0]);
+}
+
 // ── Receipt Analysis ──────────────────────────────────
 export async function analyzeReceipt(apiKey, imageBase64, itemName) {
   const prompt = `Du siehst ein Foto eines Kassenbons oder einer Rechnung.
