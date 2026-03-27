@@ -1705,6 +1705,125 @@ const Brain = {
         this._collectActiveWarranties(roomId, c.containers, now, results);
       }
     }
+  },
+
+  // ── Quest Data ─────────────────────────────────────────
+
+  getQuest() {
+    const data = this.getData();
+    return data?.quest || null;
+  },
+
+  saveQuest(questData) {
+    const data = this.getData();
+    data.quest = questData;
+    this.save(data);
+  },
+
+  clearQuest() {
+    const data = this.getData();
+    delete data.quest;
+    this.save(data);
+  },
+
+  completeQuestStep(roomId, containerId, itemsFound) {
+    const quest = this.getQuest();
+    if (!quest || !quest.active) return;
+
+    const step = quest.plan.find(s => s.room_id === roomId && s.container_id === containerId);
+    if (step) {
+      step.status = 'done';
+      step.items_found = itemsFound || 0;
+    }
+
+    // Update progress
+    const done = quest.plan.filter(s => s.status === 'done').length;
+    const skipped = quest.plan.filter(s => s.status === 'skipped').length;
+    const total = quest.plan.length;
+    let totalItems = 0;
+    quest.plan.forEach(s => { totalItems += (s.items_found || 0); });
+
+    quest.progress = {
+      containers_total: total,
+      containers_done: done,
+      containers_skipped: skipped,
+      items_found: totalItems,
+      percent: total > 0 ? Math.round((done / total) * 100) : 0
+    };
+    quest.last_activity = new Date().toISOString();
+
+    // Find next pending step for current_step
+    const next = quest.plan.find(s => s.status === 'pending');
+    if (next) {
+      quest.current_step = {
+        room_id: next.room_id,
+        container_id: next.container_id,
+        step_number: quest.plan.indexOf(next) + 1
+      };
+    } else {
+      // Quest complete
+      quest.current_step = null;
+      if (quest.plan.every(s => s.status === 'done' || s.status === 'skipped')) {
+        quest.completed_at = new Date().toISOString();
+        quest.active = false;
+      }
+    }
+
+    this.saveQuest(quest);
+    return quest;
+  },
+
+  skipQuestStep(roomId, containerId, reason) {
+    const quest = this.getQuest();
+    if (!quest || !quest.active) return;
+
+    const step = quest.plan.find(s => s.room_id === roomId && s.container_id === containerId);
+    if (step) {
+      step.status = 'skipped';
+      step.skip_reason = reason || '';
+    }
+
+    // Recalculate progress
+    const done = quest.plan.filter(s => s.status === 'done').length;
+    const skipped = quest.plan.filter(s => s.status === 'skipped').length;
+    const total = quest.plan.length;
+    let totalItems = 0;
+    quest.plan.forEach(s => { totalItems += (s.items_found || 0); });
+
+    quest.progress = {
+      containers_total: total,
+      containers_done: done,
+      containers_skipped: skipped,
+      items_found: totalItems,
+      percent: total > 0 ? Math.round((done / total) * 100) : 0
+    };
+    quest.last_activity = new Date().toISOString();
+
+    // Find next pending step
+    const next = quest.plan.find(s => s.status === 'pending');
+    if (next) {
+      quest.current_step = {
+        room_id: next.room_id,
+        container_id: next.container_id,
+        step_number: quest.plan.indexOf(next) + 1
+      };
+    } else {
+      quest.current_step = null;
+      if (quest.plan.every(s => s.status === 'done' || s.status === 'skipped')) {
+        quest.completed_at = new Date().toISOString();
+        quest.active = false;
+      }
+    }
+
+    this.saveQuest(quest);
+    return quest;
+  },
+
+  // Check if a container has any items (used by quest to detect unscanned containers)
+  containerHasItems(roomId, containerId) {
+    const c = this.getContainer(roomId, containerId);
+    if (!c) return false;
+    return (c.items && c.items.length > 0) || c.photo_analyzed;
   }
 };
 

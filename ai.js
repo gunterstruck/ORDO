@@ -749,3 +749,75 @@ Wenn das Foto kein Kassenbon ist, antworte mit:
     throw new Error('Kein JSON in Antwort');
   }
 }
+
+// ── Blueprint Analysis ────────────────────────────────────
+// Analyzes multiple room photos in one call to detect rooms + furniture
+
+export async function analyzeBlueprint(apiKey, roomPhotos) {
+  // roomPhotos: [{ base64, mimeType, userLabel }]
+  const prompt = `Du siehst ${roomPhotos.length} Überblicksfotos einer Wohnung.
+Jedes Foto zeigt einen anderen Raum aus der Türperspektive.
+
+Analysiere ALLE Fotos und erstelle die komplette Struktur der Wohnung.
+
+Identifiziere pro Raum:
+1. Raumtyp und Name (Küche, Bad, Schlafzimmer, etc.)
+2. Jedes sichtbare Möbelstück oder Aufbewahrungssystem (Schränke, Regale, Kommoden, Vitrinen, Sideboards...)
+3. Erkennbare Unterteilungen wenn sichtbar (Türen, Schubladen, Fächer – nur wenn klar sichtbar)
+4. Ungefähre Position des Möbels im Raum ("linke Wand", "neben dem Fenster", "gegenüber der Tür")
+
+Antworte NUR mit JSON:
+{
+  "wohnung_typ": "Wohnung" | "Haus" | "Apartment" | "WG",
+  "raeume": [
+    {
+      "foto_index": 0,
+      "id": "kueche",
+      "name": "Küche",
+      "emoji": "🍳",
+      "merkmale": "hell, Fenster zur Straße, Fliesenboden",
+      "moebel": [
+        {
+          "id": "kuechenzeile_ober",
+          "name": "Oberschränke Küchenzeile",
+          "typ": "schrank",
+          "position": "linke Wand",
+          "unterteilungen": ["3 Türen"],
+          "prioritaet": "hoch"
+        }
+      ]
+    }
+  ],
+  "zusammenfassung": "3-Zimmer-Wohnung mit X Räumen und Y Aufbewahrungsmöbeln erkannt."
+}
+
+Regeln:
+- "prioritaet" ist "hoch" für große Möbel mit viel Stauraum, "mittel" für kleinere, "niedrig" für offene Regale/Ablagen
+- Ignoriere Infrastruktur (Heizkörper, Steckdosen, Lampen)
+- Ignoriere Elektrogeräte die keine Aufbewahrung sind (Fernseher, Waschmaschine)
+- Wenn du unsicher bist ob etwas ein Schrank oder ein Deko-Möbel ist, nimm es trotzdem auf
+- IDs: Kleinbuchstaben, Unterstriche, eindeutig pro Wohnung
+- Emojis: Verwende passende Raum-Emojis
+- moebel.typ muss sein: schrank, regal, schublade, kiste, tisch, kommode, sonstiges
+${roomPhotos.map((p, i) =>
+  p.userLabel ? `Foto ${i}: Nutzer sagt "${p.userLabel}"` : ''
+).filter(Boolean).join('\n')}`;
+
+  const imageContents = roomPhotos.map(p => ({
+    type: 'image',
+    source: { type: 'base64', media_type: p.mimeType || 'image/jpeg', data: p.base64 }
+  }));
+
+  const messages = [{
+    role: 'user',
+    content: [
+      ...imageContents,
+      { type: 'text', text: `Analysiere diese ${roomPhotos.length} Raumfotos und erstelle die Wohnungsstruktur.` }
+    ]
+  }];
+
+  const raw = await callGemini(apiKey, prompt, messages);
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+  return JSON.parse(jsonMatch[0]);
+}
