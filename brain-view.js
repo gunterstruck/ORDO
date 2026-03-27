@@ -13,6 +13,9 @@ let brainViewMode = localStorage.getItem('brain_view_mode') || 'list';
 let nfcCtxInactivityTimer = null;
 let moveContainerState = null;
 
+// ── Filter State ─────────────────────────────────────
+let currentFilter = 'all'; // 'all' | 'mobile' | 'fixed'
+
 // ── Drag-and-Drop State ────────────────────────────────
 let dragState = null;
 // { type: 'item'|'container', itemName, roomId, fromContainerId,
@@ -74,6 +77,30 @@ function renderBrainView() {
   // Hide breadcrumb when rendering full view
   const breadcrumb = document.getElementById('brain-breadcrumb');
   if (breadcrumb) breadcrumb.style.display = 'none';
+
+  // Filter bar
+  if (Object.keys(rooms).length > 0) {
+    const filterBar = document.createElement('div');
+    filterBar.className = 'brain-filter-bar';
+    [
+      { key: 'all', label: 'Alles' },
+      { key: 'mobile', label: '\u{1F4E6} Umzug' },
+      { key: 'fixed', label: '\u{1F3E0} Fest' }
+    ].forEach(f => {
+      const btn = document.createElement('button');
+      btn.className = 'brain-filter-btn' + (currentFilter === f.key ? ' active' : '');
+      btn.dataset.filter = f.key;
+      btn.textContent = f.label;
+      filterBar.appendChild(btn);
+    });
+    filterBar.addEventListener('click', e => {
+      const btn = e.target.closest('.brain-filter-btn');
+      if (!btn || btn.dataset.filter === currentFilter) return;
+      currentFilter = btn.dataset.filter;
+      renderBrainView();
+    });
+    container.appendChild(filterBar);
+  }
 
   if (Object.keys(rooms).length === 0) {
     const emptyEl = document.createElement('div');
@@ -153,8 +180,17 @@ function buildRoomNode(roomId, room) {
 
 function buildContainerNode(roomId, cId, c, depth) {
   const el = document.createElement('div');
-  const activeItems = (c.items || []).filter(item => typeof item === 'string' || item.status !== 'archiviert');
+  const allActiveItems = (c.items || []).filter(item => typeof item === 'string' || item.status !== 'archiviert');
   const archivedItems = (c.items || []).filter(item => typeof item !== 'string' && item.status === 'archiviert');
+
+  // Apply filter
+  const infraList = Brain.getInfrastructureIgnoreList(roomId, cId);
+  const activeItems = currentFilter === 'all' ? allActiveItems :
+    allActiveItems.filter(item => {
+      const name = Brain.getItemName(item);
+      const isInfra = infraList.includes(name);
+      return currentFilter === 'mobile' ? !isInfra : isInfra;
+    });
   const hasItems = activeItems.length > 0;
   const hasChildren = c.containers && Object.keys(c.containers).length > 0;
   el.className = `brain-container ${hasItems ? 'has-items' : 'empty'}`;
@@ -176,7 +212,13 @@ function buildContainerNode(roomId, cId, c, depth) {
 
   const headerLeft = document.createElement('span');
   headerLeft.textContent = `${icon} ${c.name}`;
-  if (hasChildren) {
+  // Show item count (reflects current filter)
+  if (activeItems.length > 0) {
+    const itemCount = document.createElement('span');
+    itemCount.className = 'brain-container-child-count';
+    itemCount.textContent = `${activeItems.length}`;
+    headerLeft.appendChild(itemCount);
+  } else if (hasChildren) {
     const childCount = document.createElement('span');
     childCount.className = 'brain-container-child-count';
     childCount.textContent = `${Object.keys(c.containers).length}`;
@@ -244,10 +286,60 @@ function buildContainerNode(roomId, cId, c, depth) {
     textSpan.textContent = emojiPrefix + (menge > 1 ? `${menge}x ` : '') + name + (isVermisst ? ' ⚠' : '');
     chip.appendChild(textSpan);
 
+    // Quantity stepper for items with menge > 1
+    if (menge > 1 && typeof item === 'object') {
+      chip.classList.add('brain-chip--has-stepper');
+      const stepper = document.createElement('span');
+      stepper.className = 'brain-chip-stepper';
+      stepper.dataset.roomId = roomId;
+      stepper.dataset.containerId = cId;
+      stepper.dataset.itemName = name;
+
+      const minusBtn = document.createElement('button');
+      minusBtn.className = 'brain-chip-stepper-btn';
+      minusBtn.textContent = '\u2212';
+      minusBtn.dataset.action = 'qty-minus';
+      minusBtn.dataset.roomId = roomId;
+      minusBtn.dataset.containerId = cId;
+      minusBtn.dataset.itemName = name;
+
+      const qtySpan = document.createElement('span');
+      qtySpan.className = 'brain-chip-qty';
+      qtySpan.textContent = `${menge}x`;
+      qtySpan.dataset.action = 'qty-edit';
+      qtySpan.dataset.roomId = roomId;
+      qtySpan.dataset.containerId = cId;
+      qtySpan.dataset.itemName = name;
+
+      const plusBtn = document.createElement('button');
+      plusBtn.className = 'brain-chip-stepper-btn';
+      plusBtn.textContent = '+';
+      plusBtn.dataset.action = 'qty-plus';
+      plusBtn.dataset.roomId = roomId;
+      plusBtn.dataset.containerId = cId;
+      plusBtn.dataset.itemName = name;
+
+      stepper.appendChild(minusBtn);
+      stepper.appendChild(qtySpan);
+      stepper.appendChild(plusBtn);
+      chip.appendChild(stepper);
+
+      // Update text to not duplicate the menge prefix
+      textSpan.textContent = emojiPrefix + name + (isVermisst ? ' ⚠' : '');
+    }
+
     if (freshness === 'unconfirmed') chip.title = 'Noch nie per Foto bestätigt';
     // Click, long-press, and drag handled by delegation on #brain-tree
     chips.appendChild(chip);
   });
+
+  // Filter empty hint
+  if (currentFilter !== 'all' && activeItems.length === 0 && allActiveItems.length > 0) {
+    const hint = document.createElement('div');
+    hint.className = 'brain-filter-empty-hint';
+    hint.textContent = currentFilter === 'mobile' ? 'Keine mobilen Gegenstände' : 'Keine festen Gegenstände';
+    chips.appendChild(hint);
+  }
 
   // Show archived items toggle
   if (archivedItems.length > 0) {
@@ -403,6 +495,13 @@ function startItemDrag(chipEl, roomId, containerId, itemName, x, y) {
 
   chipEl.classList.add('drag-origin');
 
+  // Mark eligible drop containers in the tree
+  document.querySelectorAll('.brain-container').forEach(el => {
+    if (el.dataset.containerId !== containerId) {
+      el.classList.add('drop-eligible');
+    }
+  });
+
   // Build drop-zone bar with other containers in this room
   const dropBar = buildDropBar(roomId, containerId);
   document.body.appendChild(dropBar);
@@ -422,7 +521,8 @@ function startItemDrag(chipEl, roomId, containerId, itemName, x, y) {
     dropBarEl: dropBar,
     rafId: null,
     active: true,
-    currentDropTarget: null
+    currentDropTarget: null,
+    autoScrollId: null
   };
 }
 
@@ -496,6 +596,9 @@ function buildDropBar(roomId, excludeContainerId) {
 function handleDragMove(x, y) {
   if (!dragState?.active) return;
 
+  // Auto-scroll when near viewport edges
+  handleAutoScroll(y);
+
   if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
   dragState.rafId = requestAnimationFrame(() => {
     if (!dragState?.active) return;
@@ -503,17 +606,23 @@ function handleDragMove(x, y) {
     const ty = y - dragState.offsetY;
     dragState.ghostEl.style.transform = `translate(${tx}px, ${ty}px) scale(1.05)`;
 
-    // Check drop zones
+    // Check drop zones (drop-bar zones + in-tree eligible containers)
     const elUnder = document.elementFromPoint(x, y);
-    const dropZone = elUnder?.closest?.('.drop-zone') || elUnder?.closest?.('.map-container-tile[data-drop-container]');
+    const dropZone = elUnder?.closest?.('.drop-zone')
+      || elUnder?.closest?.('.map-container-tile[data-drop-container]')
+      || elUnder?.closest?.('.brain-container.drop-eligible');
 
     // Clear previous highlight (cached, no querySelectorAll)
-    if (dragState.currentDropTarget) {
-      dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+    if (dragState.currentDropTarget && dragState.currentDropTarget !== dropZone) {
+      dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover', 'drop-hover');
     }
 
     if (dropZone) {
-      dropZone.classList.add(dropZone.classList.contains('drop-zone') ? 'drop-zone--hover' : 'map-container-tile--drop-hover');
+      if (dropZone.classList.contains('drop-eligible')) {
+        dropZone.classList.add('drop-hover');
+      } else {
+        dropZone.classList.add(dropZone.classList.contains('drop-zone') ? 'drop-zone--hover' : 'map-container-tile--drop-hover');
+      }
       dragState.currentDropTarget = dropZone;
     } else {
       dragState.currentDropTarget = null;
@@ -521,37 +630,62 @@ function handleDragMove(x, y) {
   });
 }
 
-function handleDragEnd() {
+function handleAutoScroll(clientY) {
+  const threshold = 60;
+  const scrollSpeed = 8;
+  const scrollContainer = document.getElementById('brain-tree');
+  if (!scrollContainer) return;
+
+  if (clientY < threshold) {
+    scrollContainer.scrollTop -= scrollSpeed;
+  } else if (clientY > window.innerHeight - threshold) {
+    scrollContainer.scrollTop += scrollSpeed;
+  }
+}
+
+async function handleDragEnd() {
   if (!dragState?.active) return;
 
   const target = dragState.currentDropTarget;
   if (target) {
-    const targetContainerId = target.dataset.dropContainer;
-    const targetRoomId = target.dataset.dropRoom || dragState.roomId;
+    // Support both drop-bar zones and in-tree container drops
+    const targetContainerId = target.dataset.dropContainer || target.dataset.containerId;
+    const targetRoomId = target.dataset.dropRoom || target.dataset.roomId || dragState.roomId;
 
     if (targetContainerId && targetContainerId !== dragState.fromContainerId) {
-      // Execute the move
-      const success = Brain.moveItem(dragState.roomId, dragState.fromContainerId, targetContainerId, dragState.itemName);
-      if (success) {
-        if (typeof navigator.vibrate === 'function') navigator.vibrate([30, 50, 30]);
-        const targetContainer = Brain.getContainer(targetRoomId, targetContainerId);
-        const targetName = targetContainer?.name || targetContainerId;
+      const targetContainer = Brain.getContainer(targetRoomId, targetContainerId);
+      const targetName = targetContainer?.name || targetContainerId;
+      const itemName = dragState.itemName;
+      const fromRoom = dragState.roomId;
+      const fromContainer = dragState.fromContainerId;
 
-        // Store undo action
-        lastSpatialAction = {
-          type: 'move_item',
-          item: dragState.itemName,
-          fromRoom: dragState.roomId,
-          fromContainer: dragState.fromContainerId,
-          toRoom: targetRoomId,
-          toContainer: targetContainerId
-        };
+      // Show confirm modal
+      cleanupDrag();
+      const ok = await showConfirmModal({
+        title: 'Verschieben',
+        description: `"${itemName}" → ${targetName}?`,
+        confirmLabel: 'Verschieben'
+      });
 
-        cleanupDrag();
+      if (ok) {
+        const success = Brain.moveItem(fromRoom, fromContainer, targetContainerId, itemName);
+        if (success) {
+          if (typeof navigator.vibrate === 'function') navigator.vibrate([30, 50, 30]);
+          lastSpatialAction = {
+            type: 'move_item',
+            item: itemName,
+            fromRoom: fromRoom,
+            fromContainer: fromContainer,
+            toRoom: targetRoomId,
+            toContainer: targetContainerId
+          };
+          renderBrainView();
+          showUndoToast(`${itemName} → ${targetName} verschoben`);
+        }
+      } else {
         renderBrainView();
-        showUndoToast(`${lastSpatialAction.item} → ${targetName} verschoben`);
-        return;
       }
+      return;
     }
   }
 
@@ -576,6 +710,9 @@ function cancelDrag() {
     setTimeout(() => dragState.dropBarEl.remove(), 200);
   }
 
+  // Clear in-tree drop highlights
+  document.querySelectorAll('.drop-eligible').forEach(el => el.classList.remove('drop-eligible', 'drop-hover'));
+
   if (dragState.currentDropTarget) {
     dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
   }
@@ -592,8 +729,10 @@ function cleanupDrag() {
     dragState.dropBarEl.classList.remove('drop-bar--visible');
     setTimeout(() => dragState.dropBarEl.remove(), 200);
   }
+  // Clear in-tree drop highlights
+  document.querySelectorAll('.drop-eligible').forEach(el => el.classList.remove('drop-eligible', 'drop-hover'));
   if (dragState.currentDropTarget) {
-    dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+    dragState.currentDropTarget.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover', 'drop-hover');
   }
   if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
   dragState = null;
@@ -1692,6 +1831,50 @@ function setupBrainTreeDelegation() {
       return;
     }
 
+    // Quantity stepper buttons (must be before item-chat)
+    const qtyBtn = e.target.closest('[data-action="qty-minus"], [data-action="qty-plus"], [data-action="qty-edit"]');
+    if (qtyBtn) {
+      e.stopPropagation();
+      const { roomId, containerId, itemName, action } = qtyBtn.dataset;
+      if (action === 'qty-minus') {
+        const result = Brain.updateItemQuantity(roomId, containerId, itemName, -1);
+        if (result === 'confirm_remove') {
+          const ok = await showConfirmModal({
+            title: `${itemName} entfernen?`,
+            description: `"${itemName}" archivieren oder behalten?`,
+            confirmLabel: 'Archivieren'
+          });
+          if (ok) {
+            Brain.archiveItem(roomId, containerId, itemName);
+            showToast(`"${itemName}" archiviert`);
+          } else {
+            // Keep at 1
+            Brain.setItemQuantity(roomId, containerId, itemName, 1);
+          }
+        }
+        renderBrainView();
+      } else if (action === 'qty-plus') {
+        Brain.updateItemQuantity(roomId, containerId, itemName, +1);
+        renderBrainView();
+      } else if (action === 'qty-edit') {
+        const container = Brain.getContainer(roomId, containerId);
+        const item = container?.items?.find(i => Brain.getItemName(i) === itemName);
+        const currentQty = item?.menge || 1;
+        const result = await showInputModal({
+          title: `Menge: ${itemName}`,
+          fields: [{ label: 'Neue Menge', type: 'number', defaultValue: String(currentQty), placeholder: 'Menge' }]
+        });
+        if (result && result[0]?.trim()) {
+          const newQty = parseInt(result[0], 10);
+          if (newQty > 0 && !isNaN(newQty)) {
+            Brain.setItemQuantity(roomId, containerId, itemName, newQty);
+            renderBrainView();
+          }
+        }
+      }
+      return;
+    }
+
     // Active item chip → navigate to chat and ask
     const itemChip = e.target.closest('[data-action="item-chat"]');
     if (itemChip) {
@@ -1820,6 +2003,9 @@ function setupBrainTreeDelegation() {
     if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
     lpFired = false;
 
+    // Skip long-press on stepper buttons
+    if (e.target.closest('.brain-chip-stepper')) return;
+
     const chip = e.target.closest('.brain-chip[data-action="item-chat"]');
     if (chip) {
       const containerEl = chip.closest('.brain-container');
@@ -1862,6 +2048,8 @@ function setupBrainTreeDelegation() {
 
   root.addEventListener('touchstart', (e) => {
     if (dragState) return;
+    // Don't initiate drag from stepper buttons
+    if (e.target.closest('.brain-chip-stepper')) return;
     const chip = e.target.closest('[data-draggable="item"]');
     if (!chip) return;
 

@@ -1276,6 +1276,42 @@ const Brain = {
     localStorage.setItem('gemini_api_key', key.trim());
   },
 
+  // --- Quantity Management ---
+
+  updateItemQuantity(roomId, containerId, itemName, delta) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item === 'string') return false;
+
+    const newQty = Math.max(0, (item.menge || 1) + delta);
+    if (newQty === 0) return 'confirm_remove';
+
+    item.menge = newQty;
+    item.last_seen = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  setItemQuantity(roomId, containerId, itemName, quantity) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item === 'string') return false;
+
+    const qty = Math.max(1, Math.floor(quantity));
+    item.menge = qty;
+    item.last_seen = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
   // --- Infrastructure Ignore ---
 
   addInfrastructureIgnore(roomId, containerId, name) {
