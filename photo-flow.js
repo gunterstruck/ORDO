@@ -456,7 +456,19 @@ Regeln:
 - Nur Objekte mit mindestens mittlerer Konfidenz aufnehmen
 - Lieber 5 sichere Hotspots als 15 unsichere
 - Bei komplettem Chaos: Wenige markante Dinge rauspicken
-- Das Feld "typ" ist optional: "item" (Standard, normaler Gegenstand), "container" (ein Unterbehälter), "unsicher_fest" (du bist unsicher ob fest montiert oder lose). Setze "typ" nur wenn es nicht "item" ist.`;
+- Das Feld "typ" ist optional: "item" (Standard, normaler Gegenstand), "container" (ein Unterbehälter), "unsicher_fest" (du bist unsicher ob fest montiert oder lose). Setze "typ" nur wenn es nicht "item" ist.
+
+OPTIONAL – Wertschätzung:
+Schätze für jeden erkannten Gegenstand den ungefähren Wiederbeschaffungswert (Neupreis heute in Euro).
+- Nur schätzen wenn du Marke, Modell oder Typ hinreichend erkennen kannst
+- Bei generischen Gegenständen ohne erkennbare Marke (z.B. "weißer Teller", "Handtuch") → groben Durchschnittswert angeben
+- Bei Kleinkram unter 5€ → null (nicht schätzen)
+- Gib eine Bandbreite an (min/max), nicht nur einen Wert
+- Wenn unsicher → replacement_value: null
+Ergänze im JSON pro Hotspot (optional):
+"replacement_value": Zahl oder null,
+"replacement_range": [min, max] oder null,
+"brand_model": "Erkannte Marke/Modell" oder null`;
 
   const messages = [{
     role: 'user',
@@ -712,11 +724,33 @@ async function confirmHotspotItem() {
       Brain._migrateContainerItems(c);
       const exists = c.items.some(i => Brain.getItemName(i) === name);
       if (!exists) {
+        // Attach valuation from hotspot if available
+        if (hs && hs.replacement_value != null) {
+          spatialOpts.valuation = {
+            replacement_value: hs.replacement_value,
+            replacement_range_min: Array.isArray(hs.replacement_range) ? hs.replacement_range[0] : null,
+            replacement_range_max: Array.isArray(hs.replacement_range) ? hs.replacement_range[1] : null,
+            source: 'photo_ai',
+            estimated_at: new Date().toISOString().replace(/\.\d{3}Z$/, ''),
+            model_recognized: hs.brand_model || null
+          };
+        }
         c.items.push(Brain.createItemObject(name, spatialOpts));
         c.last_updated = Date.now();
         Brain.save(data);
       }
     }
+  }
+
+  // Save valuation for existing items that got matched
+  if (similarItem && hs && hs.replacement_value != null) {
+    Brain.setValuation(roomId, containerId, similarItem.name, {
+      replacement_value: hs.replacement_value,
+      replacement_range_min: Array.isArray(hs.replacement_range) ? hs.replacement_range[0] : null,
+      replacement_range_max: Array.isArray(hs.replacement_range) ? hs.replacement_range[1] : null,
+      source: 'photo_ai',
+      model_recognized: hs.brand_model || null
+    });
   }
 
   // Mark confirmed

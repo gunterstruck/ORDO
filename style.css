@@ -3917,3 +3917,211 @@ select.settings-input { appearance: none; }
 .brain-warranty-btn:active {
   opacity: 1;
 }
+
+/* ── Value Badges on Chips ────────────────────────── */
+.value-badge {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.value-badge--documented {
+  background: rgba(46, 204, 113, 0.15);
+  color: #1a8a4a;
+}
+.value-badge--estimated {
+  background: rgba(120, 110, 100, 0.1);
+  color: #786e64;
+}
+
+/* ── Header Value Display ─────────────────────────── */
+.brain-header-value {
+  display: block;
+  font-size: 0.55em;
+  font-weight: 400;
+  color: var(--text-muted, #786e64);
+  margin-top: 2px;
+}
+
+/* ── Container Value ──────────────────────────────── */
+.brain-container-value {
+  font-size: 0.75em;
+  color: var(--text-muted, #786e64);
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+/* ── Report Button in Brain Header ────────────────── */
+.brain-report-btn {
+  background: none;
+  border: none;
+  font-size: 1.2em;
+  cursor: pointer;
+  padding: 4px 8px;
+  opacity: 0.7;
+}
+.brain-report-btn:active {
+  opacity: 1;
+}
+
+/* ── Valuation Section in Detail Panel ────────────── */
+.item-detail-valuation-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Report Dialog Overlay ────────────────────────── */
+.report-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.report-dialog {
+  background: var(--bg, #faf7f4);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.report-dialog-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+  color: var(--text, #333);
+}
+
+.report-dialog-section {
+  margin-bottom: 16px;
+}
+
+.report-dialog-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #786e64);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.report-dialog-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text, #333);
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.report-dialog-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #E87C3E;
+}
+
+.report-dialog-warning {
+  background: rgba(232, 163, 62, 0.15);
+  color: #9a6520;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.report-dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.report-dialog-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.report-dialog-btn--cancel {
+  background: var(--bg-dim, #ede8e3);
+  color: var(--text-muted, #786e64);
+}
+
+.report-dialog-btn--primary {
+  background: #E87C3E;
+  color: #fff;
+}
+
+.report-dialog-btn--primary:active {
+  background: #d06b30;
+}
+
+/* ── Report Progress Overlay ──────────────────────── */
+.report-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.report-progress-modal {
+  background: var(--bg, #faf7f4);
+  border-radius: 16px;
+  padding: 28px 24px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.report-progress-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text, #333);
+}
+
+.report-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-dim, #ede8e3);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.report-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #E87C3E;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.report-progress-pct {
+  font-size: 14px;
+  font-weight: 600;
+  color: #E87C3E;
+  margin-bottom: 4px;
+}
+
+.report-progress-detail {
+  font-size: 12px;
+  color: var(--text-muted, #786e64);
+}

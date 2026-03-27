@@ -4,6 +4,7 @@ import { showConfirmModal } from './modal.js';
 import { debugLog, ensureRoom, getCurrentView } from './app.js';
 import { renderRoomDropdown } from './photo-flow.js';
 import { renderBrainView } from './brain-view.js';
+import { showReportDialog } from './report.js';
 
 let settingsInitialized = false;
 
@@ -28,6 +29,8 @@ export function setupSettings() {
       btn.textContent = '👁️';
     }
   });
+
+  document.getElementById('settings-report').addEventListener('click', () => showReportDialog());
 
   document.getElementById('settings-export').addEventListener('click', async () => {
     await Brain.exportData(async (sizeMB) => {
