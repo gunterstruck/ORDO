@@ -13,6 +13,14 @@ let brainViewMode = localStorage.getItem('brain_view_mode') || 'list';
 let nfcCtxInactivityTimer = null;
 let moveContainerState = null;
 
+// ── Drag-and-Drop State ────────────────────────────────
+let dragState = null;
+// { type: 'item'|'container', itemName, roomId, fromContainerId,
+//   ghostEl, originalEl, startX, startY, offsetX, offsetY,
+//   dropBarEl, rafId, active }
+let lastSpatialAction = null;
+let undoToastTimer = null;
+
 // ── Helpers ────────────────────────────────────────────
 function setupLongPress(el, callback) {
   let timer;
@@ -257,6 +265,8 @@ function buildContainerNode(roomId, cId, c, depth) {
       setTimeout(() => sendChatMessage(), 100);
     });
     setupLongPress(chip, () => showItemContextMenu(roomId, cId, name));
+    // Drag-and-drop for items (touch devices)
+    setupItemDrag(chip, roomId, cId, name);
     chips.appendChild(chip);
   });
 
@@ -420,6 +430,506 @@ async function loadThumbnail(roomId, cId, c, wrapper) {
     div.addEventListener('click', () => openCameraForContainer(roomId, cId));
     wrapper.appendChild(div);
   }
+}
+
+// ── DRAG-AND-DROP SYSTEM ─────────────────────────────────
+
+function setupItemDrag(chipEl, roomId, containerId, itemName) {
+  let longPressTimer = null;
+  let startX = 0, startY = 0;
+  let moved = false;
+
+  chipEl.addEventListener('touchstart', e => {
+    if (dragState) return;
+    const touch = e.touches[0];
+    startX = touch.clientX;
+    startY = touch.clientY;
+    moved = false;
+
+    longPressTimer = setTimeout(() => {
+      if (!moved) {
+        e.preventDefault();
+        startItemDrag(chipEl, roomId, containerId, itemName, startX, startY);
+      }
+    }, 500);
+  }, { passive: false });
+
+  chipEl.addEventListener('touchmove', e => {
+    if (dragState?.active) {
+      e.preventDefault();
+      handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      return;
+    }
+    const touch = e.touches[0];
+    if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
+      moved = true;
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    }
+  }, { passive: false });
+
+  chipEl.addEventListener('touchend', e => {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    if (dragState?.active) {
+      e.preventDefault();
+      handleDragEnd();
+    }
+  });
+
+  chipEl.addEventListener('touchcancel', () => {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    if (dragState?.active) cancelDrag();
+  });
+}
+
+function startItemDrag(chipEl, roomId, containerId, itemName, x, y) {
+  if (typeof navigator.vibrate === 'function') navigator.vibrate(50);
+
+  const rect = chipEl.getBoundingClientRect();
+  const ghost = chipEl.cloneNode(true);
+  ghost.className = 'drag-ghost drag-ghost--item';
+  ghost.style.width = rect.width + 'px';
+  ghost.style.left = '0px';
+  ghost.style.top = '0px';
+  ghost.style.transform = `translate(${rect.left}px, ${rect.top}px) scale(1.05)`;
+  document.body.appendChild(ghost);
+
+  chipEl.classList.add('drag-origin');
+
+  // Build drop-zone bar with other containers in this room
+  const dropBar = buildDropBar(roomId, containerId);
+  document.body.appendChild(dropBar);
+  requestAnimationFrame(() => dropBar.classList.add('drop-bar--visible'));
+
+  dragState = {
+    type: 'item',
+    itemName,
+    roomId,
+    fromContainerId: containerId,
+    ghostEl: ghost,
+    originalEl: chipEl,
+    startX: rect.left,
+    startY: rect.top,
+    offsetX: x - rect.left,
+    offsetY: y - rect.top,
+    dropBarEl: dropBar,
+    rafId: null,
+    active: true,
+    currentDropTarget: null
+  };
+}
+
+function buildDropBar(roomId, excludeContainerId) {
+  const bar = document.createElement('div');
+  bar.className = 'drop-bar';
+
+  const label = document.createElement('div');
+  label.className = 'drop-bar-label';
+  label.textContent = 'Hierhin verschieben:';
+  bar.appendChild(label);
+
+  const scroll = document.createElement('div');
+  scroll.className = 'drop-bar-scroll';
+
+  const room = Brain.getRoom(roomId);
+  const containers = Object.entries(room?.containers || {});
+  for (const [cId, c] of containers) {
+    if (cId === excludeContainerId) continue;
+    const zone = document.createElement('div');
+    zone.className = 'drop-zone';
+    zone.dataset.dropRoom = roomId;
+    zone.dataset.dropContainer = cId;
+
+    const emoji = document.createElement('span');
+    emoji.className = 'drop-zone-emoji';
+    emoji.textContent = getContainerTypeEmoji(c.typ);
+
+    const name = document.createElement('span');
+    name.className = 'drop-zone-name';
+    name.textContent = c.name;
+
+    const count = document.createElement('span');
+    count.className = 'drop-zone-count';
+    const itemCount = (c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert').length;
+    count.textContent = `${itemCount} Dinge`;
+
+    zone.appendChild(emoji);
+    zone.appendChild(name);
+    zone.appendChild(count);
+    scroll.appendChild(zone);
+
+    // Also add child containers as drop targets
+    if (c.containers) {
+      for (const [childId, child] of Object.entries(c.containers)) {
+        if (childId === excludeContainerId) continue;
+        const childZone = document.createElement('div');
+        childZone.className = 'drop-zone drop-zone--nested';
+        childZone.dataset.dropRoom = roomId;
+        childZone.dataset.dropContainer = childId;
+
+        const childEmoji = document.createElement('span');
+        childEmoji.className = 'drop-zone-emoji';
+        childEmoji.textContent = getContainerTypeEmoji(child.typ);
+
+        const childName = document.createElement('span');
+        childName.className = 'drop-zone-name';
+        childName.textContent = `${c.name} › ${child.name}`;
+
+        childZone.appendChild(childEmoji);
+        childZone.appendChild(childName);
+        scroll.appendChild(childZone);
+      }
+    }
+  }
+
+  bar.appendChild(scroll);
+  return bar;
+}
+
+function handleDragMove(x, y) {
+  if (!dragState?.active) return;
+
+  if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
+  dragState.rafId = requestAnimationFrame(() => {
+    if (!dragState?.active) return;
+    const tx = x - dragState.offsetX;
+    const ty = y - dragState.offsetY;
+    dragState.ghostEl.style.transform = `translate(${tx}px, ${ty}px) scale(1.05)`;
+
+    // Check drop zones
+    const elUnder = document.elementFromPoint(x, y);
+    const dropZone = elUnder?.closest?.('.drop-zone') || elUnder?.closest?.('.map-container-tile[data-drop-container]');
+
+    // Clear previous highlights
+    document.querySelectorAll('.drop-zone--hover, .map-container-tile--drop-hover').forEach(el => {
+      el.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+    });
+
+    if (dropZone) {
+      dropZone.classList.add(dropZone.classList.contains('drop-zone') ? 'drop-zone--hover' : 'map-container-tile--drop-hover');
+      dragState.currentDropTarget = dropZone;
+    } else {
+      dragState.currentDropTarget = null;
+    }
+  });
+}
+
+function handleDragEnd() {
+  if (!dragState?.active) return;
+
+  const target = dragState.currentDropTarget;
+  if (target) {
+    const targetContainerId = target.dataset.dropContainer;
+    const targetRoomId = target.dataset.dropRoom || dragState.roomId;
+
+    if (targetContainerId && targetContainerId !== dragState.fromContainerId) {
+      // Execute the move
+      const success = Brain.moveItem(dragState.roomId, dragState.fromContainerId, targetContainerId, dragState.itemName);
+      if (success) {
+        if (typeof navigator.vibrate === 'function') navigator.vibrate([30, 50, 30]);
+        const targetContainer = Brain.getContainer(targetRoomId, targetContainerId);
+        const targetName = targetContainer?.name || targetContainerId;
+
+        // Store undo action
+        lastSpatialAction = {
+          type: 'move_item',
+          item: dragState.itemName,
+          fromRoom: dragState.roomId,
+          fromContainer: dragState.fromContainerId,
+          toRoom: targetRoomId,
+          toContainer: targetContainerId
+        };
+
+        cleanupDrag();
+        renderBrainView();
+        showUndoToast(`${lastSpatialAction.item} → ${targetName} verschoben`);
+        return;
+      }
+    }
+  }
+
+  // No valid drop – animate back
+  cancelDrag();
+}
+
+function cancelDrag() {
+  if (!dragState) return;
+
+  const ghost = dragState.ghostEl;
+  if (ghost) {
+    ghost.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
+    ghost.style.transform = `translate(${dragState.startX}px, ${dragState.startY}px) scale(1)`;
+    ghost.style.opacity = '0';
+    setTimeout(() => ghost.remove(), 220);
+  }
+
+  if (dragState.originalEl) dragState.originalEl.classList.remove('drag-origin');
+  if (dragState.dropBarEl) {
+    dragState.dropBarEl.classList.remove('drop-bar--visible');
+    setTimeout(() => dragState.dropBarEl.remove(), 200);
+  }
+
+  document.querySelectorAll('.drop-zone--hover, .map-container-tile--drop-hover').forEach(el => {
+    el.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+  });
+
+  if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
+  dragState = null;
+}
+
+function cleanupDrag() {
+  if (!dragState) return;
+  if (dragState.ghostEl) dragState.ghostEl.remove();
+  if (dragState.originalEl) dragState.originalEl.classList.remove('drag-origin');
+  if (dragState.dropBarEl) {
+    dragState.dropBarEl.classList.remove('drop-bar--visible');
+    setTimeout(() => dragState.dropBarEl.remove(), 200);
+  }
+  document.querySelectorAll('.drop-zone--hover, .map-container-tile--drop-hover').forEach(el => {
+    el.classList.remove('drop-zone--hover', 'map-container-tile--drop-hover');
+  });
+  if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
+  dragState = null;
+}
+
+// ── CONTAINER REORDER (Map View) ─────────────────────────
+
+function setupContainerTileDrag(tileEl, roomId, containerId, gridEl) {
+  let longPressTimer = null;
+  let startX = 0, startY = 0;
+  let moved = false;
+
+  tileEl.addEventListener('touchstart', e => {
+    if (dragState) return;
+    const touch = e.touches[0];
+    startX = touch.clientX;
+    startY = touch.clientY;
+    moved = false;
+
+    longPressTimer = setTimeout(() => {
+      if (!moved) {
+        e.preventDefault();
+        startContainerDrag(tileEl, roomId, containerId, gridEl, startX, startY);
+      }
+    }, 500);
+  }, { passive: false });
+
+  tileEl.addEventListener('touchmove', e => {
+    if (dragState?.active && dragState.type === 'container_reorder') {
+      e.preventDefault();
+      handleContainerDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      return;
+    }
+    const touch = e.touches[0];
+    if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
+      moved = true;
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    }
+  }, { passive: false });
+
+  tileEl.addEventListener('touchend', e => {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    if (dragState?.active && dragState.type === 'container_reorder') {
+      e.preventDefault();
+      handleContainerDragEnd();
+    }
+  });
+
+  tileEl.addEventListener('touchcancel', () => {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    if (dragState?.active && dragState.type === 'container_reorder') cancelContainerDrag();
+  });
+}
+
+function startContainerDrag(tileEl, roomId, containerId, gridEl, x, y) {
+  if (typeof navigator.vibrate === 'function') navigator.vibrate(50);
+
+  const rect = tileEl.getBoundingClientRect();
+  const ghost = tileEl.cloneNode(true);
+  ghost.className = 'drag-ghost drag-ghost--container';
+  ghost.style.width = rect.width + 'px';
+  ghost.style.height = rect.height + 'px';
+  ghost.style.left = '0px';
+  ghost.style.top = '0px';
+  ghost.style.transform = `translate(${rect.left}px, ${rect.top}px) scale(1.05)`;
+  document.body.appendChild(ghost);
+
+  tileEl.classList.add('drag-origin');
+
+  // Collect tile positions for reorder calculation
+  const tiles = Array.from(gridEl.querySelectorAll('.map-container-tile'));
+  const tileData = tiles.map(t => ({
+    el: t,
+    id: t.dataset.containerId,
+    rect: t.getBoundingClientRect()
+  }));
+
+  dragState = {
+    type: 'container_reorder',
+    roomId,
+    containerId,
+    ghostEl: ghost,
+    originalEl: tileEl,
+    gridEl,
+    tileData,
+    startX: rect.left,
+    startY: rect.top,
+    offsetX: x - rect.left,
+    offsetY: y - rect.top,
+    rafId: null,
+    active: true,
+    currentOrder: tiles.map(t => t.dataset.containerId),
+    previousOrder: tiles.map(t => t.dataset.containerId)
+  };
+}
+
+function handleContainerDragMove(x, y) {
+  if (!dragState?.active || dragState.type !== 'container_reorder') return;
+
+  if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
+  dragState.rafId = requestAnimationFrame(() => {
+    if (!dragState?.active) return;
+    const tx = x - dragState.offsetX;
+    const ty = y - dragState.offsetY;
+    dragState.ghostEl.style.transform = `translate(${tx}px, ${ty}px) scale(1.05)`;
+
+    // Calculate which grid position the ghost is over
+    const centerX = x;
+    const centerY = y;
+    let closestIdx = -1;
+    let closestDist = Infinity;
+
+    dragState.tileData.forEach((td, idx) => {
+      if (td.id === dragState.containerId) return;
+      const cx = td.rect.left + td.rect.width / 2;
+      const cy = td.rect.top + td.rect.height / 2;
+      const dist = Math.hypot(centerX - cx, centerY - cy);
+      if (dist < closestDist) { closestDist = dist; closestIdx = idx; }
+    });
+
+    if (closestIdx >= 0 && closestDist < 120) {
+      // Reorder
+      const dragIdx = dragState.currentOrder.indexOf(dragState.containerId);
+      if (dragIdx >= 0 && closestIdx !== dragIdx) {
+        const newOrder = [...dragState.currentOrder];
+        newOrder.splice(dragIdx, 1);
+        newOrder.splice(closestIdx, 0, dragState.containerId);
+        dragState.currentOrder = newOrder;
+
+        // Update visual order via CSS order
+        newOrder.forEach((id, i) => {
+          const tile = dragState.gridEl.querySelector(`[data-container-id="${id}"]`);
+          if (tile) tile.style.order = i;
+        });
+      }
+    }
+  });
+}
+
+function handleContainerDragEnd() {
+  if (!dragState?.active || dragState.type !== 'container_reorder') return;
+
+  const orderChanged = dragState.currentOrder.join(',') !== dragState.previousOrder.join(',');
+  if (orderChanged) {
+    if (typeof navigator.vibrate === 'function') navigator.vibrate([30, 50, 30]);
+
+    lastSpatialAction = {
+      type: 'reorder_containers',
+      roomId: dragState.roomId,
+      previousOrder: [...dragState.previousOrder]
+    };
+
+    Brain.setContainerOrder(dragState.roomId, dragState.currentOrder);
+    cleanupContainerDrag();
+    renderMapRoomDetail(lastSpatialAction.roomId);
+    showUndoToast('Reihenfolge geändert');
+  } else {
+    cancelContainerDrag();
+  }
+}
+
+function cancelContainerDrag() {
+  if (!dragState) return;
+  const ghost = dragState.ghostEl;
+  if (ghost) {
+    ghost.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
+    ghost.style.transform = `translate(${dragState.startX}px, ${dragState.startY}px) scale(1)`;
+    ghost.style.opacity = '0';
+    setTimeout(() => ghost.remove(), 220);
+  }
+  if (dragState.originalEl) dragState.originalEl.classList.remove('drag-origin');
+  // Reset order styles
+  if (dragState.gridEl) {
+    dragState.gridEl.querySelectorAll('.map-container-tile').forEach(t => t.style.order = '');
+  }
+  if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
+  dragState = null;
+}
+
+function cleanupContainerDrag() {
+  if (!dragState) return;
+  if (dragState.ghostEl) dragState.ghostEl.remove();
+  if (dragState.originalEl) dragState.originalEl.classList.remove('drag-origin');
+  if (dragState.rafId) cancelAnimationFrame(dragState.rafId);
+  dragState = null;
+}
+
+// ── UNDO SYSTEM ──────────────────────────────────────────
+
+function showUndoToast(message) {
+  if (undoToastTimer) clearTimeout(undoToastTimer);
+  const existing = document.getElementById('undo-toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'undo-toast';
+  toast.className = 'undo-toast';
+
+  const msgSpan = document.createElement('span');
+  msgSpan.textContent = message;
+
+  const undoBtn = document.createElement('button');
+  undoBtn.className = 'undo-toast-btn';
+  undoBtn.textContent = 'Rückgängig';
+  undoBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    executeUndo();
+  });
+
+  toast.appendChild(msgSpan);
+  toast.appendChild(undoBtn);
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('undo-toast--visible'));
+
+  undoToastTimer = setTimeout(() => {
+    toast.classList.remove('undo-toast--visible');
+    toast.classList.add('undo-toast--out');
+    setTimeout(() => toast.remove(), 300);
+    lastSpatialAction = null;
+    undoToastTimer = null;
+  }, 5000);
+}
+
+function executeUndo() {
+  if (!lastSpatialAction) return;
+
+  if (lastSpatialAction.type === 'move_item') {
+    Brain.moveItem(
+      lastSpatialAction.toRoom,
+      lastSpatialAction.toContainer,
+      lastSpatialAction.fromContainer,
+      lastSpatialAction.item
+    );
+    showBrainToast(`Rückgängig: ${lastSpatialAction.item} zurück verschoben`);
+  } else if (lastSpatialAction.type === 'reorder_containers') {
+    Brain.setContainerOrder(lastSpatialAction.roomId, lastSpatialAction.previousOrder);
+    showBrainToast('Reihenfolge wiederhergestellt');
+  }
+
+  lastSpatialAction = null;
+  if (undoToastTimer) { clearTimeout(undoToastTimer); undoToastTimer = null; }
+  const toast = document.getElementById('undo-toast');
+  if (toast) toast.remove();
+  renderBrainView();
 }
 
 // ── MAP VIEW ─────────────────────────────────────────────
@@ -632,7 +1142,7 @@ function renderMapRoomDetail(roomId) {
   header.appendChild(title);
   detail.appendChild(header);
 
-  const containers = Object.entries(room.containers || {});
+  const containers = Brain.getOrderedContainers(roomId);
   if (containers.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'map-empty-state';
@@ -646,6 +1156,9 @@ function renderMapRoomDetail(roomId) {
       const tile = document.createElement('div');
       const freshClass = getFreshnessClass(c.last_updated);
       tile.className = `map-container-tile map-container-tile--${freshClass}`;
+      tile.dataset.containerId = cId;
+      tile.dataset.dropRoom = roomId;
+      tile.dataset.dropContainer = cId;
 
       // Photo area (top half) or emoji fallback
       const photoArea = document.createElement('div');
@@ -709,6 +1222,7 @@ function renderMapRoomDetail(roomId) {
       tile.appendChild(camBtn);
 
       tile.addEventListener('click', () => {
+        if (dragState) return; // Don't navigate during drag
         // Switch to list view and navigate to container
         brainViewMode = 'list';
         localStorage.setItem('brain_view_mode', 'list');
@@ -723,6 +1237,9 @@ function renderMapRoomDetail(roomId) {
           if (containerEl) containerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 100);
       });
+
+      // Container reorder drag (map view only)
+      setupContainerTileDrag(tile, roomId, cId, grid);
 
       grid.appendChild(tile);
     }
