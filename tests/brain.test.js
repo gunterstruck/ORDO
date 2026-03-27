@@ -67,7 +67,7 @@ describe('Brain.init()', () => {
     resetBrain();
     const data = Brain.getData();
     assert(data !== null, 'Data sollte nicht null sein');
-    assertEqual(data.version, '1.3');
+    assertEqual(data.version, '1.4');
     assertDeepEqual(data.rooms, {});
     assertDeepEqual(data.chat_history, []);
     assert(data.created > 0, 'created timestamp fehlt');
@@ -811,7 +811,7 @@ describe('Brain – Version Upgrade', () => {
     Brain._cache = null;
     Brain.init();
     const data = Brain.getData();
-    assertEqual(data.version, '1.3');
+    assertEqual(data.version, '1.4');
   });
 });
 
@@ -1339,6 +1339,181 @@ describe('getItemFreshness', () => {
   it('gibt "unconfirmed" für null/undefined', () => {
     assertEqual(Brain.getItemFreshness(null), 'unconfirmed');
     assertEqual(Brain.getItemFreshness(undefined), 'unconfirmed');
+  });
+});
+
+// ── Purchase & Warranty ─────────────────────────────────
+describe('Brain.setPurchaseData()', () => {
+  it('speichert Kaufdaten an einem Item', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Bohrmaschine');
+    const ok = Brain.setPurchaseData('kueche', 'schrank', 'Bohrmaschine', {
+      date: '2024-11-15',
+      price: 89.99,
+      store: 'Bauhaus',
+      warranty_months: 24,
+      notes: 'Testnotiz'
+    });
+    assertEqual(ok, true);
+    const c = Brain.getContainer('kueche', 'schrank');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Bohrmaschine');
+    assertEqual(item.purchase.date, '2024-11-15');
+    assertEqual(item.purchase.price, 89.99);
+    assertEqual(item.purchase.store, 'Bauhaus');
+    assertEqual(item.purchase.warranty_months, 24);
+    assertEqual(item.purchase.warranty_expires, '2026-11-15');
+    assertEqual(item.purchase.notes, 'Testnotiz');
+  });
+
+  it('berechnet warranty_expires automatisch', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'Mixer');
+    Brain.setPurchaseData('test', 'c1', 'Mixer', { date: '2025-01-31', warranty_months: 12 });
+    const c = Brain.getContainer('test', 'c1');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Mixer');
+    assertEqual(item.purchase.warranty_expires, '2026-01-31');
+  });
+
+  it('gibt false zurück bei nicht existierendem Item', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    const ok = Brain.setPurchaseData('test', 'c1', 'NichtDa', { date: '2025-01-01' });
+    assertEqual(ok, false);
+  });
+
+  it('aktualisiert bestehende Kaufdaten partiell', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'TV');
+    Brain.setPurchaseData('test', 'c1', 'TV', { date: '2024-06-01', price: 500 });
+    Brain.setPurchaseData('test', 'c1', 'TV', { store: 'MediaMarkt' });
+    const c = Brain.getContainer('test', 'c1');
+    const item = c.items.find(i => Brain.getItemName(i) === 'TV');
+    assertEqual(item.purchase.date, '2024-06-01');
+    assertEqual(item.purchase.price, 500);
+    assertEqual(item.purchase.store, 'MediaMarkt');
+  });
+});
+
+describe('Brain.deletePurchaseData()', () => {
+  it('löscht Kaufdaten vom Item', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'Lampe');
+    Brain.setPurchaseData('test', 'c1', 'Lampe', { date: '2024-01-01', price: 29.99 });
+    const ok = Brain.deletePurchaseData('test', 'c1', 'Lampe');
+    assertEqual(ok, true);
+    const c = Brain.getContainer('test', 'c1');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Lampe');
+    assertEqual(item.purchase, undefined);
+  });
+});
+
+describe('Brain.getExpiringWarranties()', () => {
+  it('findet Items mit bald ablaufender Garantie', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Toaster');
+
+    // Set warranty expiring in 10 days from now
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 10);
+    const soonStr = soon.toISOString().slice(0, 10);
+    const buyDate = new Date();
+    buyDate.setMonth(buyDate.getMonth() - 23);
+
+    Brain.setPurchaseData('kueche', 'schrank', 'Toaster', {
+      date: buyDate.toISOString().slice(0, 10),
+      warranty_months: 24
+    });
+    // Manually override warranty_expires for precise test
+    const data = Brain.getData();
+    const c = Brain._findContainerInTree(data.rooms.kueche.containers, 'schrank');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Toaster');
+    item.purchase.warranty_expires = soonStr;
+    Brain.save(data);
+
+    const results = Brain.getExpiringWarranties(30);
+    assert(results.length >= 1, 'Sollte mindestens 1 Item finden');
+    assertEqual(Brain.getItemName(results[0].item), 'Toaster');
+    assert(results[0].daysLeft <= 30, 'daysLeft sollte <= 30 sein');
+  });
+
+  it('ignoriert archivierte Items', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'AltGerät');
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 5);
+    Brain.setPurchaseData('test', 'c1', 'AltGerät', { date: '2024-01-01', warranty_months: 24 });
+    const data = Brain.getData();
+    const c = Brain._findContainerInTree(data.rooms.test.containers, 'c1');
+    const item = c.items.find(i => Brain.getItemName(i) === 'AltGerät');
+    item.purchase.warranty_expires = soon.toISOString().slice(0, 10);
+    item.status = 'archiviert';
+    Brain.save(data);
+
+    const results = Brain.getExpiringWarranties(30);
+    assertEqual(results.length, 0);
+  });
+
+  it('gibt leeres Array zurück wenn keine Garantien vorhanden', () => {
+    resetBrain();
+    const results = Brain.getExpiringWarranties(30);
+    assertDeepEqual(results, []);
+  });
+});
+
+describe('Brain.getExpiredWarranties()', () => {
+  it('findet Items mit abgelaufener Garantie', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'AltMixer');
+
+    const past = new Date();
+    past.setDate(past.getDate() - 30);
+    Brain.setPurchaseData('test', 'c1', 'AltMixer', { date: '2022-01-01', warranty_months: 24 });
+    const data = Brain.getData();
+    const c = Brain._findContainerInTree(data.rooms.test.containers, 'c1');
+    const item = c.items.find(i => Brain.getItemName(i) === 'AltMixer');
+    item.purchase.warranty_expires = past.toISOString().slice(0, 10);
+    Brain.save(data);
+
+    const results = Brain.getExpiredWarranties();
+    assert(results.length >= 1, 'Sollte mindestens 1 abgelaufenes Item finden');
+    assert(results[0].daysLeft < 0, 'daysLeft sollte negativ sein');
+  });
+});
+
+describe('Brain.getActiveWarranties()', () => {
+  it('findet Items mit aktiver Garantie (> 30 Tage)', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'Waschmaschine');
+
+    const future = new Date();
+    future.setDate(future.getDate() + 365);
+    Brain.setPurchaseData('test', 'c1', 'Waschmaschine', { date: '2025-01-01', warranty_months: 24 });
+    const data = Brain.getData();
+    const c = Brain._findContainerInTree(data.rooms.test.containers, 'c1');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Waschmaschine');
+    item.purchase.warranty_expires = future.toISOString().slice(0, 10);
+    Brain.save(data);
+
+    const results = Brain.getActiveWarranties();
+    assert(results.length >= 1, 'Sollte mindestens 1 aktives Item finden');
+    assert(results[0].daysLeft > 30, 'daysLeft sollte > 30 sein');
   });
 });
 

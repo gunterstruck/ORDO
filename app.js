@@ -3,7 +3,7 @@
 import Brain from './brain.js';
 import { setupChat, initChat, maybeShowChatSuggestions } from './chat.js';
 import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, renderRoomDropdown, applyNfcContextToPhotoView } from './photo-flow.js';
-import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay } from './brain-view.js';
+import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay, checkWarrantyBanner } from './brain-view.js';
 import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
 import { setupCamera } from './camera.js';
@@ -148,6 +148,9 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     showView('chat');
   }
+
+  // Check for expiring warranties and show banner
+  checkWarrantyBanner();
 });
 
 // ── Exports für andere Module ──────────────────────────

@@ -616,3 +616,50 @@ export async function deleteGeminiFile(apiKey, fileName) {
 export function checkForItemExtraction(userText, assistantResponse) {
   // Handled via <!--SAVE:--> markers in the AI response
 }
+
+// ── Receipt Analysis ──────────────────────────────────
+export async function analyzeReceipt(apiKey, imageBase64, itemName) {
+  const prompt = `Du siehst ein Foto eines Kassenbons oder einer Rechnung.
+Extrahiere folgende Informationen soweit erkennbar:
+
+1. Kaufdatum
+2. Gesamtbetrag oder Einzelpreis für "${itemName}" falls sichtbar
+3. Name des Geschäfts / Händlers
+4. Garantiehinweise falls auf dem Bon sichtbar
+
+Antworte NUR mit JSON:
+{
+  "date": "YYYY-MM-DD" oder null,
+  "price": Zahl oder null,
+  "store": "Name" oder null,
+  "warranty_hint": "Text" oder null,
+  "confidence": "hoch" | "mittel" | "niedrig",
+  "hinweis": "Freitext falls etwas unklar ist"
+}
+
+Wenn du das Datum nicht im Format YYYY-MM-DD lesen kannst,
+gib es so an wie du es liest und setze confidence auf "niedrig".
+Wenn der Bon unleserlich oder verblasst ist, sag das im Hinweis.
+Wenn das Foto kein Kassenbon ist, antworte mit:
+{ "error": "Das sieht nicht nach einem Kassenbon aus." }`;
+
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
+      { type: 'text', text: prompt }
+    ]
+  }];
+
+  const response = await callGemini(apiKey, 'Du bist ein Kassenbon-Scanner. Antworte nur mit JSON.', messages);
+
+  // Extract JSON from response
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    throw new Error('Kein JSON in Antwort');
+  }
+}
