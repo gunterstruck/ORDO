@@ -455,7 +455,9 @@ describe('Brain View – Rendering', () => {
     context.Brain.addRoom('bad', 'Bad', '🚿');
     context.renderBrainView();
     const tree = elements['brain-tree'];
-    assertEqual(tree.children.length, 2);
+    // Filter bar is also a child, so count only .brain-room elements
+    const roomNodes = tree.children.filter(c => c.className && c.className.includes('brain-room'));
+    assertEqual(roomNodes.length, 2);
   });
 
   it('showBrainToast() zeigt Toast-Nachricht', () => {
