@@ -3312,3 +3312,190 @@ select.settings-input { appearance: none; }
   border-radius: 20px;
   z-index: 1;
 }
+
+/* ── Drag-and-Drop ───────────────────────────────────── */
+
+/* Ghost element (follows finger during drag) */
+.drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  will-change: transform;
+  opacity: 0.88;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+
+.drag-ghost--item {
+  border-radius: 20px;
+  background: var(--accent);
+  color: #fff;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.drag-ghost--container {
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* Original element while being dragged */
+.drag-origin {
+  opacity: 0.25 !important;
+  transition: opacity 0.15s;
+}
+
+/* ── Drop Bar (slides up from bottom) ────────────────── */
+.drop-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: rgba(255,255,255,0.97);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 2px solid var(--success);
+  padding: 10px 12px 12px;
+  transform: translateY(-100%);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.drop-bar--visible {
+  transform: translateY(0);
+}
+
+.drop-bar-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.drop-bar-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
+.drop-bar-scroll::-webkit-scrollbar { display: none; }
+
+/* ── Drop Zone (individual container target) ─────────── */
+.drop-zone {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 80px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px dashed var(--border);
+  background: var(--surface);
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.drop-zone--nested {
+  border-style: dotted;
+}
+
+.drop-zone-emoji {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.drop-zone-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drop-zone-count {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Drop zone hover state (finger is over it) */
+.drop-zone--hover {
+  border-color: var(--success);
+  border-style: solid;
+  background: rgba(76, 175, 80, 0.08);
+  transform: scale(1.05);
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
+}
+
+/* Container tile as drop target in map view */
+.map-container-tile--drop-hover {
+  border-color: var(--success) !important;
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.25);
+  transform: scale(1.03);
+}
+
+/* ── Undo Toast ──────────────────────────────────────── */
+.undo-toast {
+  position: fixed;
+  bottom: calc(var(--nav-h) + 16px);
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #1a1a1a;
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+}
+
+.undo-toast--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.undo-toast--out {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
+}
+
+.undo-toast-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.undo-toast-btn:active {
+  opacity: 0.7;
+}
+
+/* Container tile transition for reorder animation */
+.map-container-tile {
+  transition: order 0s, transform 0.2s ease;
+}

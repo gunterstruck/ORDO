@@ -546,6 +546,59 @@ const Brain = {
     }
   },
 
+  // Move an item from one container to another (within same room)
+  moveItem(roomId, fromContainerId, toContainerId, itemName) {
+    const data = this.getData();
+    const fromC = this._findContainerInTree(data.rooms?.[roomId]?.containers, fromContainerId);
+    const toC = this._findContainerInTree(data.rooms?.[roomId]?.containers, toContainerId);
+    if (!fromC || !toC) return false;
+    this._migrateContainerItems(fromC);
+    this._migrateContainerItems(toC);
+    const itemIdx = fromC.items.findIndex(i => this.getItemName(i) === itemName);
+    if (itemIdx < 0) return false;
+    const [itemObj] = fromC.items.splice(itemIdx, 1);
+    if (fromC.quantities) delete fromC.quantities[itemName];
+    // Avoid duplicates in target
+    const existsInTarget = toC.items.some(i => this.getItemName(i) === itemName);
+    if (!existsInTarget) {
+      toC.items.push(itemObj);
+    }
+    fromC.last_updated = Date.now();
+    toC.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  // Get or set container display order for a room
+  getContainerOrder(roomId) {
+    const room = this.getRoom(roomId);
+    return room?.container_order || null;
+  },
+
+  setContainerOrder(roomId, orderArray) {
+    const data = this.getData();
+    if (!data.rooms[roomId]) return;
+    data.rooms[roomId].container_order = orderArray;
+    data.rooms[roomId].last_updated = Date.now();
+    this.save(data);
+  },
+
+  // Get containers sorted by container_order (if set)
+  getOrderedContainers(roomId) {
+    const room = this.getRoom(roomId);
+    if (!room) return [];
+    const entries = Object.entries(room.containers || {});
+    const order = room.container_order;
+    if (!order || order.length === 0) return entries;
+    const orderMap = {};
+    order.forEach((id, idx) => { orderMap[id] = idx; });
+    return entries.sort((a, b) => {
+      const ia = orderMap[a[0]] !== undefined ? orderMap[a[0]] : 9999;
+      const ib = orderMap[b[0]] !== undefined ? orderMap[b[0]] : 9999;
+      return ia - ib;
+    });
+  },
+
   // Mark a container as having a stored photo
   setContainerHasPhoto(roomId, containerId, value) {
     const data = this.getData();
