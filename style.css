@@ -3499,3 +3499,106 @@ select.settings-input { appearance: none; }
 .map-container-tile {
   transition: order 0s, transform 0.2s ease;
 }
+
+/* ── Filter Bar (Brain View) ──────────────────────── */
+.brain-filter-bar {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  margin-bottom: 8px;
+}
+
+.brain-filter-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text);
+}
+
+.brain-filter-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.brain-filter-btn:not(.active):active {
+  background: var(--border);
+}
+
+.brain-filter-empty-hint {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0;
+  font-style: italic;
+}
+
+/* ── Quantity Stepper (Item Chips) ─────────────────── */
+.brain-chip--has-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+}
+
+.brain-chip-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.brain-chip-stepper-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.2);
+  color: white;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.brain-chip-stepper-btn:active {
+  background: rgba(255,255,255,0.45);
+}
+
+.brain-chip-qty {
+  min-width: 24px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: white;
+}
+
+/* ── Drag UX Polish ───────────────────────────────── */
+.brain-container.drop-eligible {
+  border: 2px dashed var(--accent);
+  background: rgba(232, 168, 124, 0.05);
+  transition: all 0.15s;
+}
+
+.brain-container.drop-hover {
+  border: 2px solid var(--accent);
+  background: rgba(232, 168, 124, 0.12);
+  transform: scale(1.01);
+  transition: all 0.15s;
+}
