@@ -3227,7 +3227,7 @@ select.settings-input { appearance: none; }
   justify-content: space-between;
   align-items: center;
   padding: 20px 32px;
-  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
   background: rgba(0,0,0,0.6);
 }
 .camera-cancel-btn {

@@ -104,6 +104,8 @@ async function startCamera() {
     }
     video.srcObject = currentStream;
     overlay.style.display = 'flex';
+    const nav = document.getElementById('nav');
+    if (nav) nav.style.display = 'none';
   } catch (err) {
     // Camera access denied or not available → fallback to file input
     stopStream();
@@ -233,6 +235,8 @@ function closeCamera(result) {
   stopStream();
   const overlay = document.getElementById('camera-overlay');
   if (overlay) overlay.style.display = 'none';
+  const nav = document.getElementById('nav');
+  if (nav) nav.style.display = '';
 
   // Reset UI
   const shutterBtn = document.getElementById('camera-shutter-btn');
