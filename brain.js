@@ -97,7 +97,7 @@ const Brain = {
         req.onerror = () => resolve();
       });
     }
-    const exportData = { ...data, version: '1.3', photos };
+    const exportData = { ...data, version: '1.4', photos };
     const sizeEstimate = JSON.stringify(exportData).length;
     return { exportData, sizeEstimate };
   },
@@ -141,7 +141,7 @@ const Brain = {
       this._cache = null;
       // Corrupted data – reinitialize with fresh structure
       const fresh = {
-        version: '1.3',
+        version: '1.4',
         created: Date.now(),
         rooms: {},
         chat_history: [],
@@ -167,15 +167,15 @@ const Brain = {
     const existing = this.getData();
     if (!existing) {
       this.save({
-        version: '1.3',
+        version: '1.4',
         created: Date.now(),
         rooms: {},
         chat_history: [],
         last_updated: Date.now()
       });
-    } else if (existing.version === '1.2' || !existing.version) {
-      // Upgrade version marker (items migrated lazily on access)
-      existing.version = '1.3';
+    } else if (existing.version === '1.2' || existing.version === '1.3' || !existing.version) {
+      // Upgrade version marker (items migrated lazily on access, purchase fields are optional)
+      existing.version = '1.4';
       this.save(existing);
     }
     this.initPhotoDB().catch(err => { if (typeof debugLog === 'function') debugLog(`IndexedDB init fehlgeschlagen: ${err.message}`); });
@@ -1031,6 +1031,18 @@ const Brain = {
         }
       }
     }
+
+    // Warranty hints for items expiring within 30 days
+    const expiring = this.getExpiringWarranties(30);
+    if (expiring.length > 0) {
+      ctx += '\n\nGARANTIE-HINWEISE:';
+      expiring.forEach(w => {
+        const name = this.getItemName(w.item);
+        const expires = w.item.purchase?.warranty_expires || '';
+        ctx += `\nHinweis: Die Garantie für "${name}" läuft am ${expires} ab (in ${w.daysLeft} Tagen). Erwähne das wenn der Nutzer nach diesem Gegenstand fragt.`;
+      });
+    }
+
     return ctx.trim();
   },
 
@@ -1365,6 +1377,176 @@ const Brain = {
       }
       if (c.containers) {
         this._collectInfrastructureCounts(c.containers, counts);
+      }
+    }
+  },
+
+  // --- Purchase & Warranty ---
+
+  // Set or update purchase data for an item
+  setPurchaseData(roomId, containerId, itemName, purchaseData) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item !== 'object') return false;
+
+    if (!item.purchase) item.purchase = {};
+    if (purchaseData.date !== undefined) item.purchase.date = purchaseData.date;
+    if (purchaseData.price !== undefined) item.purchase.price = purchaseData.price;
+    if (purchaseData.store !== undefined) item.purchase.store = purchaseData.store;
+    if (purchaseData.warranty_months !== undefined) item.purchase.warranty_months = purchaseData.warranty_months;
+    if (purchaseData.notes !== undefined) item.purchase.notes = purchaseData.notes;
+
+    // Auto-calculate warranty_expires from date + warranty_months
+    if (item.purchase.date && item.purchase.warranty_months) {
+      const d = new Date(item.purchase.date);
+      d.setMonth(d.getMonth() + item.purchase.warranty_months);
+      item.purchase.warranty_expires = d.toISOString().slice(0, 10);
+    } else {
+      delete item.purchase.warranty_expires;
+    }
+
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  // Delete purchase data for an item
+  deletePurchaseData(roomId, containerId, itemName) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item !== 'object') return false;
+    // Delete receipt photo if exists
+    if (item.purchase?.receipt_photo_key) {
+      this.deletePhoto(item.purchase.receipt_photo_key).catch(() => {});
+    }
+    delete item.purchase;
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  // Save receipt photo in IndexedDB and link to item
+  async saveReceiptPhoto(roomId, containerId, itemName, blob) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return null;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item !== 'object') return null;
+
+    const key = `receipt_${roomId}_${containerId}_${this.slugify(itemName)}_${Date.now()}`;
+    await this.savePhoto(key, blob);
+
+    if (!item.purchase) item.purchase = {};
+    // Delete old receipt photo if exists
+    if (item.purchase.receipt_photo_key) {
+      this.deletePhoto(item.purchase.receipt_photo_key).catch(() => {});
+    }
+    item.purchase.receipt_photo_key = key;
+    c.last_updated = Date.now();
+    this.save(data);
+    return key;
+  },
+
+  // Load receipt photo blob
+  async getReceiptPhoto(photoKey) {
+    if (!photoKey) return null;
+    return this.getPhoto(photoKey);
+  },
+
+  // Find all items with warranty expiring within N days
+  getExpiringWarranties(withinDays) {
+    if (withinDays === undefined) withinDays = 30;
+    const results = [];
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const data = this.getData();
+    if (!data?.rooms) return results;
+
+    for (const [roomId, room] of Object.entries(data.rooms)) {
+      this._collectWarrantyItems(roomId, room.containers, now, withinDays, false, results);
+    }
+    results.sort((a, b) => a.daysLeft - b.daysLeft);
+    return results;
+  },
+
+  // Find all items with expired warranty
+  getExpiredWarranties() {
+    const results = [];
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const data = this.getData();
+    if (!data?.rooms) return results;
+
+    for (const [roomId, room] of Object.entries(data.rooms)) {
+      this._collectWarrantyItems(roomId, room.containers, now, 0, true, results);
+    }
+    results.sort((a, b) => a.daysLeft - b.daysLeft);
+    return results;
+  },
+
+  // Helper: collect items with warranty from container tree
+  _collectWarrantyItems(roomId, containers, now, withinDays, expiredOnly, results) {
+    for (const [cId, c] of Object.entries(containers || {})) {
+      (c.items || []).forEach(item => {
+        if (typeof item !== 'object' || !item.purchase?.warranty_expires) return;
+        if (item.status === 'archiviert') return;
+        const expires = new Date(item.purchase.warranty_expires);
+        expires.setHours(0, 0, 0, 0);
+        const diffMs = expires.getTime() - now.getTime();
+        const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        if (expiredOnly) {
+          if (daysLeft < 0) {
+            results.push({ roomId, containerId: cId, item, daysLeft });
+          }
+        } else {
+          if (daysLeft >= 0 && daysLeft <= withinDays) {
+            results.push({ roomId, containerId: cId, item, daysLeft });
+          }
+        }
+      });
+      if (c.containers) {
+        this._collectWarrantyItems(roomId, c.containers, now, withinDays, expiredOnly, results);
+      }
+    }
+  },
+
+  // Get all items with active warranty (not expiring soon, not expired)
+  getActiveWarranties() {
+    const results = [];
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const data = this.getData();
+    if (!data?.rooms) return results;
+
+    for (const [roomId, room] of Object.entries(data.rooms)) {
+      this._collectActiveWarranties(roomId, room.containers, now, results);
+    }
+    results.sort((a, b) => a.daysLeft - b.daysLeft);
+    return results;
+  },
+
+  _collectActiveWarranties(roomId, containers, now, results) {
+    for (const [cId, c] of Object.entries(containers || {})) {
+      (c.items || []).forEach(item => {
+        if (typeof item !== 'object' || !item.purchase?.warranty_expires) return;
+        if (item.status === 'archiviert') return;
+        const expires = new Date(item.purchase.warranty_expires);
+        expires.setHours(0, 0, 0, 0);
+        const diffMs = expires.getTime() - now.getTime();
+        const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        if (daysLeft > 30) {
+          results.push({ roomId, containerId: cId, item, daysLeft });
+        }
+      });
+      if (c.containers) {
+        this._collectActiveWarranties(roomId, c.containers, now, results);
       }
     }
   }

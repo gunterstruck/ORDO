@@ -3613,3 +3613,307 @@ select.settings-input { appearance: none; }
   transform: scale(1.01);
   transition: all 0.15s;
 }
+
+/* ── Item Detail Panel (Bottom Sheet) ────────────── */
+.item-detail-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.item-detail-panel--visible {
+  pointer-events: auto;
+  opacity: 1;
+}
+.item-detail-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+.item-detail-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+.item-detail-panel--visible .item-detail-sheet {
+  transform: translateY(0);
+}
+.item-detail-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.item-detail-title {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.item-detail-location {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+.item-detail-section {
+  margin-bottom: 16px;
+}
+.item-detail-section-header {
+  font-size: 0.8em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+.item-detail-field {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.95em;
+}
+.item-detail-label {
+  color: var(--text-muted);
+}
+.item-detail-value {
+  font-weight: 500;
+}
+.item-detail-purchase-content .item-detail-field {
+  display: block;
+  padding: 8px 0;
+  font-size: 0.95em;
+}
+.item-detail-warranty--warning {
+  color: #e8a33e;
+  font-weight: 500;
+}
+.item-detail-warranty--expired {
+  color: var(--error);
+}
+.item-detail-notes {
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+.item-detail-empty-hint {
+  color: var(--text-muted);
+  font-size: 0.9em;
+  text-align: center;
+  padding: 12px 0;
+}
+.item-detail-actions,
+.item-detail-purchase-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.item-detail-action-btn {
+  flex: 1;
+  min-width: 120px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.9em;
+  cursor: pointer;
+  text-align: center;
+}
+.item-detail-action-btn:active {
+  background: var(--border);
+}
+.item-detail-action-btn--primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.item-detail-action-btn--primary:active {
+  background: var(--accent-dark);
+}
+.item-detail-action-btn--danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+/* ── Receipt Review Form ─────────────────────────── */
+.receipt-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0;
+}
+.receipt-review-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.receipt-review-label {
+  font-size: 0.8em;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.receipt-review-input {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 1em;
+  background: var(--surface);
+  color: var(--text);
+}
+.receipt-review-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.receipt-review-expiry {
+  font-size: 0.85em;
+  color: var(--accent-dark);
+  text-align: center;
+  min-height: 1.2em;
+}
+.receipt-review-confidence {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  text-align: center;
+}
+.receipt-review-hint {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: rgba(232, 168, 124, 0.08);
+  border-radius: 8px;
+}
+.receipt-review-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── Warranty Badges on Chips ────────────────────── */
+.warranty-badge {
+  font-size: 0.75em;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.warranty-badge--warning {
+  filter: sepia(1) saturate(3) hue-rotate(-10deg);
+}
+.warranty-badge--expired {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+/* ── Warranty Banner ─────────────────────────────── */
+.warranty-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #e8a33e 0%, var(--accent) 100%);
+  color: white;
+  font-size: 0.9em;
+  font-weight: 500;
+  animation: slideDown 0.3s ease;
+}
+.warranty-banner--out {
+  animation: slideUp 0.3s ease forwards;
+}
+.warranty-banner-btn {
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.warranty-banner-btn:active {
+  background: rgba(255, 255, 255, 0.4);
+}
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+@keyframes slideUp {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+
+/* ── Warranty Overview ───────────────────────────── */
+.warranty-overview-group {
+  margin-bottom: 16px;
+}
+.warranty-overview-header {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.warranty-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  margin-bottom: 6px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.warranty-item:active {
+  background: var(--border);
+}
+.warranty-item--expiring {
+  border-left-color: #e8a33e;
+}
+.warranty-item--expired {
+  border-left-color: var(--error);
+}
+.warranty-item-name {
+  font-weight: 500;
+  flex: 1;
+  min-width: 100px;
+}
+.warranty-item-days {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.warranty-item-location {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  width: 100%;
+}
+
+/* ── Warranty Button in Brain Header ─────────────── */
+.brain-warranty-btn {
+  background: none;
+  border: none;
+  font-size: 1.2em;
+  cursor: pointer;
+  padding: 4px 8px;
+  opacity: 0.7;
+}
+.brain-warranty-btn:active {
+  opacity: 1;
+}
