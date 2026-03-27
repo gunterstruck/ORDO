@@ -589,7 +589,12 @@ html, body {
   margin: 8px 0;
   border-radius: 12px;
   border: 1px solid var(--border);
-  overflow: hidden;
+  overflow: clip;
+}
+
+.brain-container.drop-eligible,
+.brain-container.drop-hover {
+  overflow: visible;
 }
 
 .brain-container.has-items { border-color: var(--accent); }
@@ -3509,6 +3514,9 @@ select.settings-input { appearance: none; }
   border-bottom: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
   margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .brain-filter-btn {
@@ -3547,7 +3555,9 @@ select.settings-input { appearance: none; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding-right: 4px;
+  padding-right: 6px;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 
 .brain-chip-stepper {
@@ -3558,13 +3568,14 @@ select.settings-input { appearance: none; }
 }
 
 .brain-chip-stepper-btn {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
   border-radius: 50%;
   border: 1px solid rgba(255,255,255,0.4);
   background: rgba(255,255,255,0.2);
   color: white;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
   display: flex;
