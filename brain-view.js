@@ -9,11 +9,13 @@ import { sendChatMessage } from './chat.js';
 import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
 import { showReportDialog } from './report.js';
 import { showCurrentStep, startBlueprint } from './quest.js';
+import { calculateFreedomIndex, getQuickWins, getQuickDecision, getTasksForTimeSlot, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend } from './organizer.js';
 
 // ── State ──────────────────────────────────────────────
 let brainViewMode = localStorage.getItem('brain_view_mode') || 'list';
 let nfcCtxInactivityTimer = null;
 let moveContainerState = null;
+let organizerSessionMode = null;
 
 // ── Filter State ─────────────────────────────────────
 let currentFilter = 'all'; // 'all' | 'mobile' | 'fixed'
@@ -46,6 +48,8 @@ function showBrainToast(msg) {
 }
 
 function setupBrain() {
+  recordWeeklyScore();
+
   // Observer: auto-refresh brain view when data changes
   Brain.on('dataChanged', () => {
     if (getCurrentView() === 'brain') renderBrainView();
@@ -82,6 +86,9 @@ function renderBrainView() {
   const container = document.getElementById('brain-tree');
   const rooms = Brain.getRooms();
   container.innerHTML = '';
+
+  const dashboard = buildOrganizerDashboard();
+  if (dashboard) container.appendChild(dashboard);
 
   // Update header with total household value
   const totalValue = Brain.getTotalHouseholdValue();
@@ -160,6 +167,77 @@ function renderBrainView() {
   for (const [roomId, room] of Object.entries(rooms)) {
     container.appendChild(buildRoomNode(roomId, room));
   }
+}
+
+function buildOrganizerDashboard() {
+  if (Brain.isEmpty()) return null;
+
+  const score = calculateFreedomIndex();
+  const quickWins = getQuickWins(3);
+  const trend = getScoreTrend();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'organizer-dashboard';
+
+  const title = document.createElement('div');
+  title.className = 'freedom-index';
+  title.textContent = `🧠 Dein Kopf ist zu ${score.percent}% frei`;
+
+  const bar = document.createElement('div');
+  bar.className = 'freedom-bar';
+  const fill = document.createElement('div');
+  fill.className = 'freedom-bar-fill';
+  fill.style.width = `${score.percent}%`;
+  fill.classList.add(score.percent >= 75 ? 'high' : (score.percent >= 50 ? 'medium' : 'low'));
+  bar.appendChild(fill);
+
+  const detail = document.createElement('div');
+  detail.className = 'freedom-detail';
+  detail.textContent = `${score.totalDebt} offene Entscheidungen`;
+
+  wrap.appendChild(title);
+  wrap.appendChild(bar);
+  wrap.appendChild(detail);
+
+  if (trend) {
+    const trendEl = document.createElement('div');
+    trendEl.className = 'freedom-detail';
+    const sign = trend.delta >= 0 ? '↑' : '↓';
+    trendEl.innerHTML = `<span class="freedom-trend">${sign} ${Math.abs(trend.delta)} ${trend.delta >= 0 ? 'mehr' : 'weniger'} als letzte Woche</span>`;
+    wrap.appendChild(trendEl);
+  }
+
+  const qwTitle = document.createElement('div');
+  qwTitle.className = 'freedom-detail';
+  qwTitle.style.marginTop = '10px';
+  qwTitle.textContent = '⚡ Quick Wins:';
+  wrap.appendChild(qwTitle);
+
+  const list = document.createElement('div');
+  list.className = 'quick-wins-list';
+  quickWins.forEach((win, idx) => {
+    const row = document.createElement('button');
+    row.className = 'quick-win-item';
+    row.dataset.action = 'organizer-quick-win';
+    row.dataset.winIndex = String(idx);
+    row.innerHTML = `<span>• ${win.description}</span><span class="quick-win-impact">${win.estimatedMinutes} Min · -${win.impactPoints}</span>`;
+    list.appendChild(row);
+  });
+  if (quickWins.length === 0) {
+    const row = document.createElement('div');
+    row.className = 'quick-win-item';
+    row.textContent = 'Aktuell keine offenen Quick Wins ✨';
+    list.appendChild(row);
+  }
+  wrap.appendChild(list);
+
+  const startBtn = document.createElement('button');
+  startBtn.className = 'brain-add-btn';
+  startBtn.dataset.action = 'organizer-start-session';
+  startBtn.textContent = '🧹 Aufräum-Session starten';
+  wrap.appendChild(startBtn);
+
+  return wrap;
 }
 
 function buildRoomNode(roomId, room) {
@@ -504,11 +582,20 @@ function buildContainerNode(roomId, cId, c, depth) {
   cameraItemBtn.dataset.room = roomId;
   cameraItemBtn.dataset.container = cId;
 
+  const organizerCheckBtn = document.createElement('button');
+  organizerCheckBtn.className = 'brain-camera-item-btn';
+  organizerCheckBtn.innerHTML = '🧹 Aufräum-Check';
+  organizerCheckBtn.title = 'Container mit KI aufräumen lassen';
+  organizerCheckBtn.dataset.action = 'organizer-container-check';
+  organizerCheckBtn.dataset.room = roomId;
+  organizerCheckBtn.dataset.container = cId;
+
   const btnRow = document.createElement('div');
   btnRow.className = 'brain-item-btn-row';
   btnRow.appendChild(addItemBtn);
   btnRow.appendChild(addChildBtn);
   btnRow.appendChild(cameraItemBtn);
+  btnRow.appendChild(organizerCheckBtn);
 
   body.appendChild(thumbnailWrapper);
   body.appendChild(photoHistoryHint);
@@ -1904,6 +1991,168 @@ async function showContainerContextMenu(roomId, cId, c) {
   }
 }
 
+async function showOrganizerSessionChoices() {
+  const result = await showInputModal({
+    title: 'Wie viel Zeit und Energie hast du?',
+    fields: [{
+      type: 'select',
+      options: [
+        { value: '2', label: '⚡ 30 Sek – eine Entscheidung' },
+        { value: '5', label: '☕ 5 Min – ein paar Quick Wins' },
+        { value: '15', label: '🧹 15 Min – einen Bereich' },
+        { value: '30', label: '🏠 30+ Min – richtig aufräumen' }
+      ],
+      defaultValue: organizerSessionMode || '5'
+    }]
+  });
+  if (!result) return;
+  organizerSessionMode = result[0];
+  const tasks = getTasksForTimeSlot(parseInt(result[0], 10));
+
+  if (tasks.mode === 'quick_decision') {
+    showQuickDecisionOverlay();
+    return;
+  }
+
+  const list = (tasks.tasks || []).slice(0, 3).map(t => `• ${t.description}`).join('\n');
+  showToast(list || 'Keine offenen Aufgaben gefunden.', 'success', 4000);
+}
+
+function showQuickDecisionOverlay() {
+  const decision = getQuickDecision();
+  if (!decision) {
+    showToast('Heute sind keine Quick Decisions offen ✨');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'container-check-overlay';
+  overlay.innerHTML = `
+    <div class="quick-decision">
+      <h3>⚡ Schnelle Entscheidung</h3>
+      <div class="quick-decision-item">${decision.itemName}</div>
+      <div class="quick-decision-meta">📍 ${decision.roomName} > ${decision.containerName}</div>
+      <div class="quick-decision-meta">⏱️ Seit ${decision.monthsAgo} Monaten nicht bewegt</div>
+      <div class="quick-decision-meta">💰 Geschätzter Wert: ~${decision.value || '?'} €</div>
+      <div class="quick-decision-actions">
+        <button class="discard">🗑️ Entsorgen</button>
+        <button class="donate">🎁 Spenden</button>
+        <button class="keep">📦 Behalten</button>
+      </div>
+      <p class="quick-decision-meta">Entsorgen: ${decision.disposal.icon} ${decision.disposal.text}</p>
+      <button class="brain-add-btn" data-close="1">Schließen</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay || e.target.dataset.close) close();
+  });
+
+  const archiveWithReason = (reason) => {
+    Brain.archiveItem(decision.roomId, decision.containerId, decision.itemName, reason);
+    const sim = simulateScore([{ type: 'archive', itemName: decision.itemName }]);
+    showToast(`${decision.itemName} ${reason}. Dein Kopf ist jetzt zu ${sim.simulatedPercent}% frei. ↑${sim.delta}%`);
+    close();
+    renderBrainView();
+  };
+
+  overlay.querySelector('.discard').addEventListener('click', () => archiveWithReason('entsorgt'));
+  overlay.querySelector('.donate').addEventListener('click', () => archiveWithReason('gespendet'));
+  overlay.querySelector('.keep').addEventListener('click', () => {
+    showToast('OK, bleibt wo es ist. Nächste Entscheidung?');
+    close();
+  });
+}
+
+async function runOrganizerContainerCheck(roomId, containerId) {
+  try {
+    const photoKey = Brain.getLatestPhotoKey(roomId, containerId);
+    const blob = photoKey ? await Brain.getPhoto(photoKey) : null;
+    if (!blob) {
+      showToast('Bitte zuerst ein neues Foto für diesen Bereich aufnehmen.', 'error');
+      return;
+    }
+    const base64 = await blobToBase64(blob);
+    const result = await containerCheck(roomId, containerId, base64);
+    showContainerCheckOverlay(roomId, containerId, result);
+  } catch (err) {
+    showToast(`Aufräum-Check fehlgeschlagen: ${err.message}`, 'error');
+  }
+}
+
+function showContainerCheckOverlay(roomId, containerId, result) {
+  const container = Brain.getContainer(roomId, containerId);
+  if (!container) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'container-check-overlay';
+  const recommendations = Array.isArray(result.recommendations) ? result.recommendations : [];
+  const grouped = {
+    move: recommendations.filter(r => r.type === 'move'),
+    discard: recommendations.filter(r => r.type === 'discard'),
+    optimize: recommendations.filter(r => r.type === 'optimize')
+  };
+  const simulation = simulateScore(recommendations.map(r => ({ type: r.type === 'move' ? 'move' : (r.type === 'discard' ? 'archive' : 'keep') })));
+
+  overlay.innerHTML = `
+    <h3>🧹 Aufräum-Check: ${container.name}</h3>
+    <p>${result.summary || 'Mit kleinen Schritten wird dieser Bereich noch besser.'}</p>
+    <div class="check-section-title">🔄 UMRÄUMEN</div>
+    ${(grouped.move.map(renderRecommendationCard).join('') || '<div class="check-recommendation">Keine Umräum-Empfehlungen</div>')}
+    <div class="check-section-title">🗑️ AUSMISTEN</div>
+    ${(grouped.discard.map(renderRecommendationCard).join('') || '<div class="check-recommendation">Keine Ausmist-Empfehlungen</div>')}
+    <div class="check-section-title">💡 OPTIMIEREN</div>
+    ${(grouped.optimize.map(renderRecommendationCard).join('') || '<div class="check-recommendation">Keine Optimierungs-Tipps</div>')}
+    <div class="score-preview">Vorher: ${simulation.currentPercent}% → Nachher: ~${simulation.simulatedPercent}%</div>
+    <button class="brain-add-btn" data-action="organizer-apply-all">Alle Änderungen ausführen</button>
+    <button class="brain-add-btn" data-close="1">Schließen</button>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', e => {
+    if (e.target.dataset.close || e.target === overlay) {
+      overlay.remove();
+      return;
+    }
+    const act = e.target.dataset.apply;
+    if (!act) return;
+    const item = e.target.dataset.item;
+    if (act === 'discard') Brain.archiveItem(roomId, containerId, item);
+    showToast(`${item} aktualisiert`);
+    e.target.disabled = true;
+  });
+
+  overlay.querySelector('[data-action="organizer-apply-all"]').addEventListener('click', () => {
+    recommendations.forEach(rec => {
+      if (rec.type === 'discard') Brain.archiveItem(roomId, containerId, rec.item);
+    });
+    showToast('Empfehlungen angewendet.');
+    overlay.remove();
+    renderBrainView();
+  });
+}
+
+function renderRecommendationCard(rec) {
+  const emoji = rec.type === 'move' ? '🔄' : (rec.type === 'discard' ? '🗑️' : '💡');
+  const actionLabel = rec.type === 'discard' ? 'Entsorgen' : (rec.type === 'move' ? 'Verschieben' : 'Tipp verstanden ✓');
+  return `<div class=\"check-recommendation\">
+    <div>${emoji} ${rec.item || 'Hinweis'}</div>
+    <div class=\"reason\">${rec.reason || ''}</div>
+    <button data-apply=\"${rec.type}\" data-item=\"${rec.item || ''}\">${actionLabel}</button>
+  </div>`;
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1]);
+    reader.onerror = () => reject(new Error('Foto konnte nicht gelesen werden'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 // ── EVENT DELEGATION (brain-tree) ──────────────────────
 
 function setupBrainTreeDelegation() {
@@ -1964,6 +2213,27 @@ function setupBrainTreeDelegation() {
           }
         }
       }
+      return;
+    }
+
+    const organizerStartBtn = e.target.closest('[data-action="organizer-start-session"]');
+    if (organizerStartBtn) {
+      await showOrganizerSessionChoices();
+      return;
+    }
+
+    const quickWinBtn = e.target.closest('[data-action="organizer-quick-win"]');
+    if (quickWinBtn) {
+      const win = getQuickWins(3)[parseInt(quickWinBtn.dataset.winIndex || '0', 10)];
+      if (win) {
+        showToast(`${win.description} (${win.estimatedMinutes} Min)`, 'success');
+      }
+      return;
+    }
+
+    const organizerCheckBtn = e.target.closest('[data-action="organizer-container-check"]');
+    if (organizerCheckBtn) {
+      await runOrganizerContainerCheck(organizerCheckBtn.dataset.room, organizerCheckBtn.dataset.container);
       return;
     }
 

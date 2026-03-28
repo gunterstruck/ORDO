@@ -1269,3 +1269,79 @@ Wenn das Foto kein Kassenbon ist, antworte mit:
     throw new Error('Kein JSON in Antwort');
   }
 }
+
+// ── Organizer: Container Check ───────────────────────
+/**
+ * Analysiert einen Container mit Foto + Haushaltsdaten.
+ * Nutzt Gemini Pro mit Thinking für gründliche Bewertung.
+ * @returns {Promise<{score: number, summary: string, recommendations: Array, ok_items?: string[], estimated_total_minutes?: number}>}
+ */
+export async function analyzeContainerForOrganizing(imageBase64, containerContext, householdSummary) {
+  const prompt = `
+Du bist ein freundlicher, erfahrener Aufräumberater.
+Du analysierst einen Container in einem Haushalt.
+
+CONTAINER: ${containerContext.containerName} in ${containerContext.roomName}
+CONTAINER-TYP: ${containerContext.containerType}
+
+AKTUELLER INHALT (aus der Datenbank):
+${containerContext.itemList}
+
+GESAMTER HAUSHALT (Zusammenfassung):
+${householdSummary}
+
+BEWERTUNGSKRITERIEN:
+1. Funktionszone: Gehört jeder Gegenstand in diesen Raum?
+2. Nutzungshäufigkeit: Sind oft genutzte Dinge griffbereit?
+3. Duplikate: Gibt es den gleichen Gegenstand woanders?
+4. Alter: Gegenstände seit 12+ Monaten nicht bestätigt?
+5. Füllstand: Überladen oder Platz verschwendet?
+6. Zustand: Erkennbar kaputte oder veraltete Gegenstände?
+
+TONALITÄT: Freundlich, ermutigend, nie belehrend.
+Statt "Das gehört nicht hierhin" → "Im Flur wäre das praktischer".
+Der Nutzer hat immer das letzte Wort.
+
+Antworte NUR mit JSON:
+{
+  "score": 7,
+  "summary": "Ermutigendes Statement in 1-2 Sätzen",
+  "recommendations": [
+    {
+      "type": "move",
+      "item": "Winterhandschuhe",
+      "reason": "Im Flur greifst du sie morgens direkt beim Rausgehen",
+      "target_room": "flur",
+      "target_container": "garderobe",
+      "priority": "hoch",
+      "estimated_minutes": 2
+    }
+  ],
+  "ok_items": ["Teller", "Schüsseln", "Gläser"],
+  "estimated_total_minutes": 10
+}`;
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) throw new Error('api_key');
+
+  const response = await callGemini(
+    apiKey,
+    'Du bist ein Aufräumassistent. Antworte nur mit JSON.',
+    [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
+        { type: 'text', text: prompt }
+      ]
+    }],
+    { taskType: 'containerCheck', hasImage: true }
+  );
+
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error('Kein JSON in Antwort');
+  }
+}

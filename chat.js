@@ -7,6 +7,7 @@ import { debugLog, showView, getNfcContext, ensureRoom } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
 import { resizeImageForChat, renderRoomDropdown } from './photo-flow.js';
 import { capturePhoto } from './camera.js';
+import { calculateFreedomIndex, getQuickWins } from './organizer.js';
 
 // ── State ──────────────────────────────────────────────
 let recognition = null;
@@ -167,13 +168,24 @@ export async function sendChatMessage() {
 
   try {
     const context = Brain.buildContext();
+    const organizerScore = calculateFreedomIndex();
+    const organizerQuickWins = getQuickWins(3)
+      .map(win => `- ${win.description} (${win.estimatedMinutes} Min, -${win.impactPoints})`)
+      .join('\n') || '- Keine offenen Quick Wins';
 
     let systemPrompt = `Du bist ORDO, ein stiller Haushaltsassistent. Hier ist was du über diesen Haushalt weißt:
 ${context}
 
+AUFRÄUMKONTEXT:
+KOPF-FREIHEITS-INDEX: ${organizerScore.percent}%
+OFFENE ENTSCHEIDUNGEN: ${organizerScore.totalDebt}
+TOP QUICK WINS:
+${organizerQuickWins}
+
 REGELN:
 - Antworte immer in maximal 2 kurzen Sätzen.
 - Wenn du etwas nicht weißt, bitte um ein Foto.
+- Wenn der Nutzer nach Aufräumen, Ordnung oder Optimierung fragt: nenne 2-3 Quick Wins und frage, ob er eine Aufräum-Session starten möchte.
 
 AKTIONEN:
 Du kannst die Datenbank verändern. Nutze dazu die bereitgestellten Funktionen (Function Calls).
