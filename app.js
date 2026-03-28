@@ -163,6 +163,12 @@ function closeAllOverlays() {
   cancelVideoAnalysis();
 }
 
+function pushHistoryState(state) {
+  if (typeof globalThis.history?.pushState === 'function') {
+    globalThis.history.pushState(state, '');
+  }
+}
+
 function showView(name) {
   closeAllOverlays();
   const previousView = currentView;
@@ -170,7 +176,7 @@ function showView(name) {
 
   // Push history state for view navigation (enables back button between views)
   if (previousView !== name) {
-    history.pushState({ view: name }, '');
+    pushHistoryState({ view: name });
   }
   // Clear inline display styles so CSS .view / .view.active rules take effect
   document.querySelectorAll('.view').forEach(v => {
@@ -305,15 +311,15 @@ function setupGlobalKeyboardHandling() {
   // Mobile back button: close top overlay or navigate back to previous view
   window.addEventListener('popstate', (e) => {
     if (closeTopOverlay()) {
-      history.pushState(null, '');
+      pushHistoryState(null);
       return;
     }
     // No overlay open → navigate between views
     if (currentView === 'photo' || currentView === 'settings' || currentView === 'nfc-context') {
-      history.pushState(null, '');
+      pushHistoryState(null);
       showView('chat');
     } else if (currentView === 'brain') {
-      history.pushState(null, '');
+      pushHistoryState(null);
       showView('chat');
     }
   });
