@@ -2142,7 +2142,7 @@ async function showAddContainerDialog(roomId) {
   renderBrainView();
 }
 
-async function showRoomContextMenu(roomId, room) {
+async function showRoomContextMenuList(roomId, room) {
   const result = await showInputModal({
     title: `${room.emoji} ${room.name}`,
     description: 'Was möchtest du tun?',
@@ -2670,7 +2670,7 @@ function setupBrainTreeDelegation() {
       lpTimer = setTimeout(() => {
         lpFired = true;
         const room = Brain.getRoom(roomEl.dataset.roomId);
-        if (room) showRoomContextMenu(roomEl.dataset.roomId, room);
+        if (room) showRoomContextMenuList(roomEl.dataset.roomId, room);
       }, 600);
     }
   });
