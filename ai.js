@@ -6,8 +6,8 @@ import { debugLog, ensureRoom } from './app.js';
 
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
-  fast: 'gemini-2.5-flash',   // < 2 Sek, günstig – Chat & Text
-  pro: 'gemini-2.5-pro',      // 5-30 Sek, präzise – multimodal & komplexe Aufgaben
+  fast: 'gemini-3.1-flash',   // schnell, günstig – Chat & Text
+  pro: 'gemini-3.1-pro',      // präzise – Foto/Video-Analyse, räumliche Tiefe
 };
 
 /**
