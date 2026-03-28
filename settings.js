@@ -5,6 +5,7 @@ import { debugLog, ensureRoom, getCurrentView } from './app.js';
 import { renderRoomDropdown } from './photo-flow.js';
 import { renderBrainView } from './brain-view.js';
 import { showReportDialog } from './report.js';
+import { getPersonality, setPersonality } from './chat.js';
 
 let settingsInitialized = false;
 
@@ -156,6 +157,14 @@ export function setupSettings() {
     showSettingsMsg('Foto-Historie Limit gespeichert.', 'success');
   });
 
+  // Personality setting
+  document.querySelectorAll('input[name="personality"]').forEach(radio => {
+    radio.addEventListener('change', e => {
+      setPersonality(e.target.value);
+      showSettingsMsg('Persönlichkeit gespeichert.', 'success');
+    });
+  });
+
   // Copy NFC URL
   document.getElementById('nfc-copy-btn')?.addEventListener('click', () => {
     const url = document.getElementById('nfc-fallback-url').textContent;
@@ -169,6 +178,11 @@ export function renderSettings() {
   document.getElementById('settings-api-key').value = Brain.getApiKey();
   renderRoomDropdown('nfc-room-select');
   updateNfcPreview();
+
+  // Set personality radio
+  const currentPersonality = getPersonality();
+  const radio = document.querySelector(`input[name="personality"][value="${currentPersonality}"]`);
+  if (radio) radio.checked = true;
 
   // Set photo history limit
   const limitSel = document.getElementById('settings-photo-history-limit');

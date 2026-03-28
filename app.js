@@ -143,6 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCamera();
   setupOfflineQueue();
   loadQuest();
+  setupGlobalKeyboardHandling();
 
   if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {
     showOnboarding();
@@ -155,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const activeQuest = Brain.getQuest();
   if (activeQuest?.active) {
     setTimeout(() => {
-      const shouldContinue = window.confirm(`Willkommen zurück!\n\nDu bist zu ${activeQuest.progress?.percent || 0}% fertig.\n\nJetzt weitermachen?`);
+      const shouldContinue = window.confirm(`Du warst mittendrin – ${activeQuest.progress?.percent || 0}% geschafft.\n\nWeitermachen?`);
       if (shouldContinue) showCurrentStep();
       else pauseQuest();
     }, 250);
@@ -164,6 +165,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check for expiring warranties and show banner
   checkWarrantyBanner();
 });
+
+// ── Global Keyboard Handling ──────────────────────────
+function setupGlobalKeyboardHandling() {
+  // Scroll inputs into view when soft keyboard opens (for modals, overlays, etc.)
+  // Chat has its own more specific handler via visualViewport
+  document.addEventListener('focusin', (e) => {
+    if (e.target.matches('.ordo-modal-input, .ordo-modal-select, .picking-panel-input, .onboarding-apikey-input')) {
+      setTimeout(() => {
+        e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  });
+}
 
 // ── Exports für andere Module ──────────────────────────
 export { currentView, nfcContext, ROOM_PRESETS, escapeHTML, debugLog, ensureRoom, showView, getNfcContext, setNfcContext, getCurrentView };

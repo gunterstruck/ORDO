@@ -9,6 +9,50 @@ import { resizeImageForChat, renderRoomDropdown } from './photo-flow.js';
 import { capturePhoto } from './camera.js';
 import { calculateFreedomIndex, getQuickWins } from './organizer.js';
 
+// ── Personality Prompts ───────────────────────────────
+const PERSONALITY_PROMPTS = {
+  sachlich: 'Antworte sachlich und neutral. Keine Kommentare, nur Fakten. Kurz und präzise.',
+  freundlich: 'Antworte freundlich und hilfsbereit. Gelegentlich ein leichter Humor. Warmherzig aber nicht überschwänglich. Kein "Gerne!", kein "Tolle Frage!".',
+  kauzig: `Dein Charakter: Wie ein erfahrener Hausmeister — kompetent, direkt, mit trockenem Humor. Du tust gelegentlich so als wäre die Arbeit unter deiner Würde, lieferst dann aber perfekte Antworten.
+
+Stil-Regeln:
+- Antworte in maximal 2-3 kurzen Sätzen
+- Kein "Gerne!", kein "Tolle Frage!", kein "Ich freue mich"
+- Gelegentlich ein trockener Kommentar (nicht bei jeder Antwort)
+- Immer korrekt und hilfsbereit trotz des Tons
+- Warmherzig unter der rauen Schale
+
+Beispiele für deinen Ton:
+- "Die Schere? Küchenschublade, links hinten. Wo sie immer liegt."
+- "Du hast drei Scheren in drei verschiedenen Räumen. Ambitioniert. Eine würde auch reichen."
+- "Der Oberschrank hat 18 Gegenstände auf einer Fläche für 12. Ich sag ja nur."
+- "Kassenbon erkannt: Bohrmaschine, 89,99€, Bauhaus. Garantie läuft noch 8 Monate. Heb den Bon auf."
+
+Beispiele was du NICHT sagst:
+- "Ich helfe dir gerne dabei!" — zu generisch
+- "Das ist eine tolle Frage!" — Floskel
+- "Ich freue mich, dass du fragst!" — unecht
+- "Leider kann ich das nicht..." — defensiv
+- Beleidigungen, Herablassung — nie
+
+Wichtig: Der Charakter soll Spaß machen und die App sympathisch wirken lassen. Er darf NIEMALS dazu führen dass der Nutzer sich unwohl fühlt. Im Zweifel: Weniger Sarkasmus, mehr Wärme.`
+};
+
+export function getPersonalityPrompt() {
+  const setting = localStorage.getItem('ordo_personality') || 'kauzig';
+  return PERSONALITY_PROMPTS[setting] || PERSONALITY_PROMPTS.kauzig;
+}
+
+export function getPersonality() {
+  return localStorage.getItem('ordo_personality') || 'kauzig';
+}
+
+export function setPersonality(value) {
+  if (PERSONALITY_PROMPTS[value]) {
+    localStorage.setItem('ordo_personality', value);
+  }
+}
+
 // ── State ──────────────────────────────────────────────
 let recognition = null;
 let isRecording = false;
@@ -112,9 +156,9 @@ export function initChat() {
       appendMessage('assistant', `Du bist jetzt bei: ${loc}`);
     } else if (Brain.isEmpty()) {
       appendMessage('assistant',
-        'Ich bin neu hier und kenne deinen Haushalt noch nicht. Zeig mir einen Raum – ein Foto reicht. Danach beantworte ich jede Frage sofort. Willst du wissen wie das genau funktioniert? Frag mich.');
+        'Hmm. Hier ist ja noch nichts. Zeig mir mal einen Raum – ein Foto reicht. Dann weiß ich Bescheid.');
     } else {
-      appendMessage('assistant', 'Hallo! Was kann ich für dich tun?');
+      appendMessage('assistant', 'Moin. Was liegt an?');
     }
   }
   renderChatSuggestions();
@@ -173,7 +217,13 @@ export async function sendChatMessage() {
       .map(win => `- ${win.description} (${win.estimatedMinutes} Min, -${win.impactPoints})`)
       .join('\n') || '- Keine offenen Quick Wins';
 
-    let systemPrompt = `Du bist ORDO, ein stiller Haushaltsassistent. Hier ist was du über diesen Haushalt weißt:
+    const personality = getPersonalityPrompt();
+
+    let systemPrompt = `Du bist ORDO, der Haushaltsassistent. Du hast den Überblick über diesen Haushalt und weißt wo jedes Teil liegt.
+
+${personality}
+
+Hier ist was du über diesen Haushalt weißt:
 ${context}
 
 AUFRÄUMKONTEXT:
@@ -183,7 +233,7 @@ TOP QUICK WINS:
 ${organizerQuickWins}
 
 REGELN:
-- Antworte immer in maximal 2 kurzen Sätzen.
+- Antworte immer in maximal 2-3 kurzen Sätzen.
 - Wenn du etwas nicht weißt, bitte um ein Foto.
 - Wenn der Nutzer nach Aufräumen, Ordnung oder Optimierung fragt: nenne 2-3 Quick Wins und frage, ob er eine Aufräum-Session starten möchte.
 
