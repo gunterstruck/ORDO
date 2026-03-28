@@ -8,6 +8,7 @@ import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
 import { resizeImageForChat, renderRoomDropdown } from './photo-flow.js';
 import { capturePhoto } from './camera.js';
 import { calculateFreedomIndex, getQuickWins } from './organizer.js';
+import { startCleanupQuest } from './quest.js';
 
 // ── Personality Prompts ───────────────────────────────
 const PERSONALITY_PROMPTS = {
@@ -200,7 +201,32 @@ export async function sendChatMessage() {
   if (photo) clearChatPhoto();
   hideChatSuggestions();
 
-  const displayText = photo ? (text ? `📷 ${text}` : '📷 Foto') : text;
+  // Check for cleanup intent before sending to AI
+  if (!photo && isCleanupIntent(text)) {
+    const score = calculateFreedomIndex();
+    const msg = `Dein Kopf ist zu ${score.percent}% frei. ${score.totalDebt} offene Entscheidungen. Soll ich dir eine Aufräum-Quest zusammenstellen?`;
+    appendMessage('user', text);
+    Brain.addChatMessage('user', text);
+    appendMessage('assistant', msg);
+    Brain.addChatMessage('assistant', msg);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'chat-proof-buttons';
+    const yesBtn = document.createElement('button');
+    yesBtn.className = 'chat-proof-btn';
+    yesBtn.textContent = '\u{1F9F9} Ja, Quest starten';
+    yesBtn.addEventListener('click', () => {
+      btnRow.remove();
+      startCleanupQuest(15);
+    });
+    btnRow.appendChild(yesBtn);
+    document.getElementById('chat-messages').appendChild(btnRow);
+    document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+    setSendingState(false);
+    return;
+  }
+
+  const displayText = photo ? (text ? `\u{1F4F7} ${text}` : '\u{1F4F7} Foto') : text;
   appendMessage('user', displayText);
   Brain.addChatMessage('user', displayText);
 
@@ -559,6 +585,23 @@ function showProofLightbox(blob, timestamp, roomId, containerId, itemName) {
 
   lb.style.display = 'flex';
   requestAnimationFrame(() => lb.classList.add('lightbox--visible'));
+}
+
+// ── CLEANUP INTENT DETECTION ──────────────────────────
+function isCleanupIntent(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  const patterns = [
+    /\baufräum/,
+    /\bräum.*auf/,
+    /\lass uns aufräumen/,
+    /\bhilf.*aufräum/,
+    /\bräum.?session/,
+    /\bordnung.*schaffen/,
+    /\bausmisten/,
+    /\bentrümpel/,
+  ];
+  return patterns.some(p => p.test(lower));
 }
 
 // ── VOICE INPUT ────────────────────────────────────────

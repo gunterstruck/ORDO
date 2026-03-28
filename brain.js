@@ -712,6 +712,32 @@ const Brain = {
     return true;
   },
 
+  // Move an item across rooms (from one room/container to another room/container)
+  moveItemAcrossRooms(fromRoomId, fromContainerId, toRoomId, toContainerId, itemName) {
+    if (fromRoomId === toRoomId) {
+      return this.moveItem(fromRoomId, fromContainerId, toContainerId, itemName);
+    }
+    const data = this.getData();
+    const fromC = this._findContainerInTree(data.rooms?.[fromRoomId]?.containers, fromContainerId);
+    const toC = this._findContainerInTree(data.rooms?.[toRoomId]?.containers, toContainerId);
+    if (!fromC || !toC) return false;
+    this._migrateContainerItems(fromC);
+    this._migrateContainerItems(toC);
+    const itemIdx = fromC.items.findIndex(i => this.getItemName(i) === itemName);
+    if (itemIdx < 0) return false;
+    const [itemObj] = fromC.items.splice(itemIdx, 1);
+    if (fromC.quantities) delete fromC.quantities[itemName];
+    const existsInTarget = toC.items.some(i => this.getItemName(i) === itemName);
+    if (!existsInTarget) {
+      toC.items.push(itemObj);
+    }
+    fromC.last_updated = Date.now();
+    toC.last_updated = Date.now();
+    this.save(data);
+    this._emit('itemMoved', { fromRoomId, fromContainerId, toRoomId, toContainerId, itemName });
+    return true;
+  },
+
   // Get or set container display order for a room
   getContainerOrder(roomId) {
     const room = this.getRoom(roomId);
@@ -1853,6 +1879,9 @@ const Brain = {
 
   getQuest() {
     const data = this.getData();
+    if (data?.quest && !data.quest.type) {
+      data.quest.type = 'inventory'; // Legacy backwards-compat
+    }
     return data?.quest || null;
   },
 

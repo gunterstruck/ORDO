@@ -241,8 +241,12 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     const activeQuest = Brain.getQuest();
     if (activeQuest?.active) {
+      const questLabel = activeQuest.type === 'cleanup' ? 'Aufräum-Quest' : 'Inventar-Quest';
+      const doneInfo = activeQuest.type === 'cleanup'
+        ? `${activeQuest.progress?.containers_done || 0} von ${activeQuest.progress?.containers_total || 0} Schritten erledigt`
+        : `${activeQuest.progress?.percent || 0}% geschafft`;
       setTimeout(() => {
-        const shouldContinue = window.confirm(`Du warst mittendrin – ${activeQuest.progress?.percent || 0}% geschafft.\n\nWeitermachen?`);
+        const shouldContinue = window.confirm(`Du hast eine ${questLabel} die noch läuft.\n${doneInfo}.\n\nWeitermachen?`);
         if (shouldContinue) showCurrentStep();
         else pauseQuest();
       }, 250);
