@@ -1,7 +1,7 @@
 // chat.js – Chat-UI, Nachrichten senden/empfangen, Spracheingabe
 
 import Brain from './brain.js';
-import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, buildMessages, resolveContainerFromPath, loadingManager } from './ai.js';
+import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, getErrorWithDebug, buildMessages, resolveContainerFromPath, loadingManager } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog, showView, getNfcContext, ensureRoom } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
@@ -541,7 +541,12 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
   } catch (err) {
     loadingBubble.remove();
     loadingManager.stop();
-    showSystemMessage(getErrorMessage(err));
+    const { message, details, hasDebug } = getErrorWithDebug(err);
+    if (hasDebug) {
+      showErrorWithDebug(message, details);
+    } else {
+      showSystemMessage(message);
+    }
   } finally {
     setSendingState(false);
   }
@@ -611,6 +616,25 @@ export function showSystemMessage(text) {
   div.textContent = text;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
+}
+
+function showErrorWithDebug(message, details) {
+  const messages = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg chat-msg--system chat-msg--error';
+  div.innerHTML = `
+    <div class="error-main">${escapeHtml(message)}</div>
+    <details class="error-debug-panel">
+      <summary>Diagnose anzeigen</summary>
+      <pre class="error-debug-log">${escapeHtml(details)}</pre>
+    </details>
+  `;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── PHOTO PROOF BUTTONS ────────────────────────────────

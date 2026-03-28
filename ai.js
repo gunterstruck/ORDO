@@ -1,8 +1,46 @@
-// ai.js – Gemini-Kommunikation, Prompts, Response-Parsing, Action-Ausführung
+// ai.js – KI-Kommunikation, Prompts, Response-Parsing, Action-Ausführung
 // Keinerlei direkter DOM-Zugriff. Importiert DOM-Funktionen aus anderen Modulen.
+// Unterstützt Gemini (Standard), OpenAI und OpenRouter als Fallback-Provider.
 
 import Brain from './brain.js';
 import { debugLog, ensureRoom } from './app.js';
+
+// ── Provider Configuration ────────────────────────────
+const PROVIDERS = {
+  gemini: {
+    name: 'Google Gemini',
+    buildUrl: (model, apiKey) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    format: 'gemini',
+  },
+  openai: {
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1/chat/completions',
+    format: 'openai',
+    models: { fast: 'gpt-4o-mini', pro: 'gpt-4o' },
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+    format: 'openai',
+    models: { fast: 'google/gemini-2.5-flash-preview', pro: 'google/gemini-2.5-pro-preview' },
+  },
+};
+
+export function getProviderConfig() {
+  try {
+    return JSON.parse(localStorage.getItem('ordo_providers') || 'null') || {
+      primary: 'gemini',
+      fallbacks: [],
+      keys: {},
+    };
+  } catch { return { primary: 'gemini', fallbacks: [], keys: {} }; }
+}
+
+export function setProviderConfig(config) {
+  localStorage.setItem('ordo_providers', JSON.stringify(config));
+}
+
+export { PROVIDERS };
 
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
@@ -399,9 +437,75 @@ export { ORDO_FUNCTIONS, functionCallToAction };
 export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
   if (!navigator.onLine) {
     debugLog('FEHLER: Gerät ist offline (navigator.onLine = false)');
-    throw new Error('offline');
+    const err = new Error('offline');
+    err.debugInfo = { provider: 'keine', reason: 'Gerät ist offline (kein Internet)', timestamp: new Date().toISOString() };
+    throw err;
   }
 
+  // Determine provider chain: primary → fallbacks
+  const providerCfg = getProviderConfig();
+  const providerChain = [providerCfg.primary, ...providerCfg.fallbacks].filter(Boolean);
+  if (providerChain.length === 0) providerChain.push('gemini');
+
+  const debugDetails = [];
+  let lastError = null;
+
+  for (const providerId of providerChain) {
+    const provider = PROVIDERS[providerId];
+    if (!provider) continue;
+
+    // Resolve API key: provider-specific key, or the main key for gemini
+    const providerKey = providerCfg.keys?.[providerId] || (providerId === 'gemini' ? apiKey : '');
+    if (!providerKey) {
+      const skip = `${provider.name}: Kein API-Key konfiguriert – übersprungen`;
+      debugLog(skip);
+      debugDetails.push({ provider: provider.name, status: 'skipped', reason: 'Kein API-Key' });
+      continue;
+    }
+
+    try {
+      const result = await _callProvider(providerId, provider, providerKey, systemPrompt, messages, options);
+      if (debugDetails.length > 0) {
+        debugLog(`✓ Fallback erfolgreich: ${provider.name}`);
+      }
+      result._debugInfo = { provider: provider.name, fallbacksTrialled: debugDetails, timestamp: new Date().toISOString() };
+      return result;
+    } catch (err) {
+      const detail = {
+        provider: provider.name,
+        status: 'failed',
+        error: err.message,
+        httpStatus: err.httpStatus || null,
+        timestamp: new Date().toISOString(),
+      };
+      debugDetails.push(detail);
+      debugLog(`✗ ${provider.name} fehlgeschlagen: ${err.message}`);
+      lastError = err;
+    }
+  }
+
+  // All providers failed
+  lastError = lastError || new Error('Kein Provider verfügbar');
+  lastError.debugInfo = {
+    providers: debugDetails,
+    timestamp: new Date().toISOString(),
+    totalProviders: providerChain.length,
+    reason: providerChain.length > 1
+      ? `Alle ${providerChain.length} Provider sind fehlgeschlagen`
+      : `${PROVIDERS[providerChain[0]]?.name || providerChain[0]} ist nicht erreichbar`,
+  };
+  throw lastError;
+}
+
+// ── Provider-specific API call ────────────────────────
+async function _callProvider(providerId, provider, apiKey, systemPrompt, messages, options) {
+  if (provider.format === 'openai') {
+    return _callOpenAIFormat(provider, apiKey, systemPrompt, messages, options);
+  }
+  return _callGeminiFormat(apiKey, systemPrompt, messages, options);
+}
+
+async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
   const model = determineModel(options);
   const genConfig = buildGenerationConfig(options);
   const thinkingCfg = getThinkingConfig(options.taskType || 'chat');
@@ -460,10 +564,15 @@ export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
   if (!response.ok) {
     const rawText = await response.text().catch(() => '');
     debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
-    if (response.status === 429) throw new Error('quota');
-    if (response.status === 403) throw new Error('api_key');
-    if (response.status === 400) throw new Error('bad_request');
-    throw new Error(`HTTP ${response.status}`);
+    const err = new Error(
+      response.status === 429 ? 'quota' :
+      response.status === 403 ? 'api_key' :
+      response.status === 400 ? 'bad_request' :
+      `HTTP ${response.status}`
+    );
+    err.httpStatus = response.status;
+    err.responseBody = rawText.slice(0, 500);
+    throw err;
   }
 
   const data = await response.json();
@@ -496,6 +605,79 @@ export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
   return text;
 }
 
+// ── OpenAI-compatible API call (OpenAI, OpenRouter, etc.) ──
+async function _callOpenAIFormat(provider, apiKey, systemPrompt, messages, options) {
+  const modelKey = (options.hasImage || options.hasVideo) ? 'pro' : 'fast';
+  const model = provider.models?.[modelKey] || provider.models?.fast;
+  const startTime = Date.now();
+
+  debugLog(`Anfrage starten → ${provider.name}, Modell: ${model}, Task: ${options.taskType || 'chat'}`);
+
+  // Convert messages to OpenAI format
+  const openaiMessages = [{ role: 'system', content: systemPrompt }];
+  for (const msg of messages) {
+    const role = msg.role === 'assistant' ? 'assistant' : 'user';
+    if (typeof msg.content === 'string') {
+      openaiMessages.push({ role, content: msg.content });
+    } else if (Array.isArray(msg.content)) {
+      const parts = msg.content.map(item => {
+        if (item.type === 'image') {
+          return { type: 'image_url', image_url: { url: `data:${item.source.media_type};base64,${item.source.data}` } };
+        } else if (item.type === 'text') {
+          return { type: 'text', text: item.text };
+        }
+        return { type: 'text', text: '' };
+      });
+      openaiMessages.push({ role, content: parts });
+    } else {
+      openaiMessages.push({ role, content: String(msg.content) });
+    }
+  }
+
+  const requestBody = { model, messages: openaiMessages, max_tokens: 8192 };
+
+  let response;
+  try {
+    response = await fetch(provider.baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (fetchErr) {
+    debugLog(`NETZWERK-FEHLER (${provider.name}): ${fetchErr.message}`);
+    throw fetchErr;
+  }
+
+  debugLog(`${provider.name} HTTP Status: ${response.status} ${response.statusText}`);
+
+  if (!response.ok) {
+    const rawText = await response.text().catch(() => '');
+    debugLog(`${provider.name} Fehlerantwort: ${rawText.slice(0, 400)}`);
+    const err = new Error(
+      response.status === 429 ? 'quota' :
+      response.status === 401 || response.status === 403 ? 'api_key' :
+      response.status === 400 ? 'bad_request' :
+      `HTTP ${response.status}`
+    );
+    err.httpStatus = response.status;
+    err.responseBody = rawText.slice(0, 500);
+    throw err;
+  }
+
+  const data = await response.json();
+  const choice = data.choices?.[0];
+  const text = sanitizeAIResponse(choice?.message?.content ?? '');
+
+  logApiCall(options.taskType || 'chat', model, null, startTime);
+  debugLog(`${provider.name} Antwort OK – ${text.length} Zeichen`);
+
+  // Return in consistent format
+  if (options.tools) {
+    return { text, functionCalls: [] };
+  }
+  return text;
+}
+
 export function getErrorMessage(err) {
   if (err.message === 'offline') return 'Ich bin gerade offline. Deine gespeicherten Infos kann ich dir trotzdem zeigen.';
   if (err.message === 'api_key') return 'API Key ungültig oder abgelaufen. Bitte in den Einstellungen prüfen.';
@@ -511,6 +693,45 @@ export function getErrorMessage(err) {
   if (err instanceof TypeError) return 'Keine Internetverbindung. Versuch es gleich nochmal.';
   if (err.message?.startsWith('HTTP 5')) return 'Der KI-Dienst ist gerade nicht erreichbar. Versuch es später.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
+}
+
+/**
+ * Erstellt strukturierte Debug-Info für die Fehleranzeige im Chat.
+ * @param {Error} err - Der aufgetretene Fehler
+ * @returns {{message: string, details: string, hasDebug: boolean}}
+ */
+export function getErrorWithDebug(err) {
+  const message = getErrorMessage(err);
+  const info = err.debugInfo;
+  if (!info) return { message, details: '', hasDebug: false };
+
+  const lines = [];
+  lines.push(`Zeitpunkt: ${new Date(info.timestamp).toLocaleTimeString('de-DE')}`);
+
+  if (info.reason) {
+    lines.push(`Ursache: ${info.reason}`);
+  }
+
+  if (info.providers) {
+    lines.push(`Getestete Provider: ${info.totalProviders}`);
+    for (const p of info.providers) {
+      const status = p.status === 'skipped' ? '⏭️ Übersprungen' : `❌ HTTP ${p.httpStatus || '?'}`;
+      lines.push(`  ${p.provider}: ${status} – ${p.reason || p.error || ''}`);
+    }
+  }
+
+  if (info.provider && info.provider !== 'keine') {
+    lines.push(`Provider: ${info.provider}`);
+  }
+
+  const providerCfg = getProviderConfig();
+  const hasFallbacks = providerCfg.fallbacks.length > 0;
+  if (!hasFallbacks) {
+    lines.push('');
+    lines.push('Tipp: In den Einstellungen kannst du Fallback-Provider konfigurieren (OpenAI, OpenRouter), damit ORDO automatisch wechselt wenn ein Dienst ausfällt.');
+  }
+
+  return { message, details: lines.join('\n'), hasDebug: true };
 }
 
 // ── Loading State Helper ──────────────────────────────
