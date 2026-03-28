@@ -92,6 +92,11 @@ const PHOTO_DB_VERSION = 1;
 const PHOTO_STORE = 'photos';
 const MAX_PHOTO_HISTORY = 10;
 
+/** ISO-Zeitstempel ohne Millisekunden */
+function isoNow() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, '');
+}
+
 const Brain = {
 
   // --- Event System (Observer Pattern) ---
@@ -612,7 +617,7 @@ const Brain = {
   // Create a new item object
   createItemObject(name, opts) {
     if (!opts) opts = {};
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    const now = isoNow();
     const item = {
       name,
       status: opts.status || 'aktiv',
@@ -755,7 +760,7 @@ const Brain = {
     if (!c) return 0;
     if (!c.quantities) c.quantities = {};
     this._migrateContainerItems(c);
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    const now = isoNow();
     let count = 0;
     (reviewItems || []).forEach(item => {
       if (!item.checked) return;
@@ -969,7 +974,7 @@ const Brain = {
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (!c) return;
 
-    const ts = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    const ts = isoNow();
     const photoKey = `${roomId}_${containerId}_${ts}`;
 
     await this.savePhoto(photoKey, blob);
@@ -1016,12 +1021,12 @@ const Brain = {
   // Get photo history limit from settings
   getPhotoHistoryLimit() {
     try {
-      return parseInt(localStorage.getItem('photo_history_limit')) || MAX_PHOTO_HISTORY;
-    } catch { return MAX_PHOTO_HISTORY; }
+      return parseInt(localStorage.getItem('ordo_photo_history_limit')) || MAX_PHOTO_HISTORY;
+    } catch(err) { console.warn('photo_history_limit konnte nicht gelesen werden:', err.message); return MAX_PHOTO_HISTORY; }
   },
 
   setPhotoHistoryLimit(limit) {
-    localStorage.setItem('photo_history_limit', String(Math.max(1, Math.min(20, limit))));
+    localStorage.setItem('ordo_photo_history_limit', String(Math.max(1, Math.min(20, limit))));
   },
 
   // --- Photo Proof Lookup (with parent fallback) ---
@@ -1069,7 +1074,7 @@ const Brain = {
     const item = c.items.find(i => this.getItemName(i) === itemName);
     if (item && typeof item === 'object') {
       item.status = 'archiviert';
-      item.archived_at = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+      item.archived_at = isoNow();
       item.archived_reason = reason;
       c.last_updated = Date.now();
       this.save(data);
@@ -1113,7 +1118,7 @@ const Brain = {
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (!c) return;
     this._migrateContainerItems(c);
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    const now = isoNow();
     (itemNames || []).forEach(name => {
       const item = c.items.find(i => this.getItemName(i) === name);
       if (item && typeof item === 'object') {
@@ -1391,7 +1396,7 @@ const Brain = {
     this._migrateContainerItems(c);
     const item = c.items.find(i => this.isFuzzyMatch(this.getItemName(i), itemName));
     if (item && typeof item === 'object') {
-      const now = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+      const now = isoNow();
       item.last_seen = now;
       item.seen_count = (item.seen_count || 0) + 1;
       item.status = 'aktiv';
@@ -1418,11 +1423,11 @@ const Brain = {
 
   // --- API Key ---
   getApiKey() {
-    return localStorage.getItem('gemini_api_key') || '';
+    return localStorage.getItem('ordo_api_key') || '';
   },
 
   setApiKey(key) {
-    localStorage.setItem('gemini_api_key', key.trim());
+    localStorage.setItem('ordo_api_key', key.trim());
   },
 
   // --- Quantity Management ---
@@ -1439,7 +1444,7 @@ const Brain = {
     if (newQty === 0) return 'confirm_remove';
 
     item.menge = newQty;
-    item.last_seen = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    item.last_seen = isoNow();
     c.last_updated = Date.now();
     this.save(data);
     return true;
@@ -1455,7 +1460,7 @@ const Brain = {
 
     const qty = Math.max(1, Math.floor(quantity));
     item.menge = qty;
-    item.last_seen = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+    item.last_seen = isoNow();
     c.last_updated = Date.now();
     this.save(data);
     return true;
@@ -1474,7 +1479,7 @@ const Brain = {
     if (exists) return false;
     c.infrastructure_ignore.push({
       name: normalized,
-      marked_at: new Date().toISOString().replace(/\.\d{3}Z$/, '')
+      marked_at: isoNow()
     });
     c.last_updated = Date.now();
     this.save(data);
@@ -1533,7 +1538,7 @@ const Brain = {
       replacement_range_min: valuationData.replacement_range_min ?? null,
       replacement_range_max: valuationData.replacement_range_max ?? null,
       source: valuationData.source || 'manual',
-      estimated_at: new Date().toISOString().replace(/\.\d{3}Z$/, ''),
+      estimated_at: isoNow(),
       model_recognized: valuationData.model_recognized || null
     };
     c.last_updated = Date.now();
@@ -1864,17 +1869,7 @@ const Brain = {
     this.save(data);
   },
 
-  completeQuestStep(roomId, containerId, itemsFound) {
-    const quest = this.getQuest();
-    if (!quest || !quest.active) return;
-
-    const step = quest.plan.find(s => s.room_id === roomId && s.container_id === containerId);
-    if (step) {
-      step.status = 'done';
-      step.items_found = itemsFound || 0;
-    }
-
-    // Update progress
+  _recalcQuestProgress(quest) {
     const done = quest.plan.filter(s => s.status === 'done').length;
     const skipped = quest.plan.filter(s => s.status === 'skipped').length;
     const total = quest.plan.length;
@@ -1890,7 +1885,6 @@ const Brain = {
     };
     quest.last_activity = new Date().toISOString();
 
-    // Find next pending step for current_step
     const next = quest.plan.find(s => s.status === 'pending');
     if (next) {
       quest.current_step = {
@@ -1899,14 +1893,38 @@ const Brain = {
         step_number: quest.plan.indexOf(next) + 1
       };
     } else {
-      // Quest complete
       quest.current_step = null;
       if (quest.plan.every(s => s.status === 'done' || s.status === 'skipped')) {
         quest.completed_at = new Date().toISOString();
         quest.active = false;
       }
     }
+  },
 
+  countItemsInContainer(container, includeArchived = false) {
+    let count = 0;
+    for (const item of (container.items || [])) {
+      const obj = typeof item === 'string' ? { status: 'aktiv' } : item;
+      if (!includeArchived && obj.status === 'archiviert') continue;
+      count += obj.menge || 1;
+    }
+    for (const sub of Object.values(container.containers || {})) {
+      count += this.countItemsInContainer(sub, includeArchived);
+    }
+    return count;
+  },
+
+  completeQuestStep(roomId, containerId, itemsFound) {
+    const quest = this.getQuest();
+    if (!quest || !quest.active) return;
+
+    const step = quest.plan.find(s => s.room_id === roomId && s.container_id === containerId);
+    if (step) {
+      step.status = 'done';
+      step.items_found = itemsFound || 0;
+    }
+
+    this._recalcQuestProgress(quest);
     this.saveQuest(quest);
     return quest;
   },
@@ -1921,37 +1939,7 @@ const Brain = {
       step.skip_reason = reason || '';
     }
 
-    // Recalculate progress
-    const done = quest.plan.filter(s => s.status === 'done').length;
-    const skipped = quest.plan.filter(s => s.status === 'skipped').length;
-    const total = quest.plan.length;
-    let totalItems = 0;
-    quest.plan.forEach(s => { totalItems += (s.items_found || 0); });
-
-    quest.progress = {
-      containers_total: total,
-      containers_done: done,
-      containers_skipped: skipped,
-      items_found: totalItems,
-      percent: total > 0 ? Math.round(((done + skipped) / total) * 100) : 0
-    };
-    quest.last_activity = new Date().toISOString();
-
-    // Find next pending step
-    const next = quest.plan.find(s => s.status === 'pending');
-    if (next) {
-      quest.current_step = {
-        room_id: next.room_id,
-        container_id: next.container_id,
-        step_number: quest.plan.indexOf(next) + 1
-      };
-    } else {
-      quest.current_step = null;
-      if (quest.plan.every(s => s.status === 'done' || s.status === 'skipped')) {
-        quest.completed_at = new Date().toISOString();
-        quest.active = false;
-      }
-    }
+    this._recalcQuestProgress(quest);
 
     this.saveQuest(quest);
     return quest;

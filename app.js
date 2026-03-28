@@ -8,19 +8,56 @@ import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
 import { setupCamera } from './camera.js';
 import { loadQuest, showCurrentStep, pauseQuest } from './quest.js';
+import { closeTopOverlay } from './overlay-manager.js';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
 let nfcContext = null;
 
 // ── Constants ──────────────────────────────────────────
-const ROOM_PRESETS = {
-  kueche: ['🍳', 'Küche'], wohnzimmer: ['🛋️', 'Wohnzimmer'],
-  schlafzimmer: ['🛏️', 'Schlafzimmer'], arbeitszimmer: ['💻', 'Arbeitszimmer'],
-  keller: ['📦', 'Keller'], bad: ['🚿', 'Bad'], sonstiges: ['🏠', 'Sonstiges'],
-  flur: ['🚪', 'Flur'], garage: ['🚗', 'Garage'], kinderzimmer: ['🧸', 'Kinderzimmer'],
-  balkon: ['🌿', 'Balkon'], dachboden: ['🏚️', 'Dachboden'], gaestezimmer: ['🛏️', 'Gästezimmer']
+// ── Zentrale Raum-Definitionen ────────────────────────
+const ROOM_TYPES = {
+  kueche:        { name: 'Küche',         emoji: '🍳', aliases: ['kitchen'] },
+  bad:           { name: 'Bad',           emoji: '🚿', aliases: ['bathroom', 'wc', 'toilette', 'dusche'] },
+  schlafzimmer:  { name: 'Schlafzimmer',  emoji: '🛏️', aliases: ['bedroom'] },
+  wohnzimmer:    { name: 'Wohnzimmer',    emoji: '🛋️', aliases: ['living'] },
+  arbeitszimmer: { name: 'Arbeitszimmer', emoji: '💻', aliases: ['büro', 'office', 'buero'] },
+  kinderzimmer:  { name: 'Kinderzimmer',  emoji: '🧸', aliases: ['kids'] },
+  flur:          { name: 'Flur',          emoji: '🚪', aliases: ['diele', 'eingang', 'garderobe', 'corridor'] },
+  keller:        { name: 'Keller',        emoji: '📦', aliases: ['basement'] },
+  abstellraum:   { name: 'Abstellraum',   emoji: '📦', aliases: ['lager', 'hauswirtschaft', 'utility'] },
+  garage:        { name: 'Garage',        emoji: '🚗', aliases: [] },
+  esszimmer:     { name: 'Esszimmer',     emoji: '🍽️', aliases: ['dining'] },
+  ankleide:      { name: 'Ankleide',      emoji: '👔', aliases: ['closet', 'walk-in'] },
+  dachboden:     { name: 'Dachboden',     emoji: '🏚️', aliases: ['attic'] },
+  garten:        { name: 'Garten',        emoji: '🌳', aliases: ['garden', 'terrasse', 'balkon'] },
+  sonstiges:     { name: 'Sonstiges',     emoji: '🏠', aliases: [] },
+  gaestezimmer:  { name: 'Gästezimmer',   emoji: '🛏️', aliases: ['guest'] },
 };
+
+function normalizeRoomType(input) {
+  const lower = (input || '').toLowerCase();
+  for (const [type, config] of Object.entries(ROOM_TYPES)) {
+    if (lower === type) return type;
+    if (lower === config.name.toLowerCase()) return type;
+    if (config.aliases.some(a => lower.includes(a))) return type;
+  }
+  return lower;
+}
+
+function getRoomEmoji(type) {
+  return ROOM_TYPES[type]?.emoji || '🏠';
+}
+
+function getRoomLabel(type) {
+  return ROOM_TYPES[type]?.name || type;
+}
+
+// Legacy ROOM_PRESETS format (backwards compat for modules that use [emoji, name] format)
+const ROOM_PRESETS = {};
+for (const [id, config] of Object.entries(ROOM_TYPES)) {
+  ROOM_PRESETS[id] = [config.emoji, config.name];
+}
 
 // ── Helpers ────────────────────────────────────────────
 function escapeHTML(str) {
@@ -34,6 +71,10 @@ function ensureRoom(roomId) {
     const p = ROOM_PRESETS[roomId] || ['🏠', roomId];
     Brain.addRoom(roomId, p[1], p[0]);
   }
+}
+
+function isoNow() {
+  return new Date().toISOString();
 }
 
 function debugLog(msg) {
@@ -122,8 +163,27 @@ function showView(name) {
   }
 }
 
+// ── localStorage Migration ─────────────────────────────
+function migrateStorageKey(oldKey, newKey) {
+  if (localStorage.getItem(newKey) !== null) return;
+  const value = localStorage.getItem(oldKey);
+  if (value !== null) {
+    localStorage.setItem(newKey, value);
+    localStorage.removeItem(oldKey);
+  }
+}
+
+function migrateLocalStorageKeys() {
+  migrateStorageKey('gemini_api_key', 'ordo_api_key');
+  migrateStorageKey('brain_view_mode', 'ordo_view_mode');
+  migrateStorageKey('photo_history_limit', 'ordo_photo_history_limit');
+  migrateStorageKey('onboarding_completed', 'ordo_onboarding_completed');
+  migrateStorageKey('last_warranty_hint_shown', 'ordo_warranty_hint_shown');
+}
+
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  migrateLocalStorageKeys();
   Brain.init();
   parseNfcParams();
   registerServiceWorker();
@@ -145,7 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadQuest();
   setupGlobalKeyboardHandling();
 
-  if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {
+  if (!localStorage.getItem('ordo_onboarding_completed') && Brain.isEmpty()) {
     showOnboarding();
   } else if (nfcContext && nfcContext.tag) {
     showView('nfc-context');
@@ -177,7 +237,21 @@ function setupGlobalKeyboardHandling() {
       }, 300);
     }
   });
+
+  // Escape closes top overlay
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeTopOverlay();
+    }
+  });
+
+  // Mobile back button closes top overlay instead of navigating away
+  window.addEventListener('popstate', (e) => {
+    if (closeTopOverlay()) {
+      history.pushState(null, '');
+    }
+  });
 }
 
 // ── Exports für andere Module ──────────────────────────
-export { currentView, nfcContext, ROOM_PRESETS, escapeHTML, debugLog, ensureRoom, showView, getNfcContext, setNfcContext, getCurrentView };
+export { currentView, nfcContext, ROOM_PRESETS, ROOM_TYPES, normalizeRoomType, getRoomEmoji, getRoomLabel, escapeHTML, debugLog, isoNow, ensureRoom, showView, getNfcContext, setNfcContext, getCurrentView };

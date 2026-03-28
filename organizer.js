@@ -2,6 +2,7 @@
 
 import Brain from './brain.js';
 import { analyzeContainerForOrganizing } from './ai.js';
+import { ROOM_TYPES } from './app.js';
 
 const RECOMMENDATION_CACHE_KEY = 'ordo_organizer_cache';
 const SCORE_HISTORY_KEY = 'ordo_score_history';
@@ -94,12 +95,10 @@ const ITEM_CATEGORIES = {
   }
 };
 
-const ROOM_TYPE_LABELS = {
-  kueche: 'Küche', bad: 'Bad', schlafzimmer: 'Schlafzimmer', wohnzimmer: 'Wohnzimmer',
-  arbeitszimmer: 'Arbeitszimmer', kinderzimmer: 'Kinderzimmer', flur: 'Flur', keller: 'Keller',
-  abstellraum: 'Abstellraum', garage: 'Garage', esszimmer: 'Esszimmer', ankleide: 'Ankleide',
-  garderobe: 'Garderobe', hauswirtschaft: 'Hauswirtschaft', werkstatt: 'Werkstatt'
-};
+// ROOM_TYPE_LABELS derived from centralized ROOM_TYPES
+const ROOM_TYPE_LABELS = Object.fromEntries(
+  Object.entries(ROOM_TYPES).map(([k, v]) => [k, v.name])
+);
 
 const DISPOSAL_GUIDE = {
   elektro: { text: 'Elektroschrott: Zum Wertstoffhof oder Saturn/MediaMarkt Rückgabe', icon: '⚡', hinweis: 'Elektrogeräte nicht in den Hausmüll!' },
@@ -118,18 +117,11 @@ function itemNameOf(item) {
 
 export function normalizeRoomType(roomNameOrType) {
   const lower = (roomNameOrType || '').toLowerCase();
-  if (/küche|kueche|kitchen/.test(lower)) return 'kueche';
-  if (/bad|bathroom|wc|toilette|dusche/.test(lower)) return 'bad';
-  if (/schlaf|bedroom/.test(lower)) return 'schlafzimmer';
-  if (/wohn|living/.test(lower)) return 'wohnzimmer';
-  if (/arbeit|büro|office|buero/.test(lower)) return 'arbeitszimmer';
-  if (/kinder|kids/.test(lower)) return 'kinderzimmer';
-  if (/flur|diele|eingang|corridor|garderobe/.test(lower)) return 'flur';
-  if (/keller|basement/.test(lower)) return 'keller';
-  if (/abstell|lager|hauswirtschaft|utility/.test(lower)) return 'abstellraum';
-  if (/garage/.test(lower)) return 'garage';
-  if (/ess|dining/.test(lower)) return 'esszimmer';
-  if (/ankleide|closet|walk.?in/.test(lower)) return 'ankleide';
+  for (const [type, config] of Object.entries(ROOM_TYPES)) {
+    if (lower === type) return type;
+    if (lower === config.name.toLowerCase()) return type;
+    if (config.aliases.some(a => lower.includes(a))) return type;
+  }
   return lower;
 }
 
@@ -237,8 +229,7 @@ export function getDisposalGuide(itemName) {
 function countItemsRecursive(containers) {
   let count = 0;
   for (const container of Object.values(containers || {})) {
-    count += (container.items || []).filter(i => (typeof i === 'string' || i.status !== 'archiviert')).length;
-    count += countItemsRecursive(container.containers);
+    count += Brain.countItemsInContainer(container);
   }
   return count;
 }

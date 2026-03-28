@@ -1,6 +1,6 @@
 {
-  "name": "Haushaltsassistent",
-  "short_name": "Haushalt",
+  "name": "ORDO – Dein Haushaltsassistent",
+  "short_name": "ORDO",
   "description": "Intelligenter PWA-Haushaltsassistent mit KI und NFC",
   "start_url": "./",
   "scope": "./",

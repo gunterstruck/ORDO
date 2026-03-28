@@ -41,15 +41,18 @@ function stripModuleSyntax(code) {
 function loadAllModules(rootDir) {
   const moduleOrder = [
     'brain.js',
+    'overlay-manager.js',
     'modal.js',
+    'app.js',
     'ai.js',
     'organizer.js',
     'chat.js',
     'photo-flow.js',
+    'item-detail.js',
+    'warranty-view.js',
     'brain-view.js',
     'onboarding.js',
     'settings.js',
-    'app.js'
   ];
 
   let combined = '';

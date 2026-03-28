@@ -78,7 +78,7 @@ export function setupSettings() {
     });
     if (ok) {
       await Brain.resetAll();
-      localStorage.removeItem('onboarding_completed');
+      localStorage.removeItem('ordo_onboarding_completed');
       document.getElementById('chat-messages').innerHTML = '';
       showSettingsMsg('App zurückgesetzt.', 'success');
     }
@@ -123,7 +123,7 @@ export function setupSettings() {
             return `${e.taskType} → ${e.model} (${e.thinking}) → ${d}s`;
           }).join('\n');
         }
-      } catch { el.textContent = '— Fehler beim Laden —'; }
+      } catch(err) { console.warn('API-Log konnte nicht geladen werden:', err.message); el.textContent = '— Fehler beim Laden —'; }
     });
   }
 

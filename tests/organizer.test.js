@@ -17,7 +17,7 @@ const localStorage = {
 const context = vm.createContext({
   localStorage,
   window: { localStorage },
-  document: {},
+  document: { addEventListener() {}, querySelectorAll: () => [], getElementById: () => null },
   console,
   Date,
   JSON,
@@ -38,6 +38,7 @@ function load(file) {
 }
 
 load('brain.js');
+load('app.js');
 load('organizer.js');
 
 function seedData() {

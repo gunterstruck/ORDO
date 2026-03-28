@@ -3,8 +3,6 @@
 
 import Brain from './brain.js';
 import { debugLog, ensureRoom } from './app.js';
-import { showSystemMessage } from './chat.js';
-import { renderBrainView } from './brain-view.js';
 
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
@@ -65,6 +63,22 @@ function buildGenerationConfig(options = {}) {
   return config;
 }
 
+// ── AI Response Sanitization ─────────────────────────
+/**
+ * Entfernt potenziell gefährliche HTML aus KI-Antworten.
+ * Kein volles Escaping (würde Antwort unlesbar machen),
+ * nur Script-Tags und Event-Handler.
+ */
+function sanitizeAIResponse(text) {
+  if (!text) return '';
+  return text
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, '')
+    .replace(/<object\b[^>]*>.*?<\/object>/gi, '')
+    .replace(/<embed\b[^>]*>/gi, '');
+}
+
 // ── API Call Logging ──────────────────────────────────
 function logApiCall(taskType, model, thinkingConfig, startTime) {
   const duration = Date.now() - startTime;
@@ -75,7 +89,7 @@ function logApiCall(taskType, model, thinkingConfig, startTime) {
     log.push({ taskType, model, thinking, duration, timestamp: new Date().toISOString() });
     if (log.length > 50) log.splice(0, log.length - 50);
     localStorage.setItem('ordo_api_log', JSON.stringify(log));
-  } catch { /* localStorage full or unavailable */ }
+  } catch(err) { console.warn('API-Log konnte nicht gespeichert werden:', err.message); }
 }
 
 // ── Loading Phase Definitions ─────────────────────────
@@ -172,9 +186,7 @@ const loadingManager = new LoadingManager();
 
 export { MODELS, determineModel, logApiCall, loadingManager };
 
-export const GEMINI_MODEL = MODELS.fast;
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-export const API_URL = `${API_BASE}/${GEMINI_MODEL}:generateContent`;
 export const FILE_API_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 export const FILE_API_GET_URL = 'https://generativelanguage.googleapis.com/v1beta/files';
 export const MAX_VIDEO_DURATION_SEC = 300;
@@ -391,7 +403,7 @@ export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
   const thinkingCfg = getThinkingConfig(options.taskType || 'chat');
   const startTime = Date.now();
 
-  const keyPreview = apiKey ? apiKey.slice(0, 8) + '…' : '(leer)';
+  const keyPreview = apiKey ? apiKey.slice(0, 4) + '…' : '(leer)';
   debugLog(`Anfrage starten → Modell: ${model}, Task: ${options.taskType || 'chat'}, Key: ${keyPreview}`);
 
   const geminiContents = messages.map(msg => {
@@ -468,13 +480,13 @@ export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
       if (part.text) textParts.push(part.text);
       if (part.functionCall) functionCalls.push(part.functionCall);
     }
-    const text = textParts.join('');
+    const text = sanitizeAIResponse(textParts.join(''));
     debugLog(`Antwort OK – ${text.length} Zeichen, ${functionCalls.length} Function Calls, finishReason: ${finishReason}`);
     return { text, functionCalls };
   }
 
   // Standard text-only response
-  const text = parts[0]?.text ?? '';
+  const text = sanitizeAIResponse(parts[0]?.text ?? '');
   debugLog(`Antwort OK – ${text.length} Zeichen, finishReason: ${finishReason}`);
   if (!text) debugLog(`Warnung: Leere Antwort. Volle Antwort: ${JSON.stringify(data).slice(0, 500)}`);
   return text;
@@ -823,6 +835,10 @@ export function executeOrdoAction(action) {
 
     const containerId = resolveContainerFromPath(action.room, action.path);
 
+    const emitAction = (message) => {
+      Brain._emit('actionExecuted', { type: action.type, message, success: true });
+    };
+
     switch (action.type) {
       case 'add_item': {
         ensureRoom(action.room);
@@ -844,9 +860,8 @@ export function executeOrdoAction(action) {
           }
           const c = Brain.getContainer(action.room, containerId);
           const r = Brain.getRoom(action.room);
-          showSystemMessage(`✓ ${action.item} → ${c?.name || containerId} (${r?.name || action.room})`);
+          emitAction(`✓ ${action.item} → ${c?.name || containerId} (${r?.name || action.room})`);
         }
-        renderBrainView();
         break;
       }
       case 'remove_item': {
@@ -855,8 +870,7 @@ export function executeOrdoAction(action) {
         const c = Brain.getContainer(action.room, containerId);
         const r = Brain.getRoom(action.room);
         Brain.removeItem(action.room, containerId, action.item);
-        showSystemMessage(`✓ ${action.item} entfernt aus ${c?.name || containerId} (${r?.name || action.room})`);
-        renderBrainView();
+        emitAction(`✓ ${action.item} entfernt aus ${c?.name || containerId} (${r?.name || action.room})`);
         break;
       }
       case 'remove_items': {
@@ -865,8 +879,7 @@ export function executeOrdoAction(action) {
         const c = Brain.getContainer(action.room, containerId);
         const r = Brain.getRoom(action.room);
         (action.items || []).forEach(item => Brain.removeItem(action.room, containerId, item));
-        showSystemMessage(`✓ ${(action.items || []).length} Gegenstände entfernt aus ${c?.name || containerId} (${r?.name || action.room})`);
-        renderBrainView();
+        emitAction(`✓ ${(action.items || []).length} Gegenstände entfernt aus ${c?.name || containerId} (${r?.name || action.room})`);
         break;
       }
       case 'move_item': {
@@ -880,8 +893,7 @@ export function executeOrdoAction(action) {
         const fromR = Brain.getRoom(action.from_room);
         Brain.removeItem(action.from_room, fromId, action.item);
         Brain.addItem(action.to_room, toId, action.item);
-        showSystemMessage(`✓ ${action.item} verschoben: ${fromR?.name || action.from_room} → ${toR?.name || action.to_room}`);
-        renderBrainView();
+        emitAction(`✓ ${action.item} verschoben: ${fromR?.name || action.from_room} → ${toR?.name || action.to_room}`);
         break;
       }
       case 'replace_items': {
@@ -905,16 +917,14 @@ export function executeOrdoAction(action) {
           });
           Brain.save(data);
         }
-        showSystemMessage(`✓ Inhalt aktualisiert: ${c?.name || containerId} (${r?.name || action.room})`);
-        renderBrainView();
+        emitAction(`✓ Inhalt aktualisiert: ${c?.name || containerId} (${r?.name || action.room})`);
         break;
       }
       case 'add_room': {
         if (!Brain.getRoom(action.room)) {
           Brain.addRoom(action.room, action.name || action.room, action.emoji || '🏠');
         }
-        showSystemMessage(`✓ Neuer Raum: ${action.name || action.room}`);
-        renderBrainView();
+        emitAction(`✓ Neuer Raum: ${action.name || action.room}`);
         break;
       }
       case 'add_container': {
@@ -926,8 +936,7 @@ export function executeOrdoAction(action) {
           Brain.addContainer(action.room, action.id, action.name || action.id, action.typ || 'sonstiges');
         }
         const r = Brain.getRoom(action.room);
-        showSystemMessage(`✓ Neuer Bereich: ${action.name || action.id} (${r?.name || action.room})`);
-        renderBrainView();
+        emitAction(`✓ Neuer Bereich: ${action.name || action.id} (${r?.name || action.room})`);
         break;
       }
       case 'delete_container': {
@@ -937,8 +946,7 @@ export function executeOrdoAction(action) {
         const r = Brain.getRoom(action.room);
         const containerName = c.name;
         Brain.deleteContainer(action.room, containerId);
-        showSystemMessage(`✓ ${containerName} gelöscht (${r?.name || action.room})`);
-        renderBrainView();
+        emitAction(`✓ ${containerName} gelöscht (${r?.name || action.room})`);
         break;
       }
       case 'rename_container': {
@@ -948,8 +956,7 @@ export function executeOrdoAction(action) {
         const r = Brain.getRoom(action.room);
         const oldName = c.name;
         Brain.renameContainer(action.room, containerId, action.new_name);
-        showSystemMessage(`✓ ${oldName} umbenannt zu ${action.new_name} (${r?.name || action.room})`);
-        renderBrainView();
+        emitAction(`✓ ${oldName} umbenannt zu ${action.new_name} (${r?.name || action.room})`);
         break;
       }
       case 'delete_room': {
@@ -957,8 +964,7 @@ export function executeOrdoAction(action) {
         if (!r) return;
         const roomName = r.name;
         Brain.deleteRoom(action.room);
-        showSystemMessage(`✓ Raum ${roomName} gelöscht`);
-        renderBrainView();
+        emitAction(`✓ Raum ${roomName} gelöscht`);
         break;
       }
     }
@@ -1133,10 +1139,6 @@ export async function deleteGeminiFile(apiKey, fileName) {
   } catch (err) { debugLog(`Gemini-Datei löschen fehlgeschlagen: ${err.message}`); }
 }
 
-export function checkForItemExtraction(userText, assistantResponse) {
-  // Handled via <!--SAVE:--> markers in the AI response
-}
-
 // ── Valuation ─────────────────────────────────────────
 
 // Batch estimate replacement values for items without price (text-only, no photos)
@@ -1182,7 +1184,7 @@ ${itemList}`;
       try {
         const parsed = JSON.parse(jsonMatch[0]);
         allResults.push(...parsed);
-      } catch { /* chunk parse failed */ }
+      } catch(err) { console.warn('Wertschätzungs-Chunk konnte nicht geparst werden:', err.message); }
     }
   }
 

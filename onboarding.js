@@ -662,7 +662,7 @@ export function showOnboardingDoneStep() {
 }
 
 export function finishOnboarding() {
-  localStorage.setItem('onboarding_completed', 'true');
+  localStorage.setItem('ordo_onboarding_completed', 'true');
   scannedRooms = [];
   document.getElementById('view-onboarding').style.display = 'none';
   document.getElementById('view-onboarding').classList.remove('active');
