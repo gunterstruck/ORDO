@@ -2,7 +2,7 @@
 
 import Brain from './brain.js';
 import { setupChat, initChat, maybeShowChatSuggestions } from './chat.js';
-import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, renderRoomDropdown, applyNfcContextToPhotoView, setupOfflineQueue } from './photo-flow.js';
+import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, renderRoomDropdown, applyNfcContextToPhotoView, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay } from './photo-flow.js';
 import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay, checkWarrantyBanner } from './brain-view.js';
 import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
@@ -126,8 +126,12 @@ function setupNavigation() {
   });
   document.getElementById('settings-gear').addEventListener('click', () => showView('settings'));
 
-  // Back button on photo view
-  document.getElementById('photo-back-btn').addEventListener('click', () => showView('chat'));
+  // Back button on photo view – clean up state before navigating
+  document.getElementById('photo-back-btn').addEventListener('click', () => {
+    cancelVideoAnalysis();
+    closeStagingOverlay();
+    showView('chat');
+  });
 }
 
 function closeAllOverlays() {
@@ -142,11 +146,31 @@ function closeAllOverlays() {
   // Ensure modal backdrop is also closed
   const modal = document.getElementById('ordo-modal');
   if (modal) modal.style.display = 'none';
+
+  // Stop any active camera streams to prevent frozen state
+  const cameraVideo = document.getElementById('camera-video');
+  if (cameraVideo?.srcObject) {
+    cameraVideo.srcObject.getTracks().forEach(t => t.stop());
+    cameraVideo.srcObject = null;
+  }
+
+  // Restore nav bar visibility (may have been hidden by camera overlay)
+  const nav = document.getElementById('nav');
+  if (nav) nav.style.display = 'flex';
+
+  // Cancel any in-progress video analysis
+  cancelVideoAnalysis();
 }
 
 function showView(name) {
   closeAllOverlays();
+  const previousView = currentView;
   currentView = name;
+
+  // Push history state for view navigation (enables back button between views)
+  if (previousView !== name) {
+    history.pushState({ view: name }, '');
+  }
   // Clear inline display styles so CSS .view / .view.active rules take effect
   document.querySelectorAll('.view').forEach(v => {
     v.classList.remove('active');
@@ -276,10 +300,19 @@ function setupGlobalKeyboardHandling() {
     }
   });
 
-  // Mobile back button closes top overlay instead of navigating away
+  // Mobile back button: close top overlay or navigate back to previous view
   window.addEventListener('popstate', (e) => {
     if (closeTopOverlay()) {
       history.pushState(null, '');
+      return;
+    }
+    // No overlay open → navigate between views
+    if (currentView === 'photo' || currentView === 'settings' || currentView === 'nfc-context') {
+      history.pushState(null, '');
+      showView('chat');
+    } else if (currentView === 'brain') {
+      history.pushState(null, '');
+      showView('chat');
     }
   });
 }

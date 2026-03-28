@@ -6,8 +6,9 @@ import { debugLog, ensureRoom } from './app.js';
 
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
-  fast: 'gemini-2.5-flash',   // < 2 Sek, günstig
-  pro: 'gemini-2.5-pro',      // 5-30 Sek, präzise
+  fast: 'gemini-2.5-flash',   // < 2 Sek, günstig – Chat & Text
+  pro: 'gemini-2.5-pro',      // 5-30 Sek, präzise – komplexe Textaufgaben
+  vision: 'gemini-3.5-pro',   // multimodale Analyse (Foto/Video)
 };
 
 /**
@@ -19,17 +20,19 @@ const MODELS = {
  * @returns {string} Modellname
  */
 function determineModel({ hasImage = false, hasVideo = false, taskType = 'chat' } = {}) {
-  if (hasVideo) return MODELS.pro;
-  if (hasImage) return MODELS.pro;
+  // Multimodale Analyse (Foto/Video) → Gemini 3.5 Pro
+  if (hasVideo) return MODELS.vision;
+  if (hasImage) return MODELS.vision;
+  // Komplexe Textaufgaben → Gemini 2.5 Pro
   const PRO_TASKS = [
     'analyzeBlueprint',
-    'analyzeReceipt',
     'batchEstimateValues',
     'containerCheck',
     'roomCheck',
     'householdCheck',
   ];
   if (PRO_TASKS.includes(taskType)) return MODELS.pro;
+  // Chat & einfache Textaufgaben → Gemini 2.5 Flash
   return MODELS.fast;
 }
 

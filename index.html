@@ -167,8 +167,15 @@
       <button id="photo-gallery-btn" aria-label="Galerie öffnen">🖼️</button>
     </div>
 
-    <!-- Hidden file input for gallery only (camera uses getUserMedia via capturePhoto()) -->
+    <p class="photo-section-title">Video-Rundgang</p>
+    <div class="photo-btn-group">
+      <button id="photo-video-btn" aria-label="Video aufnehmen">🎬 Video aufnehmen</button>
+      <button id="photo-video-upload-btn" aria-label="Video hochladen">📁 Video hochladen</button>
+    </div>
+
+    <!-- Hidden file inputs -->
     <input type="file" id="photo-input-gallery" accept="image/*" style="display:none" aria-label="Bild aus Galerie">
+    <input type="file" id="photo-input-video" accept="video/*" style="display:none" aria-label="Video hochladen">
 
     <img id="photo-preview" alt="Vorschau" aria-live="polite">
     <div id="photo-status" class="photo-status" role="status" aria-live="polite"></div>

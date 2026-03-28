@@ -7,7 +7,8 @@ import { ROOM_PRESETS, ensureRoom, debugLog, showView, getNfcContext, getCurrent
 import { renderBrainView, showBrainToast } from './brain-view.js';
 import { showOnboardingDoneStep, analyzeRoomScanPhotos } from './onboarding.js';
 import { appendMessage } from './chat.js';
-import { capturePhoto } from './camera.js';
+import { capturePhoto, captureVideo } from './camera.js';
+import { uploadVideoToGemini, deleteGeminiFile, FILE_API_URL, FILE_API_GET_URL, MAX_VIDEO_SIZE_MB } from './ai.js';
 
 // ── State ──────────────────────────────────────────────
 let pickingState = null;
@@ -103,6 +104,25 @@ function setupPhoto() {
     } else {
       if (stagedPhotos.length === 0) { closeStagingOverlay(); stagingTarget = null; }
     }
+    e.target.value = '';
+  });
+
+  // ── Video buttons ──────────────────────────────────
+  document.getElementById('photo-video-btn').addEventListener('click', async () => {
+    const roomId = document.getElementById('photo-room-select').value;
+    if (!roomId) { showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error'); return; }
+    const file = await captureVideo(300); // max 5 min
+    if (file) handleVideoFile(file);
+  });
+
+  document.getElementById('photo-video-upload-btn').addEventListener('click', () => {
+    const roomId = document.getElementById('photo-room-select').value;
+    if (!roomId) { showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error'); return; }
+    document.getElementById('photo-input-video').click();
+  });
+
+  document.getElementById('photo-input-video').addEventListener('change', e => {
+    if (e.target.files[0]) handleVideoFile(e.target.files[0]);
     e.target.value = '';
   });
 }
@@ -369,6 +389,137 @@ Regeln:
     }
   };
   reader.readAsDataURL(file);
+}
+
+// ── Video Analysis for Photo View ─────────────────────
+let videoAbortController = null;
+
+async function handleVideoFile(file) {
+  if (!file || !file.type.startsWith('video/')) {
+    showPhotoStatus('Bitte eine Video-Datei wählen.', 'error');
+    return;
+  }
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    showPhotoStatus('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'error');
+    return;
+  }
+
+  const roomId = document.getElementById('photo-room-select').value;
+  if (!roomId) {
+    showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error');
+    return;
+  }
+
+  const sizeMB = file.size / (1024 * 1024);
+  if (sizeMB > MAX_VIDEO_SIZE_MB) {
+    showPhotoStatus(`Video zu groß (${Math.round(sizeMB)} MB). Maximum: ${MAX_VIDEO_SIZE_MB} MB.`, 'error');
+    return;
+  }
+
+  videoAbortController = new AbortController();
+  startAnalysisAnimation('videoAnalysis');
+
+  let uploadedFile = null;
+  try {
+    ensureRoom(roomId);
+
+    // Upload video to Gemini File API
+    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
+      if (videoAbortController?.signal.aborted) return;
+    });
+
+    if (videoAbortController?.signal.aborted) throw new Error('aborted');
+
+    // Build system prompt for container-level video analysis
+    const customName = document.getElementById('photo-custom-name').value.trim();
+    const systemPrompt = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Video eines Raums.
+Erkenne alle sichtbaren Aufbewahrungsmöbel und deren Inhalte.
+
+Antworte NUR mit diesem JSON:
+{
+  "behaelter": [
+    {
+      "id": "eindeutige_id",
+      "name": "menschlicher Name",
+      "typ": "schrank|regal|schublade|kiste|tuer|sonstiges",
+      "position": "kurze Positionsbeschreibung",
+      "inhalt_sicher": ["Gegenstand der klar in diesem Behälter liegt"],
+      "inhalt_unsicher": [
+        {
+          "name": "Gegenstand",
+          "vermutung": "liegt vermutlich in diesem Behälter, aber nicht 100% sicher"
+        }
+      ],
+      "behaelter": []
+    }
+  ],
+  "lose_gegenstaende": ["Gegenstand klar außerhalb aller Behälter"],
+  "unklar": [
+    {
+      "name": "Gegenstand",
+      "kontext": "Kurze Beschreibung warum unklar"
+    }
+  ],
+  "raumhinweis": "kurze Raumcharakteristik"
+}
+Regeln:
+- Inventarisiere nur lose Gegenstände (Umzugskarton-Faustregel)
+- Ignoriere fest installierte Infrastruktur (Griffe, Steckdosen, Heizkörper etc.)
+- Maximal 3 Ebenen tief
+- Jeder Behälter braucht eine eindeutige ID
+- Analysiere das Video frame-übergreifend für eine vollständige Erfassung`;
+
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'file', source: { type: 'uri', uri: uploadedFile.fileUri, mimeType: uploadedFile.mimeType } },
+        { type: 'text', text: customName ? `Video-Analyse aus: ${customName}` : 'Analysiere dieses Video des Raums.' }
+      ]
+    }];
+
+    const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'videoAnalysis', hasVideo: true });
+
+    if (videoAbortController?.signal.aborted) throw new Error('aborted');
+
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+
+    const analysis = JSON.parse(jsonMatch[0]);
+
+    // Apply custom name if set
+    if (customName && analysis.behaelter?.length > 0) {
+      analysis.behaelter[0].name = customName;
+      analysis.behaelter[0].id = Brain.slugify(customName);
+    }
+
+    const count = Brain.applyPhotoAnalysis(roomId, analysis);
+
+    stopAnalysisAnimation();
+    showPhotoStatus(`🎬 Video analysiert – ${count} Bereiche erkannt.`, 'success');
+    renderBrainView();
+
+  } catch (err) {
+    stopAnalysisAnimation();
+    if (err.message === 'aborted') return;
+    const baseMsg = getErrorMessage(err);
+    showPhotoStatus(baseMsg + '\n💡 Tipp: Versuche stattdessen einzelne Fotos.', 'error');
+  } finally {
+    videoAbortController = null;
+    if (uploadedFile?.fileName) {
+      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(() => {});
+    }
+  }
+}
+
+function cancelVideoAnalysis() {
+  if (videoAbortController) {
+    videoAbortController.abort();
+    videoAbortController = null;
+    stopAnalysisAnimation();
+    showPhotoStatus('Video-Analyse abgebrochen.', 'error');
+  }
 }
 
 function showPhotoStatus(msg, type) {
@@ -1692,7 +1843,7 @@ export {
   renderRoomDropdown, applyNfcContextToPhotoView,
   resizeImage, resizeImageForChat, blobToBase64,
   showStagingOverlay, closeStagingOverlay, addFileToStaging, showReviewPopup,
-  openCameraForContainer, handlePhotoFile, showPhotoStatus,
+  openCameraForContainer, handlePhotoFile, handleVideoFile, cancelVideoAnalysis, showPhotoStatus,
   setStagingTarget,
   queuePhotoForAnalysis, processQueue, setupOfflineQueue, getQueueLength, updateQueueBadge
 };
