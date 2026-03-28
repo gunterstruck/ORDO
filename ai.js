@@ -6,8 +6,175 @@ import { debugLog, ensureRoom } from './app.js';
 import { showSystemMessage } from './chat.js';
 import { renderBrainView } from './brain-view.js';
 
-export const GEMINI_MODEL = 'gemini-2.5-flash';
-export const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// ── Model Routing ─────────────────────────────────────
+const MODELS = {
+  fast: 'gemini-2.5-flash',   // < 2 Sek, günstig
+  pro: 'gemini-2.5-pro',      // 5-30 Sek, präzise
+};
+
+/**
+ * Bestimmt das optimale Modell basierend auf dem Input.
+ * @param {Object} options
+ * @param {boolean} [options.hasImage] - Foto im Request
+ * @param {boolean} [options.hasVideo] - Video im Request
+ * @param {string} [options.taskType] - Art der Aufgabe
+ * @returns {string} Modellname
+ */
+function determineModel({ hasImage = false, hasVideo = false, taskType = 'chat' } = {}) {
+  if (hasVideo) return MODELS.pro;
+  if (hasImage) return MODELS.pro;
+  const PRO_TASKS = [
+    'analyzeBlueprint',
+    'analyzeReceipt',
+    'batchEstimateValues',
+    'containerCheck',
+    'roomCheck',
+    'householdCheck',
+  ];
+  if (PRO_TASKS.includes(taskType)) return MODELS.pro;
+  return MODELS.fast;
+}
+
+// ── Thinking Configuration ────────────────────────────
+const THINKING_CONFIG = {
+  chat: null,
+  analyzeHotspots: null,
+  test: null,
+  analyzePhoto: { thinkingBudget: 512 },
+  analyzeReceipt: { thinkingBudget: 512 },
+  estimateValue: { thinkingBudget: 512 },
+  analyzeBlueprint: { thinkingBudget: 2048 },
+  batchEstimateValues: { thinkingBudget: 1024 },
+  containerCheck: { thinkingBudget: 2048 },
+  roomCheck: { thinkingBudget: 2048 },
+  householdCheck: { thinkingBudget: 4096 },
+  videoAnalysis: { thinkingBudget: 4096 },
+};
+
+function getThinkingConfig(taskType) {
+  return THINKING_CONFIG[taskType] || null;
+}
+
+function buildGenerationConfig(options = {}) {
+  const config = { maxOutputTokens: 8192 };
+  const taskType = options.taskType || 'chat';
+  const thinking = getThinkingConfig(taskType);
+  if (thinking) {
+    config.thinkingConfig = thinking;
+  }
+  return config;
+}
+
+// ── API Call Logging ──────────────────────────────────
+function logApiCall(taskType, model, thinkingConfig, startTime) {
+  const duration = Date.now() - startTime;
+  const thinking = thinkingConfig ? `thinking:${thinkingConfig.thinkingBudget}` : 'no-thinking';
+  console.log(`[ORDO API] ${taskType} → ${model} (${thinking}) → ${duration}ms`);
+  try {
+    const log = JSON.parse(localStorage.getItem('ordo_api_log') || '[]');
+    log.push({ taskType, model, thinking, duration, timestamp: new Date().toISOString() });
+    if (log.length > 50) log.splice(0, log.length - 50);
+    localStorage.setItem('ordo_api_log', JSON.stringify(log));
+  } catch { /* localStorage full or unavailable */ }
+}
+
+// ── Loading Phase Definitions ─────────────────────────
+const LOADING_PHASES = {
+  chat: [
+    { after: 0, text: 'Denke nach...' },
+    { after: 3000, text: 'Formuliere Antwort...' },
+  ],
+  analyzePhoto: [
+    { after: 0, text: 'Lade Foto hoch...' },
+    { after: 2000, text: 'KI analysiert das Bild...' },
+    { after: 5000, text: 'Gegenstände werden erkannt...' },
+    { after: 9000, text: 'Positionen werden bestimmt...' },
+    { after: 14000, text: 'Strukturiere Inventar-Daten...' },
+    { after: 20000, text: 'Gleich fertig...' },
+  ],
+  analyzeHotspots: [
+    { after: 0, text: 'Erkenne Gegenstände...' },
+    { after: 2000, text: 'KI analysiert das Bild...' },
+    { after: 5000, text: 'Positionen werden bestimmt...' },
+    { after: 9000, text: 'Gleich fertig...' },
+  ],
+  analyzeBlueprint: [
+    { after: 0, text: 'Lade Raumfotos hoch...' },
+    { after: 3000, text: 'Ich schaue mir deine Wohnung an...' },
+    { after: 6000, text: 'Räume werden erkannt...' },
+    { after: 10000, text: 'Möbelstücke werden identifiziert...' },
+    { after: 15000, text: 'Struktur wird aufgebaut...' },
+    { after: 22000, text: 'Fast fertig — sortiere die Ergebnisse...' },
+  ],
+  analyzeReceipt: [
+    { after: 0, text: 'Lese Kassenbon...' },
+    { after: 2000, text: 'Suche Datum und Preis...' },
+    { after: 5000, text: 'Extrahiere Details...' },
+  ],
+  videoAnalysis: [
+    { after: 0, text: 'Video wird hochgeladen...' },
+    { after: 5000, text: 'KI analysiert das Video...' },
+    { after: 12000, text: 'Räume und Objekte werden erkannt...' },
+    { after: 20000, text: 'Strukturiere die Ergebnisse...' },
+    { after: 30000, text: 'Das dauert etwas bei großen Videos...' },
+  ],
+  batchEstimateValues: [
+    { after: 0, text: 'Schätze Wiederbeschaffungswerte...' },
+    { after: 3000, text: 'Analysiere Marktpreise...' },
+    { after: 7000, text: 'Berechne Bandbreiten...' },
+  ],
+  estimateValue: [
+    { after: 0, text: 'Schätze Wert...' },
+    { after: 2000, text: 'Analysiere Marktpreis...' },
+    { after: 5000, text: 'Gleich fertig...' },
+  ],
+  default: [
+    { after: 0, text: 'Verarbeite...' },
+    { after: 5000, text: 'Dauert etwas länger...' },
+    { after: 15000, text: 'Gleich geschafft...' },
+  ],
+};
+
+class LoadingManager {
+  constructor() {
+    this.timers = [];
+    this.currentElement = null;
+    this.active = false;
+  }
+
+  start(taskType, targetElement) {
+    this.stop();
+    this.currentElement = targetElement;
+    this.active = true;
+    const phases = LOADING_PHASES[taskType] || LOADING_PHASES.default;
+    for (const phase of phases) {
+      const timer = setTimeout(() => {
+        if (!this.active) return;
+        if (this.currentElement) {
+          this.currentElement.textContent = phase.text;
+        }
+      }, phase.after);
+      this.timers.push(timer);
+    }
+  }
+
+  stop() {
+    this.active = false;
+    for (const timer of this.timers) {
+      clearTimeout(timer);
+    }
+    this.timers = [];
+    this.currentElement = null;
+  }
+}
+
+const loadingManager = new LoadingManager();
+
+export { MODELS, determineModel, logApiCall, loadingManager };
+
+export const GEMINI_MODEL = MODELS.fast;
+const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+export const API_URL = `${API_BASE}/${GEMINI_MODEL}:generateContent`;
 export const FILE_API_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 export const FILE_API_GET_URL = 'https://generativelanguage.googleapis.com/v1beta/files';
 export const MAX_VIDEO_DURATION_SEC = 300;
@@ -210,17 +377,22 @@ export { ORDO_FUNCTIONS, functionCallToAction };
  * @param {string} apiKey
  * @param {string} systemPrompt
  * @param {Array<{role: string, content: string|Array}>} messages
- * @param {{tools?: Array, thinkingBudget?: number}} [options]
+ * @param {{tools?: Array, taskType?: string, hasImage?: boolean, hasVideo?: boolean}} [options]
  * @returns {Promise<string|{text: string, functionCalls: Array}>}
  */
-export async function callGemini(apiKey, systemPrompt, messages, options) {
+export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
   if (!navigator.onLine) {
     debugLog('FEHLER: Gerät ist offline (navigator.onLine = false)');
     throw new Error('offline');
   }
 
+  const model = determineModel(options);
+  const genConfig = buildGenerationConfig(options);
+  const thinkingCfg = getThinkingConfig(options.taskType || 'chat');
+  const startTime = Date.now();
+
   const keyPreview = apiKey ? apiKey.slice(0, 8) + '…' : '(leer)';
-  debugLog(`Anfrage starten → Modell: ${GEMINI_MODEL}, Key: ${keyPreview}`);
+  debugLog(`Anfrage starten → Modell: ${model}, Task: ${options.taskType || 'chat'}, Key: ${keyPreview}`);
 
   const geminiContents = messages.map(msg => {
     const role = msg.role === 'assistant' ? 'model' : 'user';
@@ -244,25 +416,20 @@ export async function callGemini(apiKey, systemPrompt, messages, options) {
     return { role, parts };
   });
 
+  const apiUrl = `${API_BASE}/${model}:generateContent?key=${apiKey}`;
   const requestBody = {
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents: geminiContents,
-    generationConfig: { maxOutputTokens: 8192 }
+    generationConfig: genConfig
   };
 
-  // Optional: Function calling tools
-  if (options?.tools) {
+  if (options.tools) {
     requestBody.tools = [{ functionDeclarations: options.tools }];
-  }
-
-  // Optional: Thinking mode for complex analyses
-  if (options?.thinkingBudget) {
-    requestBody.generationConfig.thinkingConfig = { thinkingBudget: options.thinkingBudget };
   }
 
   let response;
   try {
-    response = await fetch(`${API_URL}?key=${apiKey}`, {
+    response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
@@ -291,8 +458,10 @@ export async function callGemini(apiKey, systemPrompt, messages, options) {
 
   const parts = candidate?.content?.parts || [];
 
+  logApiCall(options.taskType || 'chat', model, thinkingCfg, startTime);
+
   // If function calling is enabled, return structured response
-  if (options?.tools) {
+  if (options.tools) {
     const textParts = [];
     const functionCalls = [];
     for (const part of parts) {
@@ -329,18 +498,29 @@ export function getErrorMessage(err) {
 }
 
 // ── Loading State Helper ──────────────────────────────
+/**
+ * Wraps einen async Button-Handler mit Loading-State.
+ * Verhindert Doppelklicks und zeigt visuelles Feedback.
+ */
 export function withLoading(buttonEl, asyncFn) {
+  let running = false;
   return async function(...args) {
-    const originalText = buttonEl.textContent;
+    if (running) return;
+    running = true;
+    const originalContent = buttonEl.innerHTML;
     buttonEl.disabled = true;
     buttonEl.classList.add('btn-loading');
     buttonEl.textContent = '⏳';
     try {
-      return await asyncFn(...args);
+      return await asyncFn.apply(this, args);
+    } catch (err) {
+      console.error('Action failed:', err);
+      throw err;
     } finally {
+      running = false;
       buttonEl.disabled = false;
       buttonEl.classList.remove('btn-loading');
-      buttonEl.textContent = originalText;
+      buttonEl.innerHTML = originalContent;
     }
   };
 }
@@ -421,7 +601,7 @@ ${labelHints}
 
   const response = await callGemini(apiKey, 'Du antwortest ausschließlich mit validem JSON.', [
     { role: 'user', content: [{ type: 'text', text: prompt }, ...images] }
-  ], { thinkingBudget: 1024 });
+  ], { taskType: 'analyzeBlueprint', hasImage: true });
 
   const cleaned = response.replace(/```json/gi, '```');
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
@@ -995,7 +1175,7 @@ Gegenstände:
 ${itemList}`;
 
     const messages = [{ role: 'user', content: prompt }];
-    const raw = await callGemini(apiKey, 'Du bist ein Versicherungsberater für Hausratversicherungen. Antworte nur mit JSON.', messages, { thinkingBudget: 1024 });
+    const raw = await callGemini(apiKey, 'Du bist ein Versicherungsberater für Hausratversicherungen. Antworte nur mit JSON.', messages, { taskType: 'batchEstimateValues' });
 
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
@@ -1037,7 +1217,7 @@ Regeln:
     ]
   }];
 
-  const response = await callGemini(apiKey, 'Du bist ein Wertgutachter. Antworte nur mit JSON.', messages);
+  const response = await callGemini(apiKey, 'Du bist ein Wertgutachter. Antworte nur mit JSON.', messages, { taskType: 'estimateValue', hasImage: true });
   const jsonMatch = response.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('Kein JSON in Antwort');
   return JSON.parse(jsonMatch[0]);
@@ -1077,7 +1257,7 @@ Wenn das Foto kein Kassenbon ist, antworte mit:
     ]
   }];
 
-  const response = await callGemini(apiKey, 'Du bist ein Kassenbon-Scanner. Antworte nur mit JSON.', messages, { thinkingBudget: 1024 });
+  const response = await callGemini(apiKey, 'Du bist ein Kassenbon-Scanner. Antworte nur mit JSON.', messages, { taskType: 'analyzeReceipt', hasImage: true });
 
   // Extract JSON from response
   const jsonMatch = response.match(/\{[\s\S]*\}/);

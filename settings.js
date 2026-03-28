@@ -94,7 +94,7 @@ export function setupSettings() {
     try {
       const result = await callGemini(apiKey, 'Du bist ein Testassistent.', [
         { role: 'user', content: 'Sag nur "OK".' }
-      ]);
+      ], { taskType: 'test' });
       debugLog(`TEST ERFOLGREICH: Antwort = "${result}"`);
     } catch (err) {
       debugLog(`TEST FEHLGESCHLAGEN: ${err.message}`);
@@ -105,6 +105,26 @@ export function setupSettings() {
     const el = document.getElementById('debug-log');
     if (el) el.textContent = '— noch kein Log —';
   });
+
+  // API Log display
+  const apiLogBtn = document.getElementById('debug-api-log-btn');
+  if (apiLogBtn) {
+    apiLogBtn.addEventListener('click', () => {
+      const el = document.getElementById('debug-api-log');
+      if (!el) return;
+      try {
+        const log = JSON.parse(localStorage.getItem('ordo_api_log') || '[]');
+        if (log.length === 0) {
+          el.textContent = '— noch keine API-Calls —';
+        } else {
+          el.textContent = log.map(e => {
+            const d = (e.duration / 1000).toFixed(1);
+            return `${e.taskType} → ${e.model} (${e.thinking}) → ${d}s`;
+          }).join('\n');
+        }
+      } catch { el.textContent = '— Fehler beim Laden —'; }
+    });
+  }
 
   // NFC Tag write
   document.getElementById('nfc-write-btn').addEventListener('click', writeNfcTag);

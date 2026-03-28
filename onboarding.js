@@ -66,7 +66,7 @@ function setupApiKeyStep() {
     statusEl.textContent = 'Verbindung wird geprüft…';
 
     try {
-      await callGemini(key, 'Antworte mit genau einem Wort: OK', [{ role: 'user', content: 'Test' }]);
+      await callGemini(key, 'Antworte mit genau einem Wort: OK', [{ role: 'user', content: 'Test' }], { taskType: 'test' });
       statusEl.className = 'onboarding-apikey-status onboarding-apikey-status--ok';
       statusEl.textContent = 'Verbindung OK ✓';
       Brain.setApiKey(key);
@@ -408,7 +408,7 @@ export async function analyzeRoomScanPhotos(photos) {
       ]
     }];
 
-    const raw = await callGemini(apiKey, prompt, messages);
+    const raw = await callGemini(apiKey, prompt, messages, { taskType: 'analyzePhoto', hasImage: true });
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('Kein JSON in Antwort');
 
@@ -488,7 +488,7 @@ async function onRoomScanVideo(file) {
 
     // Build existing containers block from all known rooms
     const videoExistingBlock = buildExistingContainersBlockForAllKnownRooms();
-    const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_VIDEO(videoExistingBlock), messages);
+    const raw = await callGemini(apiKey, ROOM_DETECT_SYSTEM_PROMPT_VIDEO(videoExistingBlock), messages, { taskType: 'videoAnalysis', hasVideo: true });
 
     if (abortSignal.signal.aborted) throw new Error('aborted');
 
