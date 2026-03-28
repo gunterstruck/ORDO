@@ -8,11 +8,11 @@ import { capturePhoto } from './camera.js';
 import { sendChatMessage } from './chat.js';
 import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
 import { showReportDialog } from './report.js';
-import { showCurrentStep, startBlueprint } from './quest.js';
+import { showCurrentStep, startBlueprint, startCleanupQuest } from './quest.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 import { showItemDetailPanel } from './item-detail.js';
 import { showWarrantyOverview, checkWarrantyBanner } from './warranty-view.js';
-import { calculateFreedomIndex, getQuickWins, getQuickDecision, getTasksForTimeSlot, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend } from './organizer.js';
+import { calculateFreedomIndex, getQuickWins, getQuickDecision, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend } from './organizer.js';
 
 // ── State ──────────────────────────────────────────────
 let brainViewMode = localStorage.getItem('ordo_view_mode') || 'list';
@@ -2023,15 +2023,15 @@ async function showOrganizerSessionChoices() {
   });
   if (!result) return;
   organizerSessionMode = result[0];
-  const tasks = getTasksForTimeSlot(parseInt(result[0], 10));
+  const minutes = parseInt(result[0], 10);
 
-  if (tasks.mode === 'quick_decision') {
+  if (minutes <= 2) {
     showQuickDecisionOverlay();
     return;
   }
 
-  const list = (tasks.tasks || []).slice(0, 3).map(t => `• ${t.description}`).join('\n');
-  showToast(list || 'Keine offenen Aufgaben gefunden.', 'success', 4000);
+  // 5/15/30 min → start cleanup quest
+  startCleanupQuest(minutes);
 }
 
 function showQuickDecisionOverlay() {

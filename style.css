@@ -4507,3 +4507,169 @@ select.settings-input { appearance: none; }
   margin: 16px 0;
   font-size: 14px;
 }
+
+/* ═══════════════════════════════════════════════════════
+   Aufräum-Quest (Cleanup Quest) – Phase 2
+   ═══════════════════════════════════════════════════════ */
+
+.cleanup-quest-card {
+  text-align: center;
+}
+
+.cleanup-quest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.cleanup-quest-footer {
+  margin-top: 12px;
+}
+
+/* Schritt-Typ Badges */
+.cleanup-step-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 10px 0 6px;
+}
+
+.cleanup-step-badge.move { background: #ebf5fb; color: #2980b9; }
+.cleanup-step-badge.decide { background: #fef9e7; color: #f39c12; }
+.cleanup-step-badge.consolidate { background: #f4ecf7; color: #8e44ad; }
+.cleanup-step-badge.optimize { background: #eafaf1; color: #27ae60; }
+
+/* Item-Name */
+.cleanup-item-name {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 10px 0 6px;
+}
+
+/* Aktion-Buttons */
+.cleanup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.cleanup-action-btn {
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, #e0d6cc);
+  border-radius: 12px;
+  background: white;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cleanup-action-btn:active {
+  transform: scale(0.98);
+}
+
+.cleanup-action-btn.primary {
+  background: var(--primary, #e87c3e);
+  color: white;
+  border-color: var(--primary, #e87c3e);
+  text-align: center;
+}
+
+.cleanup-action-btn.danger {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+.cleanup-action-btn.donate {
+  border-color: var(--primary, #e87c3e);
+  color: var(--primary, #e87c3e);
+}
+
+/* Standort-Info */
+.cleanup-location {
+  font-size: 13px;
+  color: var(--text-secondary, #786e64);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+/* Grund / Tipp */
+.cleanup-reason {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--text-color, #333);
+  padding: 10px 14px;
+  background: var(--bg-secondary, #f5f0eb);
+  border-radius: 10px;
+  margin: 12px 0;
+  border-left: 3px solid var(--primary, #e87c3e);
+  text-align: left;
+}
+
+/* Score-Vorschau */
+.cleanup-score-preview {
+  text-align: center;
+  padding: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Score-Animation */
+.score-changing {
+  transition: all 0.5s ease;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.score-up {
+  color: #2ecc71;
+}
+
+/* Entsorgungs-Tipp */
+.disposal-tip {
+  padding: 10px 14px;
+  background: #fef9e7;
+  border-radius: 10px;
+  border-left: 3px solid #f39c12;
+  margin: 8px 0;
+  font-size: 13px;
+  text-align: left;
+}
+
+/* Abschlussscreen */
+.cleanup-complete {
+  text-align: center;
+  padding: 24px 20px;
+}
+
+.cleanup-complete h2 {
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.cleanup-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 16px 0;
+  font-size: 14px;
+  text-align: left;
+}
+
+.cleanup-quote {
+  font-style: italic;
+  color: var(--text-secondary, #786e64);
+  margin: 20px 0;
+  font-size: 15px;
+}

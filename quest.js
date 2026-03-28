@@ -1,12 +1,14 @@
-// quest.js – Blueprint & Inventar-Quest
+// quest.js – Blueprint, Inventar-Quest & Aufräum-Quest
 
 import Brain from './brain.js';
 import { analyzeBlueprint as analyzeBlueprintWithAI, loadingManager } from './ai.js';
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { renderBrainView } from './brain-view.js';
 import { handlePhotoFile } from './photo-flow.js';
-import { showView, escapeHTML } from './app.js';
+import { showView, escapeHTML, isoNow } from './app.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
+import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide } from './organizer.js';
+import { getPersonality } from './chat.js';
 
 // Analysis messages now handled by LoadingManager in ai.js
 
@@ -438,6 +440,15 @@ function calculateNextStep() {
 export function showCurrentStep() {
   ensureQuestElements();
   if (!quest?.active || !quest.current_step) return;
+
+  if (quest.type === 'cleanup') {
+    showCleanupStep(quest);
+  } else {
+    showInventoryStep();
+  }
+}
+
+function showInventoryStep() {
   if (!requestOverlay('quest-overlay', 50, () => pauseQuest())) return;
   const overlay = document.getElementById('quest-overlay');
   if (!overlay) return;
@@ -651,7 +662,8 @@ function updateMiniBadge() {
   if (!badge) return;
   if (quest?.active && isMinimized) {
     badge.style.display = 'block';
-    badge.textContent = `🏠 ${getProgress().percent}% | Weiter →`;
+    const icon = quest.type === 'cleanup' ? '🧹' : '🏠';
+    badge.textContent = `${icon} ${getProgress().percent}% | Weiter →`;
   } else {
     badge.style.display = 'none';
   }
@@ -664,4 +676,510 @@ export function shouldShowQuestResume() {
 
 export function getQuestState() {
   return quest;
+}
+
+// ══════════════════════════════════════════════════════════
+// Aufräum-Quest (Cleanup Quest) – Phase 2
+// ══════════════════════════════════════════════════════════
+
+const ACTION_LABELS = {
+  move: { icon: '🔄', label: 'UMRÄUMEN' },
+  decide: { icon: '🤔', label: 'ENTSCHEIDEN' },
+  consolidate: { icon: '📦', label: 'ZUSAMMENLEGEN' },
+  optimize: { icon: '💡', label: 'TIPP' },
+};
+
+/**
+ * Startet eine Aufräum-Quest basierend auf der Session-Auswahl.
+ * @param {number} minutes - Zeitfenster (2/5/15/30)
+ */
+export function startCleanupQuest(minutes) {
+  ensureQuestElements();
+
+  const maxSteps = minutes <= 5 ? 5 : minutes <= 15 ? 10 : 20;
+  const plan = buildCleanupPlan(maxSteps, minutes);
+
+  if (plan.length === 0) {
+    showToast('Keine offenen Aufgaben gefunden! 🎉', 'success');
+    return;
+  }
+
+  quest = {
+    type: 'cleanup',
+    active: true,
+    started: isoNow(),
+    last_activity: isoNow(),
+    progress: {
+      containers_total: plan.length,
+      containers_done: 0,
+      containers_skipped: 0,
+      items_moved: 0,
+      items_archived: 0,
+      items_decided: 0,
+      percent: 0,
+      score_start: calculateFreedomIndex().percent,
+    },
+    current_step: plan[0],
+    plan,
+    completed_at: null,
+  };
+
+  Brain.saveQuest(quest);
+  showCleanupStep(quest);
+}
+
+function showCleanupStep(q) {
+  if (!requestOverlay('cleanup-quest', 50, () => pauseCleanupQuest())) return;
+
+  const overlay = document.getElementById('quest-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+
+  const step = q.current_step;
+  if (!step) {
+    finishCleanupQuest();
+    return;
+  }
+
+  const progress = getCleanupProgress(q);
+  const actionInfo = ACTION_LABELS[step.action_type] || ACTION_LABELS.optimize;
+  const fromRoom = Brain.getRoom(step.from_room);
+  const fromContainer = Brain.getContainer(step.from_room, step.from_container);
+
+  let stepContent = '';
+
+  switch (step.action_type) {
+    case 'move':
+      stepContent = renderMoveStep(step, fromRoom, fromContainer);
+      break;
+    case 'decide':
+      stepContent = renderDecideStep(step, fromRoom, fromContainer);
+      break;
+    case 'consolidate':
+      stepContent = renderConsolidateStep(step);
+      break;
+    case 'optimize':
+    default:
+      stepContent = renderOptimizeStep(step, fromRoom, fromContainer);
+      break;
+  }
+
+  overlay.innerHTML = `
+    <div class="quest-card cleanup-quest-card">
+      <div class="cleanup-quest-header">
+        <span>🧹 Aufräum-Quest</span>
+        <span>${progress.currentStep} / ${progress.total}</span>
+      </div>
+      <div class="quest-progress-bar"><div class="quest-progress-fill" style="width:${progress.percent}%"></div></div>
+      <div class="cleanup-score-preview quest-score-display">${calculateFreedomIndex().percent}%</div>
+      <div class="cleanup-step-badge ${step.action_type}">${actionInfo.icon} ${actionInfo.label}</div>
+      ${stepContent}
+      <div class="cleanup-quest-footer">
+        <button id="cleanup-pause" class="cleanup-action-btn">⏸️ Pause</button>
+      </div>
+    </div>
+  `;
+
+  // Bind action handlers
+  bindCleanupStepActions(step);
+
+  overlay.querySelector('#cleanup-pause')?.addEventListener('click', () => pauseCleanupQuest());
+  updateMiniBadge();
+}
+
+function renderMoveStep(step, fromRoom, fromContainer) {
+  const toRoom = step.to_room ? Brain.getRoom(step.to_room) : null;
+  const toContainer = step.to_container ? Brain.getContainer(step.to_room, step.to_container) : null;
+  const toRoomName = toRoom?.name || step.to_room || '?';
+  const toContainerName = toContainer?.name || step.to_container || '(wähle Ziel)';
+
+  return `
+    <div class="cleanup-item-name">${escapeHTML(step.item_name)}</div>
+    <div class="cleanup-location">📍 Jetzt: ${escapeHTML(fromRoom?.name || step.from_room)} › ${escapeHTML(fromContainer?.name || step.from_container)}</div>
+    <div class="cleanup-location">📍 Besser: ${escapeHTML(toRoomName)}${step.to_container ? ' › ' + escapeHTML(toContainerName) : ''}</div>
+    <div class="cleanup-reason">"${escapeHTML(step.reason)}"</div>
+    <div class="cleanup-location">⏱️ ~${step.estimated_minutes} Minuten</div>
+    <div class="cleanup-actions">
+      <button id="cleanup-done" class="cleanup-action-btn primary">✅ Erledigt</button>
+      <button id="cleanup-skip" class="cleanup-action-btn">⏭️ Überspringen</button>
+    </div>
+  `;
+}
+
+function renderDecideStep(step, fromRoom, fromContainer) {
+  const disposal = step.disposal_guide || getDisposalGuide(step.item_name);
+  const itemObj = findItemObject(step.from_room, step.from_container, step.item_name);
+  const monthsInfo = itemObj?.last_seen
+    ? `⏱️ Seit ${Math.round((Date.now() - new Date(itemObj.last_seen).getTime()) / (1000 * 60 * 60 * 24 * 30))} Monaten nicht bewegt`
+    : '';
+  const valueInfo = itemObj?.valuation?.replacement_value || itemObj?.purchase?.price;
+
+  return `
+    <div class="cleanup-item-name">${escapeHTML(step.item_name)}</div>
+    <div class="cleanup-location">📍 ${escapeHTML(fromRoom?.name || step.from_room)} › ${escapeHTML(fromContainer?.name || step.from_container)}</div>
+    ${monthsInfo ? `<div class="cleanup-location">${monthsInfo}</div>` : ''}
+    ${valueInfo ? `<div class="cleanup-location">💰 Geschätzter Wert: ~${valueInfo} €</div>` : ''}
+    <div class="disposal-tip">${escapeHTML(disposal.icon)} ${escapeHTML(disposal.text)}</div>
+    <div class="cleanup-actions">
+      <button id="cleanup-discard" class="cleanup-action-btn danger">🗑️ Entsorgen</button>
+      <button id="cleanup-donate" class="cleanup-action-btn donate">🎁 Spenden</button>
+      <button id="cleanup-keep" class="cleanup-action-btn">📦 Behalten</button>
+    </div>
+    <div class="cleanup-actions">
+      <button id="cleanup-skip" class="cleanup-action-btn">⏭️ Überspringen</button>
+    </div>
+  `;
+}
+
+function renderConsolidateStep(step) {
+  const locations = step.locations || [];
+  const locHtml = locations.map(loc =>
+    `<div class="cleanup-location">📍 ${escapeHTML(loc.roomName || loc.roomId)} › ${escapeHTML(loc.containerName || loc.containerId)}</div>`
+  ).join('');
+
+  return `
+    <div class="cleanup-item-name">${escapeHTML(step.item_name)} — ${locations.length}× in ${locations.length} Bereichen</div>
+    ${locHtml}
+    <div class="cleanup-actions">
+      <button id="cleanup-consolidate-reduce" class="cleanup-action-btn primary">1 behalten, Rest entsorgen</button>
+      <button id="cleanup-consolidate-keep" class="cleanup-action-btn">Alle behalten, ist gewollt</button>
+    </div>
+    <div class="cleanup-actions">
+      <button id="cleanup-skip" class="cleanup-action-btn">⏭️ Überspringen</button>
+    </div>
+  `;
+}
+
+function renderOptimizeStep(step, fromRoom, fromContainer) {
+  return `
+    <div class="cleanup-item-name">${escapeHTML(step.item_name)}</div>
+    <div class="cleanup-location">📍 ${escapeHTML(fromRoom?.name || step.from_room)} › ${escapeHTML(fromContainer?.name || step.from_container)}</div>
+    <div class="cleanup-reason">"${escapeHTML(step.reason)}"</div>
+    <div class="cleanup-actions">
+      <button id="cleanup-done" class="cleanup-action-btn primary">✅ Tipp umgesetzt</button>
+      <button id="cleanup-skip" class="cleanup-action-btn">⏭️ Überspringen</button>
+    </div>
+  `;
+}
+
+function findItemObject(roomId, containerId, itemName) {
+  const container = Brain.getContainer(roomId, containerId);
+  if (!container) return null;
+  return (container.items || []).find(i => {
+    const name = typeof i === 'string' ? i : i.name;
+    return name === itemName;
+  });
+}
+
+function bindCleanupStepActions(step) {
+  const overlay = document.getElementById('quest-overlay');
+  if (!overlay) return;
+
+  // Skip
+  overlay.querySelector('#cleanup-skip')?.addEventListener('click', () => {
+    markCleanupStep(step, 'skipped');
+    advanceCleanupQuest();
+  });
+
+  // MOVE done
+  overlay.querySelector('#cleanup-done')?.addEventListener('click', async () => {
+    if (step.action_type === 'move') {
+      await handleMoveAction(step);
+    } else {
+      // optimize or generic done
+      markCleanupStep(step, 'done');
+      showToast('Gut gemacht!', 'success');
+      advanceCleanupQuest();
+    }
+  });
+
+  // DECIDE: Entsorgen
+  overlay.querySelector('#cleanup-discard')?.addEventListener('click', async () => {
+    const ok = await showConfirmModal({
+      title: 'Entsorgen?',
+      message: `${step.item_name} wirklich entsorgen?`,
+      confirmText: 'Ja, entsorgen',
+      cancelText: 'Abbrechen'
+    });
+    if (!ok) return;
+    Brain.archiveItem(step.from_room, step.from_container, step.item_name, 'entsorgt');
+    step.archive_reason = 'entsorgt';
+    markCleanupStep(step, 'done');
+    quest.progress.items_archived = (quest.progress.items_archived || 0) + 1;
+    const disposal = step.disposal_guide || getDisposalGuide(step.item_name);
+    showToast(`${disposal.icon} ${disposal.text}`, 'success', 3000);
+    advanceCleanupQuest();
+  });
+
+  // DECIDE: Spenden
+  overlay.querySelector('#cleanup-donate')?.addEventListener('click', () => {
+    Brain.archiveItem(step.from_room, step.from_container, step.item_name, 'gespendet');
+    step.archive_reason = 'gespendet';
+    markCleanupStep(step, 'done');
+    quest.progress.items_archived = (quest.progress.items_archived || 0) + 1;
+    showToast('Auf die Spendenliste gesetzt', 'success');
+    advanceCleanupQuest();
+  });
+
+  // DECIDE: Behalten
+  overlay.querySelector('#cleanup-keep')?.addEventListener('click', () => {
+    markCleanupStep(step, 'done');
+    showToast('OK, bleibt wo es ist', 'success');
+    advanceCleanupQuest();
+  });
+
+  // CONSOLIDATE: reduce
+  overlay.querySelector('#cleanup-consolidate-reduce')?.addEventListener('click', async () => {
+    await handleConsolidateReduce(step);
+  });
+
+  // CONSOLIDATE: keep all
+  overlay.querySelector('#cleanup-consolidate-keep')?.addEventListener('click', () => {
+    markCleanupStep(step, 'done');
+    showToast('OK, bleibt alles wo es ist', 'success');
+    advanceCleanupQuest();
+  });
+}
+
+async function handleMoveAction(step) {
+  const oldScore = calculateFreedomIndex().percent;
+
+  // Determine target container
+  let toRoom = step.to_room;
+  let toContainer = step.to_container;
+
+  if (!toContainer && toRoom) {
+    // Ask which container in the target room
+    const room = Brain.getRoom(toRoom);
+    const containers = room ? Object.entries(room.containers || {}) : [];
+    if (containers.length > 0) {
+      const options = containers.map(([cId, c]) => ({ value: cId, label: c.name || cId }));
+      const result = await showInputModal({
+        title: `Wohin in ${room?.name || toRoom}?`,
+        fields: [{ type: 'select', options }]
+      });
+      if (!result) return;
+      toContainer = result[0];
+    }
+  }
+
+  if (toRoom && toContainer) {
+    if (toRoom === step.from_room) {
+      Brain.moveItem(step.from_room, step.from_container, toContainer, step.item_name);
+    } else {
+      Brain.moveItemCrossRoom(step.from_room, step.from_container, toRoom, toContainer, step.item_name);
+    }
+    quest.progress.items_moved = (quest.progress.items_moved || 0) + 1;
+  }
+
+  markCleanupStep(step, 'done');
+  const newScore = calculateFreedomIndex().percent;
+  animateScoreChange(oldScore, newScore);
+  advanceCleanupQuest();
+}
+
+async function handleConsolidateReduce(step) {
+  const locations = step.locations || [];
+  if (locations.length < 2) {
+    markCleanupStep(step, 'done');
+    advanceCleanupQuest();
+    return;
+  }
+
+  const options = locations.map((loc, idx) => ({
+    value: String(idx),
+    label: `${loc.roomName || loc.roomId} › ${loc.containerName || loc.containerId}`
+  }));
+
+  const result = await showInputModal({
+    title: 'Welche willst du behalten?',
+    fields: [{ type: 'select', options }]
+  });
+  if (!result) return;
+
+  const keepIdx = parseInt(result[0], 10);
+  const oldScore = calculateFreedomIndex().percent;
+
+  locations.forEach((loc, idx) => {
+    if (idx !== keepIdx) {
+      Brain.archiveItem(loc.roomId, loc.containerId, step.item_name, 'entsorgt');
+      quest.progress.items_archived = (quest.progress.items_archived || 0) + 1;
+    }
+  });
+
+  markCleanupStep(step, 'done');
+  step.archive_reason = 'entsorgt';
+  const newScore = calculateFreedomIndex().percent;
+  animateScoreChange(oldScore, newScore);
+  advanceCleanupQuest();
+}
+
+function markCleanupStep(step, status) {
+  const planStep = quest.plan.find(s => s.step_number === step.step_number);
+  if (planStep) planStep.status = status;
+}
+
+function getCleanupProgress(q) {
+  const done = q.plan.filter(s => s.status === 'done').length;
+  const skipped = q.plan.filter(s => s.status === 'skipped').length;
+  const total = q.plan.length;
+  const currentIdx = q.plan.findIndex(s => s.step_number === q.current_step?.step_number);
+
+  return {
+    done,
+    skipped,
+    total,
+    currentStep: currentIdx + 1,
+    percent: total > 0 ? Math.round(((done + skipped) / total) * 100) : 0,
+  };
+}
+
+function advanceCleanupQuest() {
+  if (!quest) return;
+
+  const progress = getCleanupProgress(quest);
+  quest.progress.containers_done = progress.done;
+  quest.progress.containers_skipped = progress.skipped;
+  quest.progress.percent = progress.percent;
+  quest.last_activity = isoNow();
+
+  // Find next pending step
+  const nextStep = quest.plan.find(s => s.status === 'pending');
+
+  if (!nextStep) {
+    finishCleanupQuest();
+    return;
+  }
+
+  quest.current_step = nextStep;
+  Brain.saveQuest(quest);
+  showCleanupStep(quest);
+}
+
+function finishCleanupQuest() {
+  if (!quest) return;
+  quest.active = false;
+  quest.completed_at = isoNow();
+  quest.progress.percent = 100;
+  Brain.saveQuest(quest);
+  showCleanupComplete();
+}
+
+function getCleanupSummary(q) {
+  const done = q.plan.filter(s => s.status === 'done');
+  const skipped = q.plan.filter(s => s.status === 'skipped');
+
+  return {
+    totalSteps: q.plan.length,
+    doneSteps: done.length,
+    skippedSteps: skipped.length,
+    itemsMoved: done.filter(s => s.action_type === 'move').length,
+    itemsArchived: done.filter(s =>
+      s.action_type === 'decide' || s.action_type === 'archive'
+    ).length,
+    itemsDonated: done.filter(s => s.archive_reason === 'gespendet').length,
+    itemsDiscarded: done.filter(s => s.archive_reason === 'entsorgt').length,
+    decisions: done.filter(s =>
+      s.action_type === 'decide' || s.action_type === 'consolidate'
+    ).length,
+    scoreStart: q.progress.score_start,
+    scoreEnd: calculateFreedomIndex().percent,
+    duration: Math.round(
+      (Date.now() - new Date(q.started).getTime()) / 60000
+    ),
+  };
+}
+
+function getCompletionMessage(summary, personality) {
+  if (personality === 'sachlich') {
+    return `${summary.doneSteps} Aufgaben erledigt. Index: ${summary.scoreEnd}%.`;
+  }
+  if (personality === 'freundlich') {
+    return `Super gemacht! ${summary.decisions} Entscheidungen weniger im Kopf.`;
+  }
+  // kauzig (default)
+  const comments = [
+    'Na also. Geht doch.',
+    'Siehst du. War gar nicht so schlimm.',
+    'Dein Oberschrank dankt dir.',
+    `Ich hab gesagt es dauert nur ${summary.duration} Minuten. Hatte ich recht? Natürlich.`,
+    'Weniger Chaos. Weniger Cortisol. Gern geschehen.',
+  ];
+  return comments[Math.floor(Math.random() * comments.length)];
+}
+
+function showCleanupComplete() {
+  const overlay = document.getElementById('quest-overlay');
+  if (!overlay || !quest) return;
+  overlay.style.display = 'flex';
+
+  const summary = getCleanupSummary(quest);
+  const personality = getPersonality();
+  const message = getCompletionMessage(summary, personality);
+
+  const scoreDelta = summary.scoreEnd - summary.scoreStart;
+  const scoreSign = scoreDelta >= 0 ? '↑' : '↓';
+
+  const stats = [];
+  if (summary.itemsMoved > 0) stats.push(`• ${summary.itemsMoved} Dinge umgeräumt`);
+  if (summary.decisions > 0) stats.push(`• ${summary.decisions} Entscheidungen getroffen`);
+  if (summary.itemsDiscarded > 0) stats.push(`• ${summary.itemsDiscarded} Dinge entsorgt`);
+  if (summary.itemsDonated > 0) stats.push(`• ${summary.itemsDonated} Dinge gespendet`);
+  if (summary.skippedSteps > 0) stats.push(`• ${summary.skippedSteps} übersprungen`);
+
+  overlay.innerHTML = `
+    <div class="quest-card cleanup-complete">
+      <h2>🎉 Aufräum-Quest geschafft!</h2>
+      <p>In ${summary.duration} Minuten:</p>
+      <div class="cleanup-stats">${stats.join('\n')}</div>
+      <p>Dein Kopf-Freiheits-Index:</p>
+      <div class="cleanup-score-preview">${summary.scoreStart}% → ${summary.scoreEnd}% ${scoreSign}${Math.abs(scoreDelta)}%</div>
+      <div class="quest-progress-bar"><div class="quest-progress-fill" style="width:${summary.scoreEnd}%"></div></div>
+      <div class="cleanup-quote">"${escapeHTML(message)}"<br>— ORDO</div>
+      <div class="cleanup-actions">
+        <button id="cleanup-again" class="cleanup-action-btn primary">🧹 Noch eine Runde</button>
+        <button id="cleanup-home" class="cleanup-action-btn">🏠 Zurück zu Mein Zuhause</button>
+      </div>
+    </div>
+  `;
+
+  overlay.querySelector('#cleanup-again')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('cleanup-quest');
+    startCleanupQuest(15);
+  });
+  overlay.querySelector('#cleanup-home')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('cleanup-quest');
+    renderBrainView();
+    showView('brain');
+  });
+  updateMiniBadge();
+}
+
+function pauseCleanupQuest() {
+  isMinimized = true;
+  const overlay = document.getElementById('quest-overlay');
+  if (overlay) overlay.style.display = 'none';
+  releaseOverlay('cleanup-quest');
+  updateMiniBadge();
+}
+
+function animateScoreChange(oldPercent, newPercent) {
+  const el = document.querySelector('.quest-score-display');
+  if (!el) return;
+
+  el.classList.add('score-changing');
+  el.textContent = `${oldPercent}% → ${newPercent}%`;
+
+  if (newPercent > oldPercent) {
+    el.classList.add('score-up');
+    const delta = newPercent - oldPercent;
+    showToast(`↑${delta}% — dein Kopf wird freier`, 'success');
+  }
+
+  setTimeout(() => {
+    el.textContent = `${newPercent}%`;
+    el.classList.remove('score-changing', 'score-up');
+  }, 2000);
 }

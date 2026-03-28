@@ -403,6 +403,60 @@ export function getQuickDecision() {
   return null;
 }
 
+/**
+ * Maps Quick Win type to cleanup quest action type.
+ */
+function mapWinTypeToAction(winType) {
+  switch (winType) {
+    case 'move': return 'move';
+    case 'decide': return 'decide';
+    case 'consolidate': return 'consolidate';
+    default: return 'optimize';
+  }
+}
+
+/**
+ * Erstellt einen Aufräum-Quest-Plan aus den aktuellen Quick Wins.
+ * Sortiert nach Impact/Aufwand-Verhältnis.
+ * @param {number} maxSteps - Maximale Schrittanzahl
+ * @param {number} maxMinutes - Zeitlimit in Minuten
+ * @returns {Array} Quest-Plan-Schritte
+ */
+export function buildCleanupPlan(maxSteps = 20, maxMinutes = 30) {
+  const wins = getQuickWins(50);
+  const plan = [];
+  let totalMinutes = 0;
+
+  for (const win of wins) {
+    if (plan.length >= maxSteps) break;
+    if (totalMinutes + win.estimatedMinutes > maxMinutes) continue;
+
+    plan.push({
+      step_number: plan.length + 1,
+      status: 'pending',
+      action_type: mapWinTypeToAction(win.type),
+      item_name: win.itemName,
+      from_room: win.roomId,
+      from_container: win.containerId,
+      to_room: win.suggestedRoom || null,
+      to_container: null,
+      reason: win.detail || win.description,
+      priority: win.impactPoints >= 3 ? 'hoch'
+              : win.impactPoints >= 2 ? 'mittel' : 'niedrig',
+      estimated_minutes: win.estimatedMinutes,
+      impact_points: win.impactPoints,
+      archive_reason: null,
+      disposal_guide: win.type === 'decide'
+        ? getDisposalGuide(win.itemName) : null,
+      locations: win.locations || null,
+    });
+
+    totalMinutes += win.estimatedMinutes;
+  }
+
+  return plan;
+}
+
 export function getTasksForTimeSlot(minutes) {
   if (minutes <= 2) return { mode: 'quick_decision', task: getQuickDecision() };
   if (minutes <= 5) return { mode: 'quick_wins', tasks: getQuickWins(3) };

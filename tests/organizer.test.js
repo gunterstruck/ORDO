@@ -95,4 +95,48 @@ describe('getQuickWins()', () => {
   });
 });
 
+describe('buildCleanupPlan()', () => {
+  it('generiert Plan aus Quick Wins', () => {
+    seedData();
+    const plan = context.buildCleanupPlan(10, 30);
+    assert(Array.isArray(plan), 'Plan sollte ein Array sein');
+    assert(plan.length > 0, 'Plan sollte mindestens einen Schritt haben');
+  });
+
+  it('setzt korrekte Felder auf Plan-Schritte', () => {
+    seedData();
+    const plan = context.buildCleanupPlan(10, 30);
+    const step = plan[0];
+    assert(step.step_number === 1, 'Erster Schritt sollte step_number 1 haben');
+    assertEqual(step.status, 'pending');
+    assert(['move', 'decide', 'consolidate', 'optimize'].includes(step.action_type), 'action_type sollte gültig sein');
+    assert(typeof step.item_name === 'string', 'item_name sollte String sein');
+    assert(typeof step.estimated_minutes === 'number', 'estimated_minutes sollte Zahl sein');
+    assert(typeof step.impact_points === 'number', 'impact_points sollte Zahl sein');
+  });
+
+  it('respektiert maxSteps Limit', () => {
+    seedData();
+    const plan = context.buildCleanupPlan(2, 999);
+    assert(plan.length <= 2, 'Plan sollte maxSteps respektieren');
+  });
+
+  it('respektiert maxMinutes Limit', () => {
+    seedData();
+    const plan = context.buildCleanupPlan(100, 1);
+    let totalMinutes = 0;
+    plan.forEach(s => { totalMinutes += s.estimated_minutes; });
+    assert(totalMinutes <= 1, 'Gesamtminuten sollten maxMinutes nicht überschreiten');
+  });
+
+  it('setzt disposal_guide bei decide-Typ', () => {
+    seedData();
+    const plan = context.buildCleanupPlan(20, 30);
+    const decideStep = plan.find(s => s.action_type === 'decide');
+    if (decideStep) {
+      assert(decideStep.disposal_guide !== null, 'decide-Schritte sollten disposal_guide haben');
+    }
+  });
+});
+
 printResults();

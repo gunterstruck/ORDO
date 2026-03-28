@@ -54,7 +54,119 @@ function loadQuest(Brain) {
   return context;
 }
 
+const { printResults } = require('./test-runner');
+
 console.log('🧭 Quest Tests\n' + '═'.repeat(50));
+
+describe('Quest-Typ Unterscheidung', () => {
+  it('getQuest() setzt type=inventory bei Legacy-Quests', () => {
+    localStorage.clear();
+    const Brain = loadBrain();
+    Brain.init();
+    Brain.saveQuest({
+      active: true,
+      plan: [{ room_id: 'kueche', container_id: 'a', status: 'pending' }]
+    });
+    const q = Brain.getQuest();
+    assertEqual(q.type, 'inventory');
+  });
+
+  it('getQuest() behält cleanup-Typ bei', () => {
+    localStorage.clear();
+    const Brain = loadBrain();
+    Brain.init();
+    Brain.saveQuest({
+      type: 'cleanup',
+      active: true,
+      plan: [{ step_number: 1, status: 'pending', action_type: 'move', item_name: 'Test' }]
+    });
+    const q = Brain.getQuest();
+    assertEqual(q.type, 'cleanup');
+  });
+});
+
+describe('Cleanup Quest-Plan Schritte', () => {
+  it('markiert done/skipped korrekt bei Cleanup-Quest', () => {
+    localStorage.clear();
+    const Brain = loadBrain();
+    Brain.init();
+    Brain.saveQuest({
+      type: 'cleanup',
+      active: true,
+      progress: { containers_total: 3, containers_done: 0, containers_skipped: 0, percent: 0 },
+      plan: [
+        { step_number: 1, status: 'pending', action_type: 'move', item_name: 'A' },
+        { step_number: 2, status: 'pending', action_type: 'decide', item_name: 'B' },
+        { step_number: 3, status: 'pending', action_type: 'optimize', item_name: 'C' }
+      ]
+    });
+
+    const q = Brain.getQuest();
+    assertEqual(q.type, 'cleanup');
+    assertEqual(q.plan.length, 3);
+    assertEqual(q.plan[0].action_type, 'move');
+    assertEqual(q.plan[1].action_type, 'decide');
+    assertEqual(q.plan[2].action_type, 'optimize');
+  });
+});
+
+describe('Brain.moveItemCrossRoom()', () => {
+  it('verschiebt Item zwischen Räumen', () => {
+    localStorage.clear();
+    const Brain = loadBrain();
+    Brain.init();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addRoom('flur', 'Flur', '🚪');
+    Brain.addContainer('kueche', 'schrank', 'Oberschrank', 'schrank');
+    Brain.addContainer('flur', 'garderobe', 'Garderobe', 'schrank');
+    Brain.addItem('kueche', 'schrank', 'Handschuhe');
+
+    const result = Brain.moveItemCrossRoom('kueche', 'schrank', 'flur', 'garderobe', 'Handschuhe');
+    assert(result === true, 'moveItemCrossRoom sollte true zurückgeben');
+
+    const fromC = Brain.getContainer('kueche', 'schrank');
+    const toC = Brain.getContainer('flur', 'garderobe');
+    assert(fromC.items.every(i => Brain.getItemName(i) !== 'Handschuhe'), 'Item sollte aus Quelle entfernt sein');
+    assert(toC.items.some(i => Brain.getItemName(i) === 'Handschuhe'), 'Item sollte im Ziel sein');
+  });
+
+  it('gibt false zurück bei ungültigem Container', () => {
+    localStorage.clear();
+    const Brain = loadBrain();
+    Brain.init();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Oberschrank', 'schrank');
+
+    const result = Brain.moveItemCrossRoom('kueche', 'schrank', 'flur', 'garderobe', 'Test');
+    assert(result === false, 'Sollte false bei ungültigem Ziel zurückgeben');
+  });
+});
+
+describe('Cleanup Summary berechnung', () => {
+  it('berechnet Summary aus Plan korrekt', () => {
+    const plan = [
+      { step_number: 1, status: 'done', action_type: 'move', item_name: 'A', archive_reason: null },
+      { step_number: 2, status: 'done', action_type: 'decide', item_name: 'B', archive_reason: 'entsorgt' },
+      { step_number: 3, status: 'done', action_type: 'decide', item_name: 'C', archive_reason: 'gespendet' },
+      { step_number: 4, status: 'skipped', action_type: 'optimize', item_name: 'D', archive_reason: null },
+      { step_number: 5, status: 'done', action_type: 'consolidate', item_name: 'E', archive_reason: 'entsorgt' },
+    ];
+
+    const done = plan.filter(s => s.status === 'done');
+    const skipped = plan.filter(s => s.status === 'skipped');
+    const itemsMoved = done.filter(s => s.action_type === 'move').length;
+    const itemsDonated = done.filter(s => s.archive_reason === 'gespendet').length;
+    const itemsDiscarded = done.filter(s => s.archive_reason === 'entsorgt').length;
+    const decisions = done.filter(s => s.action_type === 'decide' || s.action_type === 'consolidate').length;
+
+    assertEqual(done.length, 4);
+    assertEqual(skipped.length, 1);
+    assertEqual(itemsMoved, 1);
+    assertEqual(itemsDonated, 1);
+    assertEqual(itemsDiscarded, 2);
+    assertEqual(decisions, 3);
+  });
+});
 
 describe('Quest-Plan Sortierung', () => {
   it('sortiert hohe Priorität zuerst', () => {
@@ -97,3 +209,5 @@ describe('Quest-Fortschritt in Brain', () => {
     assert(typeof q.progress.percent === 'number', 'Prozent sollte berechnet sein');
   });
 });
+
+printResults();

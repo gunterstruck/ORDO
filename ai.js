@@ -347,6 +347,17 @@ const ORDO_FUNCTIONS = [
       },
       required: ["item", "room", "container_id"]
     }
+  },
+  {
+    name: "start_cleanup_quest",
+    description: "Starte eine geführte Aufräum-Quest für den Nutzer",
+    parameters: {
+      type: "object",
+      properties: {
+        minutes: { type: "number", description: "Zeitfenster in Minuten (5, 15 oder 30)" }
+      },
+      required: ["minutes"]
+    }
   }
 ];
 
@@ -376,6 +387,8 @@ function functionCallToAction(call) {
       return { type: 'delete_room', room: args.room };
     case 'show_found_item':
       return { type: 'found', room: args.room, path: [args.container_id], item: args.item };
+    case 'start_cleanup_quest':
+      return { type: 'start_cleanup_quest', minutes: args.minutes || 15 };
     default:
       debugLog(`Unbekannter Function Call: ${call.name}`);
       return null;
@@ -965,6 +978,14 @@ export function executeOrdoAction(action) {
         const roomName = r.name;
         Brain.deleteRoom(action.room);
         emitAction(`✓ Raum ${roomName} gelöscht`);
+        break;
+      }
+      case 'start_cleanup_quest': {
+        // Dispatch custom event so chat.js can trigger the quest
+        document.dispatchEvent(new CustomEvent('ordo:start-cleanup-quest', {
+          detail: { minutes: action.minutes || 15 }
+        }));
+        emitAction(`✓ Aufräum-Quest gestartet (${action.minutes || 15} Min)`);
         break;
       }
     }

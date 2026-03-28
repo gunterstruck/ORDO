@@ -7,7 +7,7 @@ import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, r
 import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
 import { setupCamera } from './camera.js';
-import { loadQuest, showCurrentStep, pauseQuest } from './quest.js';
+import { loadQuest, showCurrentStep, pauseQuest, startCleanupQuest } from './quest.js';
 import { closeTopOverlay } from './overlay-manager.js';
 
 // ── State ──────────────────────────────────────────────
@@ -216,11 +216,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const activeQuest = Brain.getQuest();
   if (activeQuest?.active) {
     setTimeout(() => {
-      const shouldContinue = window.confirm(`Du warst mittendrin – ${activeQuest.progress?.percent || 0}% geschafft.\n\nWeitermachen?`);
+      const questLabel = activeQuest.type === 'cleanup' ? 'Aufräum-Quest' : 'Inventar-Quest';
+      const doneCount = activeQuest.progress?.containers_done || 0;
+      const totalCount = activeQuest.progress?.containers_total || 0;
+      const percent = activeQuest.progress?.percent || 0;
+      const msg = activeQuest.type === 'cleanup'
+        ? `Du hast eine ${questLabel} die noch läuft.\n${doneCount} von ${totalCount} Schritten erledigt.\n\nWeitermachen?`
+        : `Du warst mittendrin – ${percent}% geschafft.\n\nWeitermachen?`;
+      const shouldContinue = window.confirm(msg);
       if (shouldContinue) showCurrentStep();
       else pauseQuest();
     }, 250);
   }
+
+  // Listen for cleanup quest start from chat AI
+  document.addEventListener('ordo:start-cleanup-quest', (e) => {
+    const minutes = e.detail?.minutes || 15;
+    startCleanupQuest(minutes);
+  });
 
   // Check for expiring warranties and show banner
   checkWarrantyBanner();

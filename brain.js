@@ -67,6 +67,7 @@
 
 /**
  * @typedef {Object} OrdoQuest
+ * @property {'inventory'|'cleanup'} [type]
  * @property {boolean} active
  * @property {string} started
  * @property {string} last_activity
@@ -709,6 +710,29 @@ const Brain = {
     toC.last_updated = Date.now();
     this.save(data);
     this._emit('itemMoved', { roomId, fromContainerId, toContainerId, itemName });
+    return true;
+  },
+
+  // Move an item between different rooms
+  moveItemCrossRoom(fromRoomId, fromContainerId, toRoomId, toContainerId, itemName) {
+    const data = this.getData();
+    const fromC = this._findContainerInTree(data.rooms?.[fromRoomId]?.containers, fromContainerId);
+    const toC = this._findContainerInTree(data.rooms?.[toRoomId]?.containers, toContainerId);
+    if (!fromC || !toC) return false;
+    this._migrateContainerItems(fromC);
+    this._migrateContainerItems(toC);
+    const itemIdx = fromC.items.findIndex(i => this.getItemName(i) === itemName);
+    if (itemIdx < 0) return false;
+    const [itemObj] = fromC.items.splice(itemIdx, 1);
+    if (fromC.quantities) delete fromC.quantities[itemName];
+    const existsInTarget = toC.items.some(i => this.getItemName(i) === itemName);
+    if (!existsInTarget) {
+      toC.items.push(itemObj);
+    }
+    fromC.last_updated = Date.now();
+    toC.last_updated = Date.now();
+    this.save(data);
+    this._emit('itemMoved', { roomId: fromRoomId, fromContainerId, toContainerId, toRoomId, itemName });
     return true;
   },
 
@@ -1853,6 +1877,9 @@ const Brain = {
 
   getQuest() {
     const data = this.getData();
+    if (data?.quest && !data.quest.type) {
+      data.quest.type = 'inventory'; // Legacy quests default to inventory
+    }
     return data?.quest || null;
   },
 
