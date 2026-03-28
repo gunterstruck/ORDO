@@ -6,9 +6,11 @@ import { showToast } from './modal.js';
 import { debugLog, showView, getNfcContext, ensureRoom } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
 import { resizeImageForChat, renderRoomDropdown } from './photo-flow.js';
-import { capturePhoto } from './camera.js';
+import { capturePhoto, captureVideo } from './camera.js';
 import { calculateFreedomIndex, getQuickWins } from './organizer.js';
-import { startCleanupQuest } from './quest.js';
+import { startCleanupQuest, showCurrentStep } from './quest.js';
+import { startSmartPhotoCapture } from './smart-photo.js';
+import { checkLocalIntent, executeLocalIntent, getSuggestions } from './local-intents.js';
 
 // ── Personality Prompts ───────────────────────────────
 const PERSONALITY_PROMPTS = {
@@ -69,13 +71,137 @@ export function setupChat() {
   document.getElementById('chat-input').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
   });
-  document.getElementById('chat-mic').addEventListener('click', toggleMic);
   setupChatCamera();
   setupKeyboardHandling();
+  setupVoiceFirstChat();
 
   // Listen for AI action execution events
   Brain.on('actionExecuted', ({ message }) => {
     if (message) showSystemMessage(message);
+  });
+}
+
+function setupVoiceFirstChat() {
+  const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  // Voice main button
+  const voiceBtn = document.getElementById('voice-main-btn');
+  if (voiceBtn) {
+    if (hasSpeech) {
+      voiceBtn.addEventListener('click', startVoiceInput);
+    } else {
+      // No speech support — hide voice button, show text input directly
+      voiceBtn.style.display = 'none';
+      const hint = document.getElementById('text-fallback-hint');
+      if (hint) hint.style.display = 'none';
+      const textInput = document.getElementById('text-fallback-input');
+      if (textInput) textInput.style.display = 'block';
+    }
+  }
+
+  // Photo button in chat
+  const photoBtn = document.getElementById('photo-chat-btn');
+  if (photoBtn) {
+    photoBtn.addEventListener('click', () => startSmartPhotoCapture());
+  }
+
+  // Video button in chat
+  const videoBtn = document.getElementById('video-chat-btn');
+  if (videoBtn) {
+    videoBtn.addEventListener('click', async () => {
+      const file = await captureVideo(300);
+      if (!file) return;
+      // Send video to photo view for analysis
+      showView('photo');
+    });
+  }
+
+  // Text fallback hint → expand
+  const hint = document.getElementById('text-fallback-hint');
+  if (hint) {
+    hint.addEventListener('click', () => {
+      hint.style.display = 'none';
+      const textInput = document.getElementById('text-fallback-input');
+      if (textInput) {
+        textInput.style.display = 'block';
+        document.getElementById('chat-input')?.focus();
+      }
+    });
+  }
+}
+
+async function startVoiceInput() {
+  const btn = document.getElementById('voice-main-btn');
+  if (!btn) return;
+
+  // Visual feedback: Button pulsiert
+  btn.classList.add('listening');
+  const label = btn.querySelector('.voice-label');
+  if (label) label.textContent = 'Ich höre zu...';
+
+  try {
+    const text = await listenForSpeech();
+
+    if (text) {
+      // Show what was recognized
+      appendMessage('user', text);
+      // Set in input and send as chat message
+      const input = document.getElementById('chat-input');
+      if (input) input.value = text;
+      await sendChatMessage();
+    }
+  } catch (err) {
+    if (err?.error === 'not-allowed' || err?.name === 'not-allowed') {
+      showToast('Mikrofon-Zugriff wurde verweigert.', 'warning');
+    } else if (err?.error === 'no-speech') {
+      // No speech detected — not an error
+    } else {
+      showToast('Spracherkennung nicht verfügbar.', 'error');
+    }
+  } finally {
+    btn.classList.remove('listening');
+    if (label) label.textContent = 'Sprich mit ORDO';
+  }
+}
+
+function listenForSpeech() {
+  return new Promise((resolve, reject) => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      reject(new Error('Spracherkennung nicht unterstützt'));
+      return;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.lang = 'de-DE';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.continuous = false;
+
+    rec.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      resolve(text);
+    };
+
+    rec.onerror = (event) => {
+      if (event.error === 'no-speech') {
+        resolve(null);
+      } else {
+        reject(event);
+      }
+    };
+
+    rec.onend = () => {
+      // If no result came, resolve null
+    };
+
+    rec.start();
+
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      rec.stop();
+      resolve(null);
+    }, 10000);
   });
 }
 
@@ -200,6 +326,22 @@ export async function sendChatMessage() {
   input.value = '';
   if (photo) clearChatPhoto();
   hideChatSuggestions();
+
+  // Check for local intents first (no API call needed)
+  if (!photo && text) {
+    const localIntent = checkLocalIntent(text);
+    if (localIntent) {
+      appendMessage('user', text);
+      Brain.addChatMessage('user', text);
+      const response = executeLocalIntent(localIntent);
+      if (response) {
+        appendMessage('assistant', response);
+        Brain.addChatMessage('assistant', response);
+      }
+      setSendingState(false);
+      return;
+    }
+  }
 
   // Check for cleanup intent before sending to AI
   if (!photo && isCleanupIntent(text)) {
@@ -665,12 +807,12 @@ export function renderChatSuggestions() {
 
   if (Brain.isEmpty()) {
     const suggestions = [
-      { text: '📷 Erstes Foto machen', action: () => showView('photo') },
-      { text: 'Wie funktioniert das?', action: () => sendSuggestion('Wie funktioniert diese App?') }
+      { text: '📷 Raum fotografieren', action: () => startSmartPhotoCapture() },
+      { text: '🎤 Wie funktioniert das?', action: () => sendSuggestion('Wie funktioniert diese App?') }
     ];
     suggestions.forEach(s => {
       const btn = document.createElement('button');
-      btn.className = 'chat-suggestion-btn';
+      btn.className = 'suggestion-chip';
       btn.textContent = s.text;
       btn.addEventListener('click', () => {
         hideChatSuggestions();
@@ -681,21 +823,24 @@ export function renderChatSuggestions() {
     return;
   }
 
+  // Use context-aware suggestions engine
+  const smartSuggestions = getSuggestions();
+
+  for (const s of smartSuggestions) {
+    const btn = document.createElement('button');
+    btn.className = 'suggestion-chip';
+    btn.textContent = `${s.icon} ${s.label}`;
+    btn.addEventListener('click', () => {
+      hideChatSuggestions();
+      handleSuggestionAction(s);
+    });
+    container.appendChild(btn);
+  }
+
+  // Also add a random item search suggestion
   const rooms = Brain.getRooms();
-  const roomEntries = Object.entries(rooms);
-  const suggestions = [];
-
-  if (roomEntries.length > 0) {
-    const [, firstRoom] = roomEntries[0];
-    suggestions.push(`Was liegt in der ${firstRoom.name}?`);
-  }
-  if (roomEntries.length > 1) {
-    const [, secondRoom] = roomEntries[1];
-    suggestions.push(`Zeig mir ${secondRoom.name}`);
-  }
-
   let foundItemName = null;
-  for (const [, room] of roomEntries) {
+  for (const [, room] of Object.entries(rooms)) {
     for (const [, c] of Object.entries(room.containers || {})) {
       const active = (c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert');
       if (active.length > 0) {
@@ -705,22 +850,43 @@ export function renderChatSuggestions() {
     }
     if (foundItemName) break;
   }
-  if (foundItemName) {
-    suggestions.push(`Wo ist ${foundItemName}?`);
-  } else {
-    suggestions.push('Wo ist die Schere?');
-  }
-
-  suggestions.slice(0, 3).forEach(text => {
+  if (foundItemName && container.children.length < 4) {
     const btn = document.createElement('button');
-    btn.className = 'chat-suggestion-btn';
-    btn.textContent = text;
+    btn.className = 'suggestion-chip';
+    btn.textContent = `🔍 Wo ist ${foundItemName}?`;
     btn.addEventListener('click', () => {
       hideChatSuggestions();
-      sendSuggestion(text);
+      sendSuggestion(`Wo ist ${foundItemName}?`);
     });
     container.appendChild(btn);
-  });
+  }
+}
+
+function handleSuggestionAction(suggestion) {
+  switch (suggestion.actionType) {
+    case 'continueQuest':
+      showCurrentStep();
+      break;
+    case 'showWarranty':
+      import('./warranty-view.js').then(m => m.showWarrantyOverview());
+      break;
+    case 'startCleanup':
+      startCleanupQuest(15);
+      break;
+    case 'searchItem':
+      // Show a "Wo ist...?" prompt in chat input
+      document.getElementById('text-fallback-hint')?.click();
+      setTimeout(() => {
+        const input = document.getElementById('chat-input');
+        if (input) { input.value = 'Wo ist '; input.focus(); }
+      }, 100);
+      break;
+    case 'takePhoto':
+      startSmartPhotoCapture();
+      break;
+    default:
+      break;
+  }
 }
 
 export function sendSuggestion(text) {

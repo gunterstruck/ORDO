@@ -9,6 +9,7 @@ import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js
 import { setupCamera } from './camera.js';
 import { loadQuest, showCurrentStep, pauseQuest } from './quest.js';
 import { closeTopOverlay } from './overlay-manager.js';
+import { setupPhotoFAB } from './smart-photo.js';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
@@ -248,6 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['setupOfflineQueue', setupOfflineQueue],
     ['loadQuest', loadQuest],
     ['setupGlobalKeyboardHandling', setupGlobalKeyboardHandling],
+    ['setupPhotoFAB', setupPhotoFAB],
   ];
   for (const [name, fn] of safeSetup) {
     try { fn(); } catch (err) { console.error(`[ORDO] ${name} fehlgeschlagen:`, err); }
