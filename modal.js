@@ -1,6 +1,8 @@
 // modal.js – Modal-System (Input/Confirm/Toast)
 // Kein eigener State, rein funktional (Promise-basiert)
 
+import { requestOverlay, releaseOverlay } from './overlay-manager.js';
+
 export function showToast(message, type = 'success', duration = 3000) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
@@ -16,6 +18,13 @@ export function showToast(message, type = 'success', duration = 3000) {
 // showInputModal({ title, description?, fields: [{ label, placeholder, defaultValue?, type? }] }) → Promise<string[]|null>
 export function showInputModal({ title, description, fields }) {
   return new Promise(resolve => {
+    if (!requestOverlay('modal-input', 100, () => {
+      const modal = document.getElementById('ordo-modal');
+      if (modal) modal.style.display = 'none';
+      releaseOverlay('modal-input');
+      resolve(null);
+    })) { resolve(null); return; }
+
     const modal = document.getElementById('ordo-modal');
     const titleEl = document.getElementById('ordo-modal-title');
     const descEl = document.getElementById('ordo-modal-desc');
@@ -72,6 +81,7 @@ export function showInputModal({ title, description, fields }) {
     function close(result) {
       modal.style.display = 'none';
       modal.removeEventListener('click', onBackdrop);
+      releaseOverlay('modal-input');
       resolve(result);
     }
 
@@ -107,6 +117,13 @@ export function showInputModal({ title, description, fields }) {
 // showConfirmModal({ title, description, confirmLabel?, danger? }) → Promise<boolean>
 export function showConfirmModal({ title, description, confirmLabel, danger }) {
   return new Promise(resolve => {
+    if (!requestOverlay('modal-confirm', 100, () => {
+      const modal = document.getElementById('ordo-modal');
+      if (modal) modal.style.display = 'none';
+      releaseOverlay('modal-confirm');
+      resolve(false);
+    })) { resolve(false); return; }
+
     const modal = document.getElementById('ordo-modal');
     const titleEl = document.getElementById('ordo-modal-title');
     const descEl = document.getElementById('ordo-modal-desc');
@@ -132,6 +149,7 @@ export function showConfirmModal({ title, description, confirmLabel, danger }) {
     function close(result) {
       modal.style.display = 'none';
       modal.removeEventListener('click', onBackdrop);
+      releaseOverlay('modal-confirm');
       resolve(result);
     }
 

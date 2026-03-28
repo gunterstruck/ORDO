@@ -517,7 +517,7 @@ describe('Brain – API Key', () => {
   });
 
   it('getApiKey() gibt leeren String wenn nicht gesetzt', () => {
-    localStorage.removeItem('gemini_api_key');
+    localStorage.removeItem('ordo_api_key');
     assertEqual(Brain.getApiKey(), '');
   });
 });

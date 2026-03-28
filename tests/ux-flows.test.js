@@ -197,14 +197,14 @@ describe('Navigation – View-Wechsel', () => {
 describe('Onboarding – Klickpfad', () => {
   it('zeigt Onboarding bei erstem Start', () => {
     resetAll();
-    assertEqual(localStorage.getItem('onboarding_completed'), null);
+    assertEqual(localStorage.getItem('ordo_onboarding_completed'), null);
     assertEqual(context.Brain.isEmpty(), true);
   });
 
   it('finishOnboarding() setzt Flag und wechselt zu Brain', () => {
     resetAll();
     context.finishOnboarding();
-    assertEqual(localStorage.getItem('onboarding_completed'), 'true');
+    assertEqual(localStorage.getItem('ordo_onboarding_completed'), 'true');
     assertEqual(context.currentView, 'brain');
   });
 

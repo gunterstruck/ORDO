@@ -71,6 +71,11 @@ export function setupChat() {
   document.getElementById('chat-mic').addEventListener('click', toggleMic);
   setupChatCamera();
   setupKeyboardHandling();
+
+  // Listen for AI action execution events
+  Brain.on('actionExecuted', ({ message }) => {
+    if (message) showSystemMessage(message);
+  });
 }
 
 function setupKeyboardHandling() {
@@ -439,10 +444,6 @@ export function showSystemMessage(text) {
   div.textContent = text;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
-}
-
-export function appendSystemMessage(text) {
-  showSystemMessage(text);
 }
 
 // ── PHOTO PROOF BUTTONS ────────────────────────────────

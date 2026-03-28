@@ -335,7 +335,7 @@ Regeln:
         const resized = await resizeImage(file, 1200);
         await Brain.savePhotoWithHistory(roomId, primaryContainerId, resized);
         Brain.setContainerHasPhoto(roomId, primaryContainerId, true);
-      } catch { /* photo save failed silently */ }
+      } catch(err) { console.warn('Foto konnte nicht gespeichert werden:', err.message); }
 
       // New flow (main photo view only): hotspot picking view
       if (!targetRoomId) {
@@ -717,7 +717,7 @@ async function confirmHotspotItem() {
       const cropBlob = await createCropFromHotspot(photo, hs.position);
       cropId = `${roomId}_${containerId}_${hotspotId}`;
       await Brain.savePhoto(`crop_${cropId}`, cropBlob);
-    } catch { /* crop failed silently */ }
+    } catch(err) { console.warn('Crop fehlgeschlagen:', err.message); }
   }
 
   // Dedup: check for similar item in container (Mechanism B)
@@ -1156,7 +1156,7 @@ Regeln:
         Brain.addContainer(roomId, containerId, containerName || containerId, 'sonstiges', [], true);
       }
       Brain.setContainerHasPhoto(roomId, containerId, true);
-    } catch { /* photo save failed silently */ }
+    } catch(err) { console.warn('Foto konnte nicht gespeichert werden:', err.message); }
 
     const hint = (analysis.hinweis || '').trim();
     const isOnboarding = stagingTarget?.onboardingFlow;

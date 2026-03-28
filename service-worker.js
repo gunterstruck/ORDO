@@ -2,8 +2,8 @@
 const BASE_URL = new URL('./', self.location.href).href;
 
 // Version hochzählen bei jedem Deploy → löscht automatisch alten Cache
-const CACHE_VERSION = 'v6';
-const CACHE_NAME = `haushalt-${CACHE_VERSION}`;
+const CACHE_VERSION = 'v7';
+const CACHE_NAME = `ordo-${CACHE_VERSION}`;
 
 // App-Shell-Dateien
 const APP_SHELL = [
@@ -12,7 +12,23 @@ const APP_SHELL = [
   BASE_URL + 'style.css',
   BASE_URL + 'app.js',
   BASE_URL + 'brain.js',
-  BASE_URL + 'manifest.json'
+  BASE_URL + 'ai.js',
+  BASE_URL + 'chat.js',
+  BASE_URL + 'brain-view.js',
+  BASE_URL + 'photo-flow.js',
+  BASE_URL + 'onboarding.js',
+  BASE_URL + 'settings.js',
+  BASE_URL + 'camera.js',
+  BASE_URL + 'modal.js',
+  BASE_URL + 'quest.js',
+  BASE_URL + 'organizer.js',
+  BASE_URL + 'report.js',
+  BASE_URL + 'overlay-manager.js',
+  BASE_URL + 'item-detail.js',
+  BASE_URL + 'warranty-view.js',
+  BASE_URL + 'manifest.json',
+  BASE_URL + 'icon-192.png',
+  BASE_URL + 'icon-512.png',
 ];
 
 self.addEventListener('install', event => {

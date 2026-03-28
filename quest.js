@@ -5,7 +5,8 @@ import { analyzeBlueprint as analyzeBlueprintWithAI, loadingManager } from './ai
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { renderBrainView } from './brain-view.js';
 import { handlePhotoFile } from './photo-flow.js';
-import { showView } from './app.js';
+import { showView, escapeHTML } from './app.js';
+import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 
 // Analysis messages now handled by LoadingManager in ai.js
 
@@ -51,6 +52,11 @@ export function startBlueprint() {
 function renderBlueprintCollector() {
   const overlay = document.getElementById('quest-overlay');
   if (!overlay || !blueprintState) return;
+  if (!requestOverlay('blueprint-review', 50, () => {
+    overlay.style.display = 'none';
+    releaseOverlay('blueprint-review');
+    blueprintState = null;
+  })) return;
   overlay.style.display = 'flex';
 
   const thumbs = blueprintState.photos.map((p, idx) => `
@@ -86,6 +92,7 @@ function renderBlueprintCollector() {
   });
   overlay.querySelector('#blueprint-cancel')?.addEventListener('click', () => {
     overlay.style.display = 'none';
+    releaseOverlay('blueprint-review');
     blueprintState = null;
   });
 }
@@ -153,13 +160,13 @@ export function showBlueprintReview(analysis) {
   rooms.forEach((room, roomIndex) => {
     const roomRow = document.createElement('div');
     roomRow.className = 'blueprint-review-item room';
-    roomRow.innerHTML = `<input type="checkbox" data-room="${roomIndex}" checked> <span data-edit-room="${roomIndex}">${room.emoji || '🏠'} ${room.name || room.id}</span>`;
+    roomRow.innerHTML = `<input type="checkbox" data-room="${roomIndex}" checked> <span data-edit-room="${roomIndex}">${escapeHTML(room.emoji || '🏠')} ${escapeHTML(room.name || room.id)}</span>`;
     list.appendChild(roomRow);
 
     (room.moebel || []).forEach((m, mIndex) => {
       const mRow = document.createElement('div');
       mRow.className = 'blueprint-review-item moebel';
-      mRow.innerHTML = `<input type="checkbox" data-room="${roomIndex}" data-moebel="${mIndex}" checked> <span data-edit-moebel="${roomIndex}:${mIndex}">${m.name}</span>`;
+      mRow.innerHTML = `<input type="checkbox" data-room="${roomIndex}" data-moebel="${mIndex}" checked> <span data-edit-moebel="${roomIndex}:${mIndex}">${escapeHTML(m.name)}</span>`;
       list.appendChild(mRow);
     });
   });
@@ -242,8 +249,8 @@ export function confirmBlueprint(confirmedStructure) {
   (blueprintState?.photos || []).forEach(async (p, idx) => {
     try {
       await Brain.savePhoto(`blueprint_room_${idx}_${Date.now()}`, p.blob);
-    } catch {
-      // non-blocking
+    } catch(err) {
+      console.warn('Blueprint-Foto konnte nicht gespeichert werden:', err.message);
     }
   });
 
@@ -252,6 +259,7 @@ export function confirmBlueprint(confirmedStructure) {
 
   const overlay = document.getElementById('quest-overlay');
   if (overlay) overlay.style.display = 'none';
+  releaseOverlay('blueprint-review');
   blueprintState = null;
 
   initQuest(confirmedStructure);
@@ -430,6 +438,7 @@ function calculateNextStep() {
 export function showCurrentStep() {
   ensureQuestElements();
   if (!quest?.active || !quest.current_step) return;
+  if (!requestOverlay('quest-overlay', 50, () => pauseQuest())) return;
   const overlay = document.getElementById('quest-overlay');
   if (!overlay) return;
   overlay.style.display = 'flex';
@@ -498,6 +507,7 @@ function renderQuestOverlay() {
       quest.completed_at = new Date().toISOString();
       saveQuest();
       overlay.style.display = 'none';
+      releaseOverlay('quest-overlay');
       updateMiniBadge();
     }
   });
@@ -514,7 +524,7 @@ function renderQuestOverview() {
 
   const blocks = Object.entries(grouped).map(([room, steps]) => {
     const done = steps.filter(s => s.status === 'done').length;
-    return `<div class="quest-overview-room"><strong>${done === steps.length ? '✅' : '⏳'} ${room} (${done}/${steps.length})</strong>${steps.map(s => `<div class="quest-overview-item" data-room="${s.room_id}" data-container="${s.container_id}">${s.status === 'done' ? '✅' : s.status === 'skipped' ? '⏸️' : '⏳'} ${s.container_name}</div>`).join('')}</div>`;
+    return `<div class="quest-overview-room"><strong>${done === steps.length ? '✅' : '⏳'} ${escapeHTML(room)} (${done}/${steps.length})</strong>${steps.map(s => `<div class="quest-overview-item" data-room="${escapeHTML(s.room_id)}" data-container="${escapeHTML(s.container_id)}">${s.status === 'done' ? '✅' : s.status === 'skipped' ? '⏸️' : '⏳'} ${escapeHTML(s.container_name)}</div>`).join('')}</div>`;
   }).join('');
 
   overlay.innerHTML = `
@@ -594,10 +604,12 @@ function showQuestCompleted() {
   `;
   overlay.querySelector('#quest-to-chat')?.addEventListener('click', () => {
     overlay.style.display = 'none';
+    releaseOverlay('quest-overlay');
     showView('chat');
   });
   overlay.querySelector('#quest-report')?.addEventListener('click', () => {
     overlay.style.display = 'none';
+    releaseOverlay('quest-overlay');
     const reportBtn = document.getElementById('brain-report-btn');
     if (reportBtn) reportBtn.click();
   });
@@ -625,6 +637,7 @@ export function pauseQuest() {
   isMinimized = true;
   const overlay = document.getElementById('quest-overlay');
   if (overlay) overlay.style.display = 'none';
+  releaseOverlay('quest-overlay');
   updateMiniBadge();
 }
 

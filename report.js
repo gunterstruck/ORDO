@@ -58,7 +58,7 @@ async function loadPhotoAsDataUrl(photoKey) {
       reader.onerror = () => resolve(null);
       reader.readAsDataURL(blob);
     });
-  } catch { return null; }
+  } catch(err) { console.warn('Foto für PDF konnte nicht geladen werden:', err.message); return null; }
 }
 
 async function compressImage(dataUrl, maxW, maxH, quality) {
@@ -178,8 +178,7 @@ export async function showReportDialog() {
 
 function countItems(containers, cb) {
   for (const c of Object.values(containers || {})) {
-    cb((c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert').length);
-    if (c.containers) countItems(c.containers, cb);
+    cb(Brain.countItemsInContainer(c));
   }
 }
 
@@ -617,7 +616,8 @@ async function renderContainers(doc, roomId, containers, startY, depth, options,
                 doc.text(`Aufgenommen am ${Brain.formatDate(Number(photoTs))}`, MARGIN + indent, y + 63);
               }
               y += 66;
-            } catch {
+            } catch(err) {
+              console.warn('Foto konnte nicht in PDF eingebettet werden:', err.message);
               doc.setFontSize(8);
               doc.setTextColor(...COLORS.lightText);
               doc.text('[Foto konnte nicht eingebettet werden]', MARGIN + indent + 2, y + 5);
@@ -718,7 +718,7 @@ async function renderContainers(doc, roomId, containers, startY, depth, options,
               doc.text(dateLabel, MARGIN + indent + 44, y + 5);
               doc.text(Brain.getItemName(item), MARGIN + indent + 44, y + 10);
               y += 33;
-            } catch { /* receipt embed failed */ }
+            } catch(err) { console.warn('Kassenbon konnte nicht eingebettet werden:', err.message); }
           }
         }
       }

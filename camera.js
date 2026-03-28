@@ -95,8 +95,8 @@ async function startCamera() {
         video: { facingMode: { exact: currentFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: isVideoMode
       });
-    } catch {
-      // exact constraint rejected (e.g. device has only one camera) → try ideal
+    } catch(err) {
+      console.warn('Exakte Kamera-Einstellung nicht verfügbar, nutze ideal:', err.message);
       currentStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: currentFacingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: isVideoMode
@@ -158,7 +158,8 @@ function startRecording() {
 
   try {
     mediaRecorder = new MediaRecorder(currentStream, mimeType ? { mimeType } : {});
-  } catch {
+  } catch(err) {
+    console.warn('MediaRecorder mimeType nicht unterstützt, nutze Standard:', err.message);
     mediaRecorder = new MediaRecorder(currentStream);
   }
 
@@ -221,12 +222,12 @@ function stopRecording(discard) {
   if (discard) {
     mediaRecorder.ondataavailable = null;
     mediaRecorder.onstop = null;
-    try { mediaRecorder.stop(); } catch { /* already stopped */ }
+    try { mediaRecorder.stop(); } catch { /* expected: already stopped */ }
     mediaRecorder = null;
     recordedChunks = [];
   } else {
     // Normal stop → triggers onstop handler which calls closeCamera
-    try { mediaRecorder.stop(); } catch { /* already stopped */ }
+    try { mediaRecorder.stop(); } catch { /* expected: already stopped */ }
   }
 }
 
