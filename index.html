@@ -16,69 +16,42 @@
 
   <!-- ── ONBOARDING VIEW (einmalig beim allerersten Start) ── -->
   <div id="view-onboarding" class="view" style="display:none">
-    <!-- Willkommen -->
+    <!-- Schritt 1: Willkommen -->
     <div class="onboarding-screen" id="onboarding-welcome">
       <div class="onboarding-hero">
         <span class="onboarding-icon">🏠</span>
-        <h1 class="onboarding-title">Willkommen bei ORDO</h1>
-        <p class="onboarding-subtitle">Dein Haushalt bekommt ein Gedächtnis.</p>
+        <h1 class="onboarding-title">Hallo! Ich bin ORDO.</h1>
+        <p class="onboarding-subtitle">Dein Haushaltsassistent. Ich merke mir wo alles liegt.</p>
       </div>
-      <div class="onboarding-steps">
-        <div class="onboarding-step"><span class="onboarding-step-num">1</span> KI-Verbindung einrichten</div>
-        <div class="onboarding-step"><span class="onboarding-step-num">2</span> Räume fotografieren oder filmen</div>
-        <div class="onboarding-step"><span class="onboarding-step-num">3</span> Frag später einfach</div>
-      </div>
-      <button id="onboarding-start" class="onboarding-btn-primary">Räume scannen →</button>
+      <button id="onboarding-start" class="onboarding-btn-primary">Weiter →</button>
       <button id="onboarding-skip" class="onboarding-btn-skip">Überspringen</button>
     </div>
 
-    <!-- API-Key einrichten (NEU) -->
+    <!-- Schritt 2: API-Key -->
     <div id="onboarding-step-apikey" class="onboarding-screen" style="display:none">
       <span class="onboarding-icon">🔗</span>
-      <h2 class="onboarding-step-title">KI-Verbindung einrichten</h2>
-      <p class="onboarding-step-desc">ORDO nutzt Google Gemini, um deine Fotos zu verstehen. Dafür brauchst du einen kostenlosen Schlüssel.</p>
-      <div class="onboarding-apikey-instructions">
-        <div class="onboarding-step"><span class="onboarding-step-num">1</span> Auf den Link tippen</div>
-        <div class="onboarding-step"><span class="onboarding-step-num">2</span> Mit Google-Konto anmelden</div>
-        <div class="onboarding-step"><span class="onboarding-step-num">3</span> „Create API Key" tippen</div>
-        <div class="onboarding-step"><span class="onboarding-step-num">4</span> Schlüssel kopieren und hier einfügen</div>
-      </div>
+      <h2 class="onboarding-step-title">Ich brauche einen Gemini API-Key.</h2>
+      <p class="onboarding-step-desc">Damit ich deine Fotos verstehen kann. Kostenlos bei Google.</p>
       <a id="onboarding-apikey-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="onboarding-btn-secondary onboarding-apikey-link-btn">Schlüssel erstellen →</a>
       <input type="text" id="onboarding-apikey-input" class="onboarding-apikey-input" placeholder="Schlüssel hier einfügen…" autocomplete="off">
       <div id="onboarding-apikey-status" class="onboarding-apikey-status" style="display:none"></div>
       <div class="onboarding-apikey-actions">
         <button id="onboarding-apikey-test" class="onboarding-btn-secondary" disabled>Testen</button>
-        <button id="onboarding-apikey-next" class="onboarding-btn-primary" disabled>Weiter →</button>
+        <button id="onboarding-apikey-next" class="onboarding-btn-primary" disabled>Testen & Weiter →</button>
       </div>
       <button id="onboarding-apikey-skip" class="onboarding-btn-skip">Später einrichten</button>
     </div>
 
-    <!-- Startwahl -->
-    <div id="onboarding-step-start-choice" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title">Wie möchtest du starten?</h2>
-      <div class="onboarding-choice-card">
-        <h3>🏠 Wohnung scannen</h3>
-        <p>Mach ein Foto von jedem Raum. Ich erkenne die Möbel und führe dich dann durch alles. (Empfohlen – 5 Min)</p>
-        <button id="onboarding-start-blueprint" class="onboarding-btn-primary">Wohnung scannen</button>
-      </div>
-      <div class="onboarding-choice-card">
-        <h3>📷 Einzelnes Foto machen</h3>
-        <p>Starte mit einem Raum oder Schrank. Der Rest kommt nach und nach.</p>
-        <button id="onboarding-start-single" class="onboarding-btn-secondary">Einzelnes Foto</button>
-      </div>
-    </div>
-
-    <!-- Raum-Scan: Foto oder Video aufnehmen -->
-    <div id="onboarding-step-scan" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title" id="onboarding-scan-title">Raum erfassen</h2>
-      <p class="onboarding-step-desc" id="onboarding-scan-desc">Fotografiere einen Raum oder filme einen Rundgang durch deine Wohnung (max. 5 Min.).</p>
+    <!-- Schritt 3: Erstes Foto -->
+    <div id="onboarding-step-first-photo" class="onboarding-screen" style="display:none">
+      <span class="onboarding-icon">📷</span>
+      <h2 class="onboarding-step-title">Mach ein Foto von einem Raum.</h2>
+      <p class="onboarding-step-desc">Egal welcher. Ich erkenne den Rest.</p>
       <div class="onboarding-scan-buttons">
-        <button id="onboarding-scan-photo-btn" class="onboarding-camera-btn">📷</button>
-        <button id="onboarding-scan-video-btn" class="onboarding-camera-btn onboarding-video-btn">🎬</button>
+        <button id="onboarding-photo-btn" class="onboarding-camera-btn">📷 Foto aufnehmen</button>
       </div>
-      <div class="onboarding-scan-labels">
-        <span>Foto</span>
-        <span>Video</span>
+      <div id="onboarding-photo-result" style="display:none">
+        <div id="onboarding-photo-result-text" class="onboarding-photo-result-text"></div>
       </div>
       <div id="onboarding-scan-status" class="onboarding-scan-status" style="display:none">
         <div class="onboarding-spinner"></div>
@@ -91,9 +64,36 @@
           <pre id="onboarding-debug-log" class="onboarding-debug-log">— noch kein Log —</pre>
         </details>
       </div>
+      <button id="onboarding-finish" class="onboarding-btn-primary" style="display:none">✅ Los geht's!</button>
+      <button id="onboarding-photo-skip" class="onboarding-btn-skip">Ohne Foto starten</button>
     </div>
 
-    <!-- Raum-Scan: Erkannte Räume als Karten -->
+    <!-- Legacy screens kept for backwards compat with onboarding.js -->
+    <div id="onboarding-step-start-choice" class="onboarding-screen" style="display:none">
+      <h2 class="onboarding-step-title">Wie möchtest du starten?</h2>
+      <div class="onboarding-choice-card">
+        <h3>🏠 Wohnung scannen</h3>
+        <p>Mach ein Foto von jedem Raum. (Empfohlen – 5 Min)</p>
+        <button id="onboarding-start-blueprint" class="onboarding-btn-primary">Wohnung scannen</button>
+      </div>
+      <div class="onboarding-choice-card">
+        <h3>📷 Einzelnes Foto</h3>
+        <p>Starte mit einem Raum oder Schrank.</p>
+        <button id="onboarding-start-single" class="onboarding-btn-secondary">Einzelnes Foto</button>
+      </div>
+    </div>
+    <div id="onboarding-step-scan" class="onboarding-screen" style="display:none">
+      <h2 class="onboarding-step-title" id="onboarding-scan-title">Raum erfassen</h2>
+      <p class="onboarding-step-desc" id="onboarding-scan-desc">Fotografiere einen Raum oder filme einen Rundgang.</p>
+      <div class="onboarding-scan-buttons">
+        <button id="onboarding-scan-photo-btn" class="onboarding-camera-btn">📷</button>
+        <button id="onboarding-scan-video-btn" class="onboarding-camera-btn onboarding-video-btn">🎬</button>
+      </div>
+      <div class="onboarding-scan-labels">
+        <span>Foto</span>
+        <span>Video</span>
+      </div>
+    </div>
     <div id="onboarding-step-review" class="onboarding-screen" style="display:none">
       <h2 class="onboarding-step-title">Erkannte Räume</h2>
       <p class="onboarding-step-desc">Prüfe und bearbeite die Ergebnisse.</p>
@@ -103,13 +103,11 @@
         <button id="onboarding-confirm-all" class="onboarding-btn-primary">Alles übernehmen</button>
       </div>
     </div>
-
-    <!-- Fertig -->
     <div id="onboarding-step-done" class="onboarding-screen" style="display:none">
       <span class="onboarding-icon">✨</span>
       <h2 class="onboarding-step-title">Dein Zuhause ist bereit!</h2>
-      <p class="onboarding-step-desc" id="onboarding-done-desc">Räume und Möbel wurden angelegt. Frag mich einfach, z.B. „Was liegt im Schrank?"</p>
-      <button id="onboarding-finish" class="onboarding-btn-primary">Jetzt loslegen</button>
+      <p class="onboarding-step-desc" id="onboarding-done-desc">Räume und Möbel wurden angelegt.</p>
+      <button id="onboarding-done-finish" class="onboarding-btn-primary">Jetzt loslegen</button>
     </div>
   </div>
 
@@ -126,17 +124,44 @@
         <img id="chat-photo-thumb" alt="Foto-Vorschau">
         <button id="chat-photo-remove" aria-label="Foto entfernen">✕</button>
       </div>
-      <!-- Eingabe-Zeile -->
-      <div class="chat-controls">
-        <button id="chat-mic" aria-label="Spracheingabe">🎤</button>
-        <button id="chat-camera" aria-label="Foto hinzufügen">📎</button>
-        <textarea
-          id="chat-input"
-          placeholder="Wo ist die Schere?"
-          rows="1"
-          aria-label="Nachricht eingeben"
-        ></textarea>
-        <button id="chat-send" aria-label="Senden">↑</button>
+
+      <!-- Voice-First: Mikrofon als primäre Aktion -->
+      <div class="chat-actions-primary">
+        <button class="voice-btn-large" id="voice-main-btn" aria-label="Mit ORDO sprechen">
+          <span class="voice-icon">🎤</span>
+          <span class="voice-label">Sprich mit ORDO</span>
+        </button>
+      </div>
+
+      <!-- Sekundäre Aktionen: Foto + Video -->
+      <div class="chat-actions-secondary">
+        <button class="action-btn-round" id="photo-chat-btn" aria-label="Foto aufnehmen">
+          <span>📷</span>
+          <span class="btn-label">Foto</span>
+        </button>
+        <button class="action-btn-round" id="video-chat-btn" aria-label="Video aufnehmen">
+          <span>🎥</span>
+          <span class="btn-label">Video</span>
+        </button>
+      </div>
+
+      <!-- Text-Fallback (eingeklappt) -->
+      <div class="chat-text-fallback" id="chat-text-fallback">
+        <div class="text-fallback-hint" id="text-fallback-hint">
+          Oder tippe eine Frage...
+        </div>
+        <div class="text-fallback-input" id="text-fallback-input" style="display:none">
+          <div class="chat-controls">
+            <button id="chat-camera" aria-label="Foto hinzufügen">📎</button>
+            <textarea
+              id="chat-input"
+              placeholder="Frage an ORDO..."
+              rows="1"
+              aria-label="Nachricht eingeben"
+            ></textarea>
+            <button id="chat-send" aria-label="Senden">↑</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

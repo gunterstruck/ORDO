@@ -46,6 +46,8 @@ function loadAllModules(rootDir) {
     'app.js',
     'ai.js',
     'organizer.js',
+    'smart-photo.js',
+    'local-intents.js',
     'chat.js',
     'photo-flow.js',
     'item-detail.js',

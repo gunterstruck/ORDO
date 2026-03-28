@@ -13,7 +13,7 @@ export function setupOnboarding() {
   document.getElementById('onboarding-start').addEventListener('click', () => {
     // Skip API-key step if key already exists
     if (Brain.getApiKey()) {
-      showOnboardingScreen('start-choice');
+      showOnboardingScreen('first-photo');
     } else {
       showOnboardingScreen('apikey');
     }
@@ -23,22 +23,94 @@ export function setupOnboarding() {
   // API-Key step
   setupApiKeyStep();
 
-  document.getElementById('onboarding-scan-photo-btn').addEventListener('click', async () => {
+  // Simplified step 3: First photo
+  setupFirstPhotoStep();
+
+  // Legacy scan buttons (for re-trigger from settings)
+  document.getElementById('onboarding-scan-photo-btn')?.addEventListener('click', async () => {
     const file = await capturePhoto();
     if (file) onRoomScanPhoto(file);
   });
-  document.getElementById('onboarding-scan-video-btn').addEventListener('click', async () => {
-    const file = await captureVideo(300); // max 5 min
+  document.getElementById('onboarding-scan-video-btn')?.addEventListener('click', async () => {
+    const file = await captureVideo(300);
     if (file) onRoomScanVideo(file);
   });
-  document.getElementById('onboarding-add-more').addEventListener('click', () => showOnboardingScreen('scan'));
-  document.getElementById('onboarding-confirm-all').addEventListener('click', confirmAllScannedRooms);
-  document.getElementById('onboarding-finish').addEventListener('click', finishOnboarding);
+  document.getElementById('onboarding-add-more')?.addEventListener('click', () => showOnboardingScreen('scan'));
+  document.getElementById('onboarding-confirm-all')?.addEventListener('click', confirmAllScannedRooms);
+  document.getElementById('onboarding-finish')?.addEventListener('click', finishOnboarding);
+  document.getElementById('onboarding-done-finish')?.addEventListener('click', finishOnboarding);
   document.getElementById('onboarding-start-blueprint')?.addEventListener('click', () => startBlueprint());
   document.getElementById('onboarding-start-single')?.addEventListener('click', () => showOnboardingScreen('scan'));
+  document.getElementById('onboarding-photo-skip')?.addEventListener('click', finishOnboarding);
 
   // Settings re-trigger
   document.getElementById('settings-room-scan').addEventListener('click', startBlueprint);
+}
+
+function setupFirstPhotoStep() {
+  const photoBtn = document.getElementById('onboarding-photo-btn');
+  if (!photoBtn) return;
+
+  photoBtn.addEventListener('click', async () => {
+    const file = await capturePhoto();
+    if (!file) return;
+
+    const apiKey = Brain.getApiKey();
+    if (!apiKey) {
+      showToast('API Key nicht gesetzt.', 'error');
+      return;
+    }
+
+    // Show spinner
+    const statusEl = document.getElementById('onboarding-scan-status');
+    if (statusEl) statusEl.style.display = 'flex';
+    document.getElementById('onboarding-scan-status-text').textContent = 'KI analysiert den Raum…';
+
+    try {
+      const resizedBlob = await resizeImage(file, 1200, 0.7);
+      const base64 = await blobToBase64(resizedBlob);
+      const mimeType = resizedBlob.type || 'image/jpeg';
+
+      const existingBlock = buildExistingContainersBlockForAllKnownRooms();
+      const prompt = ROOM_DETECT_SYSTEM_PROMPT_SINGLE(existingBlock);
+
+      const messages = [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+          { type: 'text', text: 'Erkenne diesen Raum und die sichtbaren Aufbewahrungsmöbel.' }
+        ]
+      }];
+
+      const raw = await callGemini(apiKey, prompt, messages, { taskType: 'analyzePhoto', hasImage: true });
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+
+      const result = JSON.parse(jsonMatch[0]);
+      mergeDetectedRoom(result);
+
+      // Save rooms immediately
+      confirmAllScannedRooms();
+
+      // Show result
+      if (statusEl) statusEl.style.display = 'none';
+      const resultEl = document.getElementById('onboarding-photo-result');
+      const resultText = document.getElementById('onboarding-photo-result-text');
+      if (resultEl && resultText) {
+        const containerCount = result.moebel?.length || 0;
+        resultText.textContent = `${result.raum_emoji || '🏠'} ${result.raum_name || 'Raum'} mit ${containerCount} Möbelstück${containerCount !== 1 ? 'en' : ''} erkannt!`;
+        resultEl.style.display = 'block';
+      }
+
+      // Show finish button
+      const finishBtn = document.getElementById('onboarding-finish');
+      if (finishBtn) finishBtn.style.display = 'block';
+
+    } catch (err) {
+      if (statusEl) statusEl.style.display = 'none';
+      showToast(getErrorMessage(err), 'error');
+    }
+  });
 }
 
 function setupApiKeyStep() {
@@ -85,12 +157,12 @@ function setupApiKeyStep() {
     if (key) {
       Brain.setApiKey(key);
     }
-    showOnboardingScreen('start-choice');
+    showOnboardingScreen('first-photo');
   });
 
   skipBtn.addEventListener('click', () => {
     showToast('Ohne Schlüssel kann die App keine Fotos analysieren. Du kannst ihn später in den Einstellungen eintragen.', 'warning');
-    showOnboardingScreen('start-choice');
+    showOnboardingScreen('first-photo');
   });
 }
 
@@ -112,7 +184,7 @@ export function showOnboarding() {
 }
 
 export function showOnboardingScreen(screen) {
-  const screens = ['onboarding-welcome', 'onboarding-step-apikey', 'onboarding-step-start-choice', 'onboarding-step-scan', 'onboarding-step-review', 'onboarding-step-done'];
+  const screens = ['onboarding-welcome', 'onboarding-step-apikey', 'onboarding-step-first-photo', 'onboarding-step-start-choice', 'onboarding-step-scan', 'onboarding-step-review', 'onboarding-step-done'];
   screens.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -120,6 +192,7 @@ export function showOnboardingScreen(screen) {
   const map = {
     welcome: 'onboarding-welcome',
     apikey: 'onboarding-step-apikey',
+    'first-photo': 'onboarding-step-first-photo',
     'start-choice': 'onboarding-step-start-choice',
     scan: 'onboarding-step-scan',
     review: 'onboarding-step-review',

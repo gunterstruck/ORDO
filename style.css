@@ -2923,31 +2923,7 @@ select.settings-input { appearance: none; }
 }
 
 /* ── Chat Quick-Suggestions ──────────────────────── */
-.chat-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 16px 8px;
-  flex-shrink: 0;
-}
-
-.chat-suggestions:empty { display: none; }
-
-.chat-suggestion-btn {
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: 20px;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-family: inherit;
-  color: var(--text);
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.chat-suggestion-btn:active,
-.chat-suggestion-btn:hover { border-color: var(--accent); background: #fef3ec; color: var(--accent-dark); }
+/* Old chat-suggestions styles replaced by new suggestions-chips in bottom section */
 
 /* ── Brain Empty State (motivierend) ─────────────── */
 .brain-empty-cta {
@@ -4760,4 +4736,342 @@ select.settings-input { appearance: none; }
 
 .quest-score-display {
   transition: color 0.3s ease;
+}
+
+/* ═══════════════════════════════════════════════════ */
+/* VOICE-FIRST CHAT INPUT                            */
+/* ═══════════════════════════════════════════════════ */
+
+.chat-actions-primary {
+  display: flex;
+  justify-content: center;
+  padding: 20px 16px 12px;
+}
+
+.voice-btn-large {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 40px;
+  border-radius: 20px;
+  border: 2px solid var(--accent, #E8A87C);
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.voice-btn-large:active,
+.voice-btn-large.listening {
+  background: var(--accent);
+  color: white;
+  transform: scale(1.05);
+}
+
+.voice-btn-large.listening {
+  animation: pulse-voice 1.5s infinite;
+}
+
+@keyframes pulse-voice {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 168, 124, 0.4); }
+  50% { box-shadow: 0 0 0 16px rgba(232, 168, 124, 0); }
+}
+
+.voice-icon {
+  font-size: 32px;
+}
+
+.voice-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.voice-btn-large.listening .voice-label {
+  color: white;
+}
+
+/* Sekundäre Aktionen (Foto, Video) */
+.chat-actions-secondary {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 0 16px 12px;
+}
+
+.action-btn-round {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border, #EBEBEB);
+  background: white;
+  cursor: pointer;
+  font-size: 20px;
+  transition: all 0.15s;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.action-btn-round:active {
+  background: var(--surface);
+  transform: scale(0.95);
+}
+
+.action-btn-round .btn-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Text-Fallback */
+.chat-text-fallback {
+  padding: 8px 16px;
+}
+
+.text-fallback-hint {
+  text-align: center;
+  padding: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+}
+
+.text-fallback-hint:hover {
+  color: var(--accent);
+}
+
+.text-fallback-input {
+  padding-top: 4px;
+}
+
+/* ═══════════════════════════════════════════════════ */
+/* FLOATING ACTION BUTTON (FAB)                      */
+/* ═══════════════════════════════════════════════════ */
+
+.photo-fab {
+  position: fixed;
+  bottom: calc(var(--nav-h, 64px) + 16px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent, #E8A87C);
+  color: white;
+  font-size: 24px;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 90;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.photo-fab:active {
+  transform: scale(0.9);
+}
+
+/* Hide FAB when camera or fullscreen overlay is active */
+.camera-overlay[style*="flex"] ~ .photo-fab,
+.smart-photo-overlay[style*="flex"] ~ .photo-fab {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════ */
+/* SMART PHOTO OVERLAY & RESULT                      */
+/* ═══════════════════════════════════════════════════ */
+
+.smart-photo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.smart-photo-modal {
+  background: var(--bg, white);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.smart-photo-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.smart-photo-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.smart-photo-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.smart-photo-content {
+  padding: 20px;
+}
+
+.smart-photo-preview {
+  width: 100%;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  max-height: 200px;
+  object-fit: cover;
+}
+
+.smart-photo-location {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.smart-photo-items-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.smart-photo-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.smart-photo-item {
+  font-size: 14px;
+  padding: 4px 0;
+}
+
+.smart-photo-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  font-style: italic;
+}
+
+.smart-photo-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.smart-photo-btn {
+  flex: 1;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: white;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.smart-photo-btn:active {
+  transform: scale(0.97);
+}
+
+.smart-photo-btn.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.smart-photo-btn.primary:active {
+  background: var(--accent-dark);
+}
+
+.smart-photo-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════════ */
+/* SUGGESTIONS CHIPS (replaces old chat-suggestion)  */
+/* ═══════════════════════════════════════════════════ */
+
+.chat-suggestions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+.chat-suggestions::-webkit-scrollbar { display: none; }
+
+.chat-suggestions:empty { display: none; }
+
+.suggestion-chip {
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: white;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.suggestion-chip:active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════════════ */
+/* ONBOARDING: SIMPLIFIED FIRST PHOTO STEP           */
+/* ═══════════════════════════════════════════════════ */
+
+.onboarding-photo-result-text {
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  padding: 16px;
+  background: #f0fdf4;
+  border-radius: 12px;
+  margin: 16px 0;
+  color: var(--success, #4CAF50);
 }
