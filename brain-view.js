@@ -1,8 +1,8 @@
 // brain-view.js – Brain-Ansicht, Map-View, NFC-Context, Lightbox, Dialoge
 
-import Brain from './brain.js';
+import Brain, { calculateAutoLayout, calculateNeighborLayout } from './brain.js';
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
-import { showView, debugLog, ensureRoom, getNfcContext, setNfcContext, getCurrentView, escapeHTML } from './app.js';
+import { showView, debugLog, ensureRoom, getNfcContext, setNfcContext, getCurrentView, escapeHTML, normalizeRoomType } from './app.js';
 import { openCameraForContainer, showStagingOverlay, addFileToStaging, setStagingTarget } from './photo-flow.js';
 import { capturePhoto } from './camera.js';
 import { sendChatMessage } from './chat.js';
@@ -13,6 +13,51 @@ import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 import { showItemDetailPanel } from './item-detail.js';
 import { showWarrantyOverview, checkWarrantyBanner } from './warranty-view.js';
 import { calculateFreedomIndex, getQuickWins, getQuickDecision, getTasksForTimeSlot, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend } from './organizer.js';
+
+// ── Room Colors (type-based pastels) ──────────────────
+const ROOM_COLORS = {
+  kueche:        { bg: '#FFF3E0', border: '#FFB74D' },
+  bad:           { bg: '#E3F2FD', border: '#64B5F6' },
+  schlafzimmer:  { bg: '#F3E5F5', border: '#BA68C8' },
+  wohnzimmer:    { bg: '#FFF8E1', border: '#FFD54F' },
+  arbeitszimmer: { bg: '#E8EAF6', border: '#7986CB' },
+  kinderzimmer:  { bg: '#E8F5E9', border: '#81C784' },
+  flur:          { bg: '#EFEBE9', border: '#A1887F' },
+  keller:        { bg: '#ECEFF1', border: '#90A4AE' },
+  abstellraum:   { bg: '#F5F5F5', border: '#BDBDBD' },
+  garage:        { bg: '#ECEFF1', border: '#78909C' },
+  esszimmer:     { bg: '#FFF8E1', border: '#FFCA28' },
+  ankleide:      { bg: '#FCE4EC', border: '#F48FB1' },
+  dachboden:     { bg: '#EFEBE9', border: '#BCAAA4' },
+  garten:        { bg: '#E8F5E9', border: '#66BB6A' },
+  gaestezimmer:  { bg: '#F3E5F5', border: '#CE93D8' },
+  sonstiges:     { bg: '#F5F0EB', border: '#D4C5B5' },
+  default:       { bg: '#F5F0EB', border: '#D4C5B5' },
+};
+
+function getRoomColor(roomIdOrName) {
+  const normalized = normalizeRoomType(roomIdOrName);
+  return ROOM_COLORS[normalized] || ROOM_COLORS.default;
+}
+
+function getRoomFreshness(room) {
+  let latestUpdate = 0;
+  function scanContainers(containers) {
+    for (const c of Object.values(containers || {})) {
+      const updated = c.last_updated || 0;
+      if (updated > latestUpdate) latestUpdate = updated;
+      if (c.containers) scanContainers(c.containers);
+    }
+  }
+  scanContainers(room.containers);
+
+  if (latestUpdate === 0) return { cls: 'stale', label: 'Noch nie aktualisiert' };
+
+  const daysSince = (Date.now() - latestUpdate) / (1000 * 60 * 60 * 24);
+  if (daysSince < 30) return { cls: 'fresh', label: `Vor ${Math.round(daysSince)} Tagen` };
+  if (daysSince < 180) return { cls: 'aging', label: `Vor ${Math.round(daysSince / 30)} Monaten` };
+  return { cls: 'stale', label: `Vor ${Math.round(daysSince / 30)} Monaten` };
+}
 
 // ── State ──────────────────────────────────────────────
 let brainViewMode = localStorage.getItem('ordo_view_mode') || 'list';
@@ -55,7 +100,17 @@ function setupBrain() {
 
   // Observer: auto-refresh brain view when data changes
   Brain.on('dataChanged', () => {
-    if (getCurrentView() === 'brain') renderBrainView();
+    if (getCurrentView() === 'brain') {
+      if (brainViewMode === 'map') {
+        // Only re-render overview, not if we're in room detail
+        const mapEl = document.getElementById('brain-map');
+        if (mapEl && !mapEl.querySelector('.map-room-detail')) {
+          renderMapView();
+        }
+      } else {
+        renderBrainView();
+      }
+    }
   });
 
   // Observer: AI actions trigger a brain view refresh
@@ -1241,8 +1296,9 @@ function renderMapView() {
   mapEl.innerHTML = '';
 
   const rooms = Brain.getRooms();
+  const roomIds = Object.keys(rooms);
 
-  if (Object.keys(rooms).length === 0) {
+  if (roomIds.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'map-empty-state';
     empty.textContent = 'Noch keine Räume angelegt. Starte mit einem Foto!';
@@ -1250,16 +1306,27 @@ function renderMapView() {
     return;
   }
 
+  // Calculate layout (neighbor-based if available, else grid)
+  const hasNeighbors = roomIds.some(id => rooms[id].spatial?.neighbors?.length > 0);
+  const layout = hasNeighbors ? calculateNeighborLayout(rooms) : calculateAutoLayout(rooms);
+
   const grid = document.createElement('div');
   grid.className = 'map-grid';
   grid.id = 'map-grid';
 
+  // Long-press state for context menu
+  let longPressTimer = null;
+
   for (const [roomId, room] of Object.entries(rooms)) {
+    const color = getRoomColor(roomId);
+    const freshness = getRoomFreshness(room);
+    const itemCount = countRoomItems(room);
+
     const cell = document.createElement('div');
-    const typeClass = getRoomTypeClass(roomId, room.name);
-    const freshClass = getFreshnessClass(room.last_updated);
-    cell.className = `map-room-cell map-room-cell--${typeClass} map-room-cell--${freshClass}`;
+    cell.className = 'map-room-cell';
     cell.dataset.roomId = roomId;
+    cell.style.background = color.bg;
+    cell.style.borderColor = color.border;
 
     const emoji = document.createElement('div');
     emoji.className = 'map-room-emoji';
@@ -1269,17 +1336,33 @@ function renderMapView() {
     name.className = 'map-room-name';
     name.textContent = room.name;
 
-    const itemCount = countRoomItems(room);
-    const containerCount = Brain.countContainers(room.containers);
     const count = document.createElement('div');
     count.className = 'map-room-count';
-    count.textContent = `${containerCount} Bereiche · ${itemCount} Dinge`;
+    count.textContent = `${itemCount} Items`;
+
+    const dot = document.createElement('span');
+    dot.className = `map-freshness ${freshness.cls}`;
+    dot.title = freshness.label;
 
     cell.appendChild(emoji);
     cell.appendChild(name);
     cell.appendChild(count);
+    cell.appendChild(dot);
 
+    // Tap to zoom
     cell.addEventListener('click', () => handleMapRoomClick(roomId, cell));
+
+    // Long-press for context menu
+    cell.addEventListener('pointerdown', (e) => {
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        e.preventDefault();
+        showRoomContextMenu(roomId);
+      }, 600);
+    });
+    cell.addEventListener('pointerup', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+    cell.addEventListener('pointerleave', () => { if (longPressTimer) clearTimeout(longPressTimer); });
+
     grid.appendChild(cell);
 
     // Async: load newest container photo as background
@@ -1287,6 +1370,16 @@ function renderMapView() {
   }
 
   mapEl.appendChild(grid);
+
+  // Legend
+  const legend = document.createElement('div');
+  legend.className = 'map-legend';
+  legend.innerHTML = `
+    <span><span class="map-legend-dot" style="background:#2ecc71"></span> Frisch</span>
+    <span><span class="map-legend-dot" style="background:#f39c12"></span> &gt;1 Monat</span>
+    <span><span class="map-legend-dot" style="background:#bdc3c7"></span> &gt;6 Monate</span>
+  `;
+  mapEl.appendChild(legend);
 }
 
 // Find the newest photo among all containers in a room, load it as background
@@ -1331,18 +1424,48 @@ async function loadRoomPreviewPhoto(roomId, room, cell) {
   }
 }
 
-// Animated transition from room grid to room detail
+// Animated zoom transition from room grid to room detail
 function handleMapRoomClick(roomId, clickedCell) {
   const grid = document.getElementById('map-grid');
   if (!grid) return renderMapRoomDetail(roomId);
 
-  // Mark clicked cell and fade siblings
+  // Get cell position for zoom animation
+  const rect = clickedCell.getBoundingClientRect();
+  const color = clickedCell.style.background || '#F5F0EB';
+
+  // Create zoom transition overlay
+  const transition = document.createElement('div');
+  transition.className = 'map-zoom-transition';
+  transition.style.top = `${rect.top}px`;
+  transition.style.left = `${rect.left}px`;
+  transition.style.width = `${rect.width}px`;
+  transition.style.height = `${rect.height}px`;
+  transition.style.background = color;
+  document.body.appendChild(transition);
+
+  // Also fade siblings
   clickedCell.classList.add('map-room-cell--zooming');
   for (const cell of grid.children) {
     if (cell !== clickedCell) cell.classList.add('map-room-cell--fading');
   }
 
-  setTimeout(() => renderMapRoomDetail(roomId), 220);
+  // Animate to fullscreen
+  requestAnimationFrame(() => {
+    transition.classList.add('expanding');
+
+    transition.addEventListener('transitionend', () => {
+      transition.remove();
+      renderMapRoomDetail(roomId);
+    }, { once: true });
+
+    // Safety fallback if transitionend doesn't fire
+    setTimeout(() => {
+      if (transition.isConnected) {
+        transition.remove();
+        renderMapRoomDetail(roomId);
+      }
+    }, 500);
+  });
 }
 
 function renderMapRoomDetail(roomId) {
@@ -1351,29 +1474,48 @@ function renderMapRoomDetail(roomId) {
   const room = Brain.getRoom(roomId);
   if (!room) return;
 
+  // Register as overlay for back-button support
+  if (!requestOverlay('map-room-detail', 40, () => backToMapOverview())) return;
+
+  // History entry for browser back button
+  history.pushState({ view: 'map-room', roomId }, '');
+
   mapEl.innerHTML = '';
 
   const detail = document.createElement('div');
   detail.className = 'map-room-detail';
 
-  // Header with back button
+  // Header with back button and camera
   const header = document.createElement('div');
-  header.className = 'map-detail-header';
+  header.className = 'map-room-detail-header';
 
   const backBtn = document.createElement('button');
   backBtn.className = 'map-back-btn';
-  backBtn.textContent = '← Zurück';
+  backBtn.textContent = '←';
+  backBtn.title = 'Zurück zur Übersicht';
   backBtn.addEventListener('click', () => {
-    detail.classList.add('map-room-detail--exiting');
-    setTimeout(() => renderMapView(), 200);
+    backToMapOverview();
   });
 
   const title = document.createElement('span');
-  title.className = 'map-detail-title';
-  title.textContent = `${room.emoji} ${room.name}`;
+  title.className = 'map-room-detail-title';
+  title.textContent = `${room.emoji || '🏠'} ${room.name}`;
+
+  const roomCamBtn = document.createElement('button');
+  roomCamBtn.className = 'map-back-btn';
+  roomCamBtn.textContent = '📷';
+  roomCamBtn.title = 'Neues Foto';
+  roomCamBtn.addEventListener('click', () => {
+    // Open camera targeting this room's first container or room itself
+    const containers = Brain.getOrderedContainers(roomId);
+    if (containers.length > 0) {
+      openCameraForContainer(roomId, containers[0][0]);
+    }
+  });
 
   header.appendChild(backBtn);
   header.appendChild(title);
+  header.appendChild(roomCamBtn);
   detail.appendChild(header);
 
   const containers = Brain.getOrderedContainers(roomId);
@@ -1383,81 +1525,88 @@ function renderMapRoomDetail(roomId) {
     empty.textContent = 'Noch keine Bereiche erfasst.';
     detail.appendChild(empty);
   } else {
-    const grid = document.createElement('div');
-    grid.className = 'map-container-grid';
+    const containerGrid = document.createElement('div');
+    containerGrid.className = 'map-container-grid';
 
     for (const [cId, c] of containers) {
       const tile = document.createElement('div');
-      const freshClass = getFreshnessClass(c.last_updated);
-      tile.className = `map-container-tile map-container-tile--${freshClass}`;
+      tile.className = 'map-container-tile';
       tile.dataset.containerId = cId;
+      tile.dataset.roomId = roomId;
       tile.dataset.dropRoom = roomId;
       tile.dataset.dropContainer = cId;
 
-      // Photo area (top half) or emoji fallback
-      const photoArea = document.createElement('div');
-      photoArea.className = 'map-container-photo-area';
+      // Thumbnail area
+      const thumbContainer = document.createElement('div');
+      thumbContainer.className = 'tile-thumb-container';
 
       if (c.has_photo || c.photo_history?.length > 0) {
         const thumb = document.createElement('img');
-        thumb.className = 'map-container-thumb';
+        thumb.className = 'tile-thumb';
         thumb.alt = c.name;
+        // Async photo load
         (async () => {
           try {
             const photoKey = Brain.getLatestPhotoKey(roomId, cId);
             let blob = await Brain.getPhoto(photoKey);
             if (!blob) blob = await Brain.getPhoto(`${roomId}_${cId}`);
-            if (blob) thumb.src = URL.createObjectURL(blob);
+            if (blob && thumb.isConnected) {
+              const url = URL.createObjectURL(blob);
+              thumb.src = url;
+              thumb.onload = () => URL.revokeObjectURL(url);
+            }
           } catch (err) { debugLog(`Map-Thumbnail laden fehlgeschlagen: ${err.message}`); }
         })();
-        photoArea.appendChild(thumb);
+        thumbContainer.appendChild(thumb);
       } else {
-        const emojiDiv = document.createElement('div');
-        emojiDiv.className = 'map-container-emoji';
-        emojiDiv.textContent = getContainerTypeEmoji(c.typ);
-        photoArea.appendChild(emojiDiv);
+        const placeholder = document.createElement('div');
+        placeholder.className = 'tile-thumb-placeholder';
+        placeholder.textContent = getContainerTypeEmoji(c.typ);
+        thumbContainer.appendChild(placeholder);
       }
-      tile.appendChild(photoArea);
+      tile.appendChild(thumbContainer);
 
-      // Info area (bottom half)
+      // Info area
       const info = document.createElement('div');
-      info.className = 'map-container-info';
+      info.className = 'tile-info';
 
-      const name = document.createElement('div');
-      name.className = 'map-container-name';
-      name.textContent = c.name;
+      const nameEl = document.createElement('div');
+      nameEl.className = 'tile-name';
+      nameEl.textContent = c.name;
 
       const itemCount = (c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert').length;
       const meta = document.createElement('div');
-      meta.className = 'map-container-meta';
-      const parts = [`${itemCount} Dinge`];
-      if (c.last_updated) parts.push(Brain.formatDate(c.last_updated));
+      meta.className = 'tile-meta';
+      const parts = [`${itemCount} Items`];
+      if (c.last_updated) {
+        parts.push(Brain.formatDate(c.last_updated));
+      } else {
+        parts.push('nie fotografiert');
+      }
       meta.textContent = parts.join(' · ');
 
-      info.appendChild(name);
+      info.appendChild(nameEl);
       info.appendChild(meta);
       tile.appendChild(info);
 
-      // Camera button (Aufgabe 5)
+      // Camera button
       const camBtn = document.createElement('button');
-      camBtn.className = 'map-container-cam-btn';
-      if (c.has_photo || c.photo_history?.length > 0) {
-        camBtn.textContent = '📷';
-        camBtn.title = 'Neues Foto machen';
-      } else {
-        camBtn.textContent = '📷';
-        camBtn.title = 'Erstes Foto machen';
-        camBtn.classList.add('map-container-cam-btn--cta');
-      }
+      camBtn.className = 'tile-photo-btn';
+      camBtn.dataset.containerId = cId;
+      camBtn.dataset.roomId = roomId;
+      camBtn.textContent = '📷';
+      camBtn.title = c.has_photo ? 'Neues Foto' : 'Erstes Foto machen';
       camBtn.addEventListener('click', e => {
         e.stopPropagation();
         openCameraForContainer(roomId, cId);
       });
       tile.appendChild(camBtn);
 
+      // Tap on container → switch to list view with container open
       tile.addEventListener('click', () => {
-        if (dragState) return; // Don't navigate during drag
-        // Switch to list view and navigate to container
+        if (dragState) return;
+        backToMapOverview();
+        // Switch to list view
         brainViewMode = 'list';
         localStorage.setItem('ordo_view_mode', 'list');
         const toggle = document.getElementById('brain-view-toggle');
@@ -1473,14 +1622,114 @@ function renderMapRoomDetail(roomId) {
       });
 
       // Container reorder drag (map view only)
-      setupContainerTileDrag(tile, roomId, cId, grid);
+      setupContainerTileDrag(tile, roomId, cId, containerGrid);
 
-      grid.appendChild(tile);
+      containerGrid.appendChild(tile);
     }
-    detail.appendChild(grid);
+    detail.appendChild(containerGrid);
   }
 
+  // Room footer with organizer info
+  try {
+    const data = Brain.getData();
+    const freedomIndex = calculateFreedomIndex(data);
+    const quickWins = getQuickWins(data);
+    const roomQuickWins = quickWins.filter(qw => qw.roomId === roomId);
+
+    if (freedomIndex || roomQuickWins.length > 0) {
+      const footer = document.createElement('div');
+      footer.className = 'map-room-footer';
+      const parts = [];
+      if (freedomIndex) parts.push(`🧠 Kopf-Freiheits-Index: ${freedomIndex.percent}%`);
+      if (roomQuickWins.length > 0) parts.push(`${room.name}: ${roomQuickWins.length} Quick Wins verfügbar`);
+      footer.textContent = parts.join('\n');
+      detail.appendChild(footer);
+    }
+  } catch (e) { /* organizer info is optional */ }
+
   mapEl.appendChild(detail);
+}
+
+function backToMapOverview() {
+  releaseOverlay('map-room-detail');
+  const mapEl = document.getElementById('brain-map');
+  if (mapEl) {
+    const detail = mapEl.querySelector('.map-room-detail');
+    if (detail) {
+      detail.classList.add('map-room-detail--exiting');
+      setTimeout(() => renderMapView(), 200);
+      return;
+    }
+  }
+  renderMapView();
+}
+
+function showRoomContextMenu(roomId) {
+  const room = Brain.getRoom(roomId);
+  if (!room) return;
+
+  const actions = [
+    { label: '✏️ Raum umbenennen', action: () => {
+      showInputModal('Raum umbenennen', room.name, (newName) => {
+        if (newName && newName.trim()) {
+          Brain.renameRoom(roomId, newName.trim());
+          renderMapView();
+        }
+      });
+    }},
+    { label: '😀 Emoji ändern', action: () => {
+      showInputModal('Emoji wählen', room.emoji || '🏠', (newEmoji) => {
+        if (newEmoji && newEmoji.trim()) {
+          Brain.renameRoom(roomId, room.name, newEmoji.trim());
+          renderMapView();
+        }
+      });
+    }},
+    { label: '📷 Raum fotografieren', action: () => {
+      const containers = Brain.getOrderedContainers(roomId);
+      if (containers.length > 0) {
+        openCameraForContainer(roomId, containers[0][0]);
+      }
+    }},
+    { label: '🧹 Aufräum-Check', action: () => {
+      startCleanupQuest(roomId);
+    }},
+  ];
+
+  // Build simple action sheet
+  const overlay = document.createElement('div');
+  overlay.className = 'map-context-overlay';
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  const sheet = document.createElement('div');
+  sheet.className = 'map-context-sheet';
+
+  const sheetTitle = document.createElement('div');
+  sheetTitle.className = 'map-context-title';
+  sheetTitle.textContent = `${room.emoji || '🏠'} ${room.name}`;
+  sheet.appendChild(sheetTitle);
+
+  for (const item of actions) {
+    const btn = document.createElement('button');
+    btn.className = 'map-context-action';
+    btn.textContent = item.label;
+    btn.addEventListener('click', () => {
+      overlay.remove();
+      item.action();
+    });
+    sheet.appendChild(btn);
+  }
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'map-context-action map-context-cancel';
+  cancelBtn.textContent = 'Abbrechen';
+  cancelBtn.addEventListener('click', () => overlay.remove());
+  sheet.appendChild(cancelBtn);
+
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
 }
 
 // ── BREADCRUMB NAVIGATION ──────────────────────────────

@@ -46,6 +46,8 @@ let modifiedBrainCode = stripModuleSyntax(brainCode);
 modifiedBrainCode = modifiedBrainCode.replace(/\bconst (Brain|STORAGE_KEY|PHOTO_DB_NAME|PHOTO_DB_VERSION|PHOTO_STORE)\b/g, 'var $1');
 vm.runInContext(modifiedBrainCode, context);
 const Brain = context.Brain;
+const calculateAutoLayout = context.calculateAutoLayout;
+const calculateNeighborLayout = context.calculateNeighborLayout;
 
 // ── Hilfsfunktionen ─────────────────────────────────────
 function resetBrain() {
@@ -1624,6 +1626,122 @@ describe('Brain Observer (on/off/_emit)', () => {
     assert(secondCalled, 'Zweiter Listener sollte trotz Fehler im ersten aufgerufen werden');
     Brain.off('testErr', badCb);
     Brain.off('testErr', goodCb);
+  });
+});
+
+// ── Spatial Layout Tests ────────────────────────────────
+describe('calculateAutoLayout', () => {
+  it('gibt leeres Objekt für leere Räume', () => {
+    const result = calculateAutoLayout({});
+    assertDeepEqual(result, {});
+  });
+
+  it('berechnet Grid-Layout für 1 Raum', () => {
+    const rooms = { kueche: { name: 'Küche' } };
+    const layout = calculateAutoLayout(rooms);
+    assert(layout.kueche, 'kueche sollte im Layout sein');
+    assertEqual(layout.kueche.x, 0);
+    assertEqual(layout.kueche.y, 0);
+    assertEqual(layout.kueche.w, 1);
+    assertEqual(layout.kueche.h, 1);
+  });
+
+  it('berechnet Grid-Layout für 4 Räume (2x2)', () => {
+    const rooms = {
+      kueche: { name: 'Küche' },
+      bad: { name: 'Bad' },
+      wohnzimmer: { name: 'Wohnzimmer' },
+      schlafzimmer: { name: 'Schlafzimmer' }
+    };
+    const layout = calculateAutoLayout(rooms);
+    assertEqual(Object.keys(layout).length, 4);
+    // 4 rooms → ceil(sqrt(4)) = 2 cols
+    assertEqual(layout.kueche.x, 0);
+    assertEqual(layout.kueche.y, 0);
+    assertEqual(layout.bad.x, 1.2);
+    assertEqual(layout.bad.y, 0);
+    assertEqual(layout.wohnzimmer.x, 0);
+    assertEqual(layout.wohnzimmer.y, 1.2);
+    assertEqual(layout.schlafzimmer.x, 1.2);
+    assertEqual(layout.schlafzimmer.y, 1.2);
+  });
+
+  it('begrenzt Spalten auf maximal 3', () => {
+    const rooms = {};
+    for (let i = 0; i < 10; i++) rooms[`room${i}`] = { name: `Room ${i}` };
+    const layout = calculateAutoLayout(rooms);
+    // Max 3 cols → x values should only be 0, 1.2, 2.4
+    const xValues = new Set(Object.values(layout).map(l => l.x));
+    assert(xValues.size <= 3, 'Maximal 3 verschiedene x-Werte');
+  });
+});
+
+describe('calculateNeighborLayout', () => {
+  it('fällt auf Grid-Layout zurück wenn keine Nachbarn', () => {
+    const rooms = { kueche: { name: 'Küche' }, bad: { name: 'Bad' } };
+    const layout = calculateNeighborLayout(rooms);
+    assertEqual(Object.keys(layout).length, 2);
+    assert(layout.kueche, 'kueche sollte im Layout sein');
+    assert(layout.bad, 'bad sollte im Layout sein');
+  });
+
+  it('platziert Nachbarn nebeneinander', () => {
+    const rooms = {
+      kueche: { name: 'Küche', spatial: { neighbors: ['flur'] } },
+      flur: { name: 'Flur', spatial: { neighbors: ['kueche'] } }
+    };
+    const layout = calculateNeighborLayout(rooms);
+    assertEqual(Object.keys(layout).length, 2);
+    // Should be adjacent (distance should be 1.2 in x or y)
+    const dx = Math.abs(layout.kueche.x - layout.flur.x);
+    const dy = Math.abs(layout.kueche.y - layout.flur.y);
+    assert(dx <= 1.2 && dy <= 1.2, 'Nachbarn sollten nebeneinander liegen');
+  });
+});
+
+describe('Spatial Data Methods', () => {
+  it('getRoomSpatial gibt null wenn kein Raum', () => {
+    resetBrain();
+    const result = Brain.getRoomSpatial('nix');
+    assertEqual(result, null);
+  });
+
+  it('getRoomSpatial gibt null wenn keine Position gesetzt', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    const result = Brain.getRoomSpatial('kueche');
+    assertEqual(result, null);
+  });
+
+  it('setRoomPosition setzt Position korrekt', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    const success = Brain.setRoomPosition('kueche', 2.5, 3.0);
+    assert(success, 'setRoomPosition sollte true zurückgeben');
+    const spatial = Brain.getRoomSpatial('kueche');
+    assertDeepEqual(spatial.position, { x: 2.5, y: 3.0 });
+  });
+
+  it('setRoomPosition gibt false für unbekannten Raum', () => {
+    resetBrain();
+    const result = Brain.setRoomPosition('nope', 1, 1);
+    assertEqual(result, false);
+  });
+
+  it('setRoomSize setzt Größe korrekt', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.setRoomSize('kueche', 4.5, 3.2);
+    const room = Brain.getRoom('kueche');
+    assertDeepEqual(room.spatial.size, { w: 4.5, h: 3.2 });
+  });
+
+  it('setRoomNeighbors setzt Nachbarn korrekt', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.setRoomNeighbors('kueche', ['flur', 'wohnzimmer']);
+    const room = Brain.getRoom('kueche');
+    assertDeepEqual(room.spatial.neighbors, ['flur', 'wohnzimmer']);
   });
 });
 
