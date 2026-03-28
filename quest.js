@@ -366,6 +366,17 @@ function setupQuestHooks() {
     if (detail.roomId !== quest.current_step.room_id || detail.containerId !== quest.current_step.container_id) return;
     completeCurrentStep(detail.itemsCount || 0);
   });
+
+  // Observer: check quest progress when items are added via Brain
+  Brain.on('itemAdded', ({ roomId, containerId }) => {
+    if (!quest?.active || !quest.current_step) return;
+    if (roomId === quest.current_step.room_id && containerId === quest.current_step.container_id) {
+      // Item was added to the current quest step container
+      const c = Brain.getContainer(roomId, containerId);
+      const itemCount = c?.items?.length || 0;
+      completeCurrentStep(itemCount);
+    }
+  });
 }
 
 function saveQuest() {

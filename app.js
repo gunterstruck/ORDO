@@ -2,7 +2,7 @@
 
 import Brain from './brain.js';
 import { setupChat, initChat, maybeShowChatSuggestions } from './chat.js';
-import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, renderRoomDropdown, applyNfcContextToPhotoView } from './photo-flow.js';
+import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, renderRoomDropdown, applyNfcContextToPhotoView, setupOfflineQueue } from './photo-flow.js';
 import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay, checkWarrantyBanner } from './brain-view.js';
 import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
@@ -141,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupMoveContainerOverlay();
   setupNfcContextView();
   setupCamera();
+  setupOfflineQueue();
   loadQuest();
 
   if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {

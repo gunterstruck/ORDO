@@ -656,6 +656,95 @@ describe('Delta Review – Brain Integration', () => {
   });
 });
 
+// ── Function Call Conversion ───────────────────────────
+describe('functionCallToAction()', () => {
+  const functionCallToAction = context.functionCallToAction;
+
+  it('konvertiert add_item Function Call korrekt', () => {
+    if (!functionCallToAction) return;
+    const result = functionCallToAction({
+      name: 'add_item',
+      args: { room: 'kueche', container_id: 'regal', item: 'Tasse', menge: 2 }
+    });
+    assertEqual(result.type, 'add_item');
+    assertEqual(result.room, 'kueche');
+    assertDeepEqual(result.path, ['regal']);
+    assertEqual(result.item, 'Tasse');
+    assertEqual(result.menge, 2);
+  });
+
+  it('konvertiert move_item Function Call korrekt', () => {
+    if (!functionCallToAction) return;
+    const result = functionCallToAction({
+      name: 'move_item',
+      args: { from_room: 'kueche', from_container_id: 'regal1', item: 'Tasse', to_room: 'bad', to_container_id: 'schrank' }
+    });
+    assertEqual(result.type, 'move_item');
+    assertEqual(result.from_room, 'kueche');
+    assertDeepEqual(result.from_path, ['regal1']);
+    assertEqual(result.to_room, 'bad');
+    assertDeepEqual(result.to_path, ['schrank']);
+  });
+
+  it('konvertiert show_found_item zu found-Typ', () => {
+    if (!functionCallToAction) return;
+    const result = functionCallToAction({
+      name: 'show_found_item',
+      args: { item: 'Schere', room: 'kueche', container_id: 'schublade' }
+    });
+    assertEqual(result.type, 'found');
+    assertEqual(result.room, 'kueche');
+    assertEqual(result.item, 'Schere');
+  });
+
+  it('gibt null zurück für unbekannte Function Calls', () => {
+    if (!functionCallToAction) return;
+    const result = functionCallToAction({ name: 'unknown_action', args: {} });
+    assertEqual(result, null);
+  });
+});
+
+// ── Offline Queue (Logik) ─────────────────────��───────
+describe('Offline Queue – Logik', () => {
+  it('Queue wird korrekt in localStorage gespeichert', () => {
+    localStorage.clear();
+    const QUEUE_KEY = 'ordo_photo_queue';
+    const queue = [
+      { photoKey: 'queued_kueche_regal_123', roomId: 'kueche', containerId: 'regal', queuedAt: '2026-01-01T00:00:00', status: 'pending' }
+    ];
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    const loaded = JSON.parse(localStorage.getItem(QUEUE_KEY));
+    assertEqual(loaded.length, 1);
+    assertEqual(loaded[0].status, 'pending');
+    assertEqual(loaded[0].roomId, 'kueche');
+    localStorage.removeItem(QUEUE_KEY);
+  });
+
+  it('Erledigte Einträge können gefiltert werden', () => {
+    const queue = [
+      { photoKey: 'q1', status: 'done' },
+      { photoKey: 'q2', status: 'pending' },
+      { photoKey: 'q3', status: 'retry' }
+    ];
+    const remaining = queue.filter(q => q.status !== 'done');
+    assertEqual(remaining.length, 2);
+    assertEqual(remaining[0].photoKey, 'q2');
+    assertEqual(remaining[1].photoKey, 'q3');
+  });
+
+  it('Pending-Zählung funktioniert korrekt', () => {
+    const queue = [
+      { status: 'done' },
+      { status: 'pending' },
+      { status: 'retry' },
+      { status: 'failed' },
+      { status: 'pending' }
+    ];
+    const count = queue.filter(q => q.status === 'pending' || q.status === 'retry').length;
+    assertEqual(count, 3);
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

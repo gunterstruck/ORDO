@@ -180,6 +180,16 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
     return;
   }
 
+  // Offline: queue photo for later analysis
+  if (!navigator.onLine) {
+    const containerId = targetContainerId || (document.getElementById('photo-custom-name').value.trim() ? Brain.slugify(document.getElementById('photo-custom-name').value.trim()) : 'inhalt');
+    const blob = file instanceof Blob ? file : new Blob([file], { type: 'image/jpeg' });
+    await queuePhotoForAnalysis(blob, roomId, containerId);
+    const count = getQueueLength();
+    showPhotoStatus(`📷 Foto gespeichert. Die Analyse wird nachgeholt sobald du wieder Internet hast. (${count} Foto${count > 1 ? 's' : ''} in der Warteschlange)`, 'success');
+    return;
+  }
+
   const customName = targetContainerId
     ? (Brain.getContainer(roomId, targetContainerId)?.name || '')
     : document.getElementById('photo-custom-name').value.trim();
@@ -197,7 +207,7 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
       preview.style.display = 'block';
     }
 
-    showPhotoStatus('Analysiere Foto…', 'loading');
+    startAnalysisAnimation();
 
     try {
       // Ensure room exists
@@ -339,18 +349,22 @@ Regeln:
             Brain.addContainer(roomId, primaryContainerId, containerName, 'sonstiges', [], true);
           }
           showPickingView(roomId, primaryContainerId, photoDataUrl, hotspotsData);
+          stopAnalysisAnimation();
           document.getElementById('photo-status').style.display = 'none';
         } catch {
           // Fallback: old behavior with chat follow-up questions
+          stopAnalysisAnimation();
           processPhotoAnalysisResult(roomId, analysis);
           showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
           renderBrainView();
         }
       } else {
+        stopAnalysisAnimation();
         showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
         renderBrainView();
       }
     } catch (err) {
+      stopAnalysisAnimation();
       showPhotoStatus(getErrorMessage(err), 'error');
     }
   };
@@ -362,6 +376,34 @@ function showPhotoStatus(msg, type) {
   el.textContent = msg;
   el.className = `photo-status photo-status--${type}`;
   el.style.display = 'block';
+}
+
+// ── Rotating Analysis Messages ────────────────────────
+const PHOTO_ANALYSIS_MESSAGES = [
+  'Ich schaue mir das Foto an…',
+  'Gegenstände werden erkannt…',
+  'Gleich hab ich alles…',
+  'Positionen werden bestimmt…',
+  'Fast fertig – ich sortiere die Ergebnisse…'
+];
+
+let _analysisInterval = null;
+
+function startAnalysisAnimation() {
+  stopAnalysisAnimation();
+  let i = 0;
+  showPhotoStatus(PHOTO_ANALYSIS_MESSAGES[0], 'loading');
+  _analysisInterval = setInterval(() => {
+    i++;
+    showPhotoStatus(PHOTO_ANALYSIS_MESSAGES[i % PHOTO_ANALYSIS_MESSAGES.length], 'loading');
+  }, 2500);
+}
+
+function stopAnalysisAnimation() {
+  if (_analysisInterval) {
+    clearInterval(_analysisInterval);
+    _analysisInterval = null;
+  }
 }
 
 // ── PHOTO ANALYSIS CONFIDENCE PROCESSING ──────────────
@@ -1558,6 +1600,107 @@ async function openCameraForContainer(roomId, cId) {
 
 function setStagingTarget(val) { stagingTarget = val; }
 
+// ── Offline Photo Queue ───────────────────────────────
+const QUEUE_KEY = 'ordo_photo_queue';
+
+async function queuePhotoForAnalysis(blob, roomId, containerId) {
+  const photoKey = `queued_${roomId}_${containerId}_${Date.now()}`;
+  await Brain.savePhoto(photoKey, blob);
+
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  queue.push({
+    photoKey,
+    roomId,
+    containerId,
+    queuedAt: new Date().toISOString(),
+    status: 'pending'
+  });
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  updateQueueBadge();
+  return photoKey;
+}
+
+function getQueueLength() {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  return queue.filter(q => q.status === 'pending' || q.status === 'retry').length;
+}
+
+function updateQueueBadge() {
+  let badge = document.getElementById('offline-queue-badge');
+  const count = getQueueLength();
+  if (count === 0) {
+    if (badge) badge.style.display = 'none';
+    return;
+  }
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'offline-queue-badge';
+    badge.className = 'offline-queue-badge';
+    document.body.appendChild(badge);
+  }
+  badge.textContent = `📶 ${count} Foto${count > 1 ? 's' : ''} warte${count > 1 ? 'n' : 't'} auf Analyse`;
+  badge.style.display = 'block';
+}
+
+async function processQueue() {
+  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  const pending = queue.filter(q => q.status === 'pending' || q.status === 'retry');
+
+  if (pending.length === 0) return;
+  if (!navigator.onLine) return;
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) return;
+
+  let doneCount = 0;
+
+  for (const entry of pending) {
+    try {
+      const blob = await Brain.getPhoto(entry.photoKey);
+      if (!blob) {
+        entry.status = 'failed';
+        continue;
+      }
+
+      const base64 = await blobToBase64(blob);
+      // Run the normal photo analysis flow
+      await handlePhotoFile(new File([blob], 'queued.jpg', { type: 'image/jpeg' }), entry.roomId, entry.containerId);
+
+      entry.status = 'done';
+      doneCount++;
+
+      // Remove temporary queue photo
+      await Brain.deletePhoto(entry.photoKey);
+    } catch (err) {
+      console.warn('Queue processing failed:', err);
+      entry.status = 'retry';
+    }
+  }
+
+  // Update queue: remove completed entries
+  const remaining = queue.filter(q => q.status !== 'done');
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+  updateQueueBadge();
+
+  if (doneCount > 0) {
+    showToast(`${doneCount} Foto${doneCount > 1 ? 's' : ''} nachträglich analysiert`, 'success');
+  }
+}
+
+function setupOfflineQueue() {
+  // Process queue on app start (delayed)
+  setTimeout(processQueue, 3000);
+
+  // Process queue when back online
+  window.addEventListener('online', () => {
+    showToast('Wieder online', 'success');
+    setTimeout(processQueue, 1000);
+  });
+
+  // Show badge on load
+  updateQueueBadge();
+}
+
 // ── Exports ────────────────────────────────────────────
 export {
   setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay,
@@ -1565,5 +1708,6 @@ export {
   resizeImage, resizeImageForChat, blobToBase64,
   showStagingOverlay, closeStagingOverlay, addFileToStaging, showReviewPopup,
   openCameraForContainer, handlePhotoFile, showPhotoStatus,
-  setStagingTarget
+  setStagingTarget,
+  queuePhotoForAnalysis, processQueue, setupOfflineQueue, getQueueLength, updateQueueBadge
 };

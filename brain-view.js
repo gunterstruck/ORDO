@@ -46,6 +46,11 @@ function showBrainToast(msg) {
 }
 
 function setupBrain() {
+  // Observer: auto-refresh brain view when data changes
+  Brain.on('dataChanged', () => {
+    if (getCurrentView() === 'brain') renderBrainView();
+  });
+
   document.getElementById('brain-add-room').addEventListener('click', showAddRoomDialog);
   document.getElementById('brain-scan-rooms').addEventListener('click', startBlueprint);
   document.getElementById('brain-warranty-overview').addEventListener('click', showWarrantyOverview);

@@ -1517,6 +1517,116 @@ describe('Brain.getActiveWarranties()', () => {
   });
 });
 
+// ── Observer Pattern ───────────────────────────────────
+describe('Brain Observer (on/off/_emit)', () => {
+  it('on() registriert einen Listener und _emit() ruft ihn auf', () => {
+    resetBrain();
+    let called = false;
+    let receivedData = null;
+    const cb = (data) => { called = true; receivedData = data; };
+    Brain.on('testEvent', cb);
+    Brain._emit('testEvent', { foo: 'bar' });
+    assert(called, 'Callback sollte aufgerufen worden sein');
+    assertEqual(receivedData.foo, 'bar');
+    Brain.off('testEvent', cb);
+  });
+
+  it('off() entfernt einen Listener', () => {
+    resetBrain();
+    let count = 0;
+    const cb = () => { count++; };
+    Brain.on('testEvent2', cb);
+    Brain._emit('testEvent2');
+    assertEqual(count, 1);
+    Brain.off('testEvent2', cb);
+    Brain._emit('testEvent2');
+    assertEqual(count, 1, 'Callback sollte nach off() nicht mehr aufgerufen werden');
+  });
+
+  it('dataChanged wird bei save() gefeuert', () => {
+    resetBrain();
+    let fired = false;
+    const cb = () => { fired = true; };
+    Brain.on('dataChanged', cb);
+    Brain.addRoom('test_obs', 'Testraum', '🧪');
+    assert(fired, 'dataChanged sollte bei addRoom/save gefeuert werden');
+    Brain.off('dataChanged', cb);
+  });
+
+  it('itemAdded wird bei addItem() gefeuert', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'regal', 'Regal', 'regal');
+    let eventData = null;
+    const cb = (data) => { eventData = data; };
+    Brain.on('itemAdded', cb);
+    Brain.addItem('kueche', 'regal', 'Tasse');
+    assert(eventData !== null, 'itemAdded Event sollte gefeuert werden');
+    assertEqual(eventData.roomId, 'kueche');
+    assertEqual(eventData.containerId, 'regal');
+    assertEqual(eventData.item, 'Tasse');
+    Brain.off('itemAdded', cb);
+  });
+
+  it('itemRemoved wird bei removeItem() gefeuert', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🚿');
+    Brain.addContainer('bad', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('bad', 'schrank', 'Seife');
+    let eventData = null;
+    const cb = (data) => { eventData = data; };
+    Brain.on('itemRemoved', cb);
+    Brain.removeItem('bad', 'schrank', 'Seife');
+    assert(eventData !== null, 'itemRemoved Event sollte gefeuert werden');
+    assertEqual(eventData.item, 'Seife');
+    Brain.off('itemRemoved', cb);
+  });
+
+  it('itemMoved wird bei moveItem() gefeuert', () => {
+    resetBrain();
+    Brain.addRoom('wz', 'Wohnzimmer', '🛋️');
+    Brain.addContainer('wz', 'regal1', 'Regal 1', 'regal');
+    Brain.addContainer('wz', 'regal2', 'Regal 2', 'regal');
+    Brain.addItem('wz', 'regal1', 'Buch');
+    let eventData = null;
+    const cb = (data) => { eventData = data; };
+    Brain.on('itemMoved', cb);
+    Brain.moveItem('wz', 'regal1', 'regal2', 'Buch');
+    assert(eventData !== null, 'itemMoved Event sollte gefeuert werden');
+    assertEqual(eventData.fromContainerId, 'regal1');
+    assertEqual(eventData.toContainerId, 'regal2');
+    assertEqual(eventData.itemName, 'Buch');
+    Brain.off('itemMoved', cb);
+  });
+
+  it('itemArchived wird bei archiveItem() gefeuert', () => {
+    resetBrain();
+    Brain.addRoom('sz', 'Schlafzimmer', '🛏️');
+    Brain.addContainer('sz', 'kommode', 'Kommode', 'kommode');
+    Brain.addItem('sz', 'kommode', 'Socken');
+    let eventData = null;
+    const cb = (data) => { eventData = data; };
+    Brain.on('itemArchived', cb);
+    Brain.archiveItem('sz', 'kommode', 'Socken');
+    assert(eventData !== null, 'itemArchived Event sollte gefeuert werden');
+    assertEqual(eventData.itemName, 'Socken');
+    Brain.off('itemArchived', cb);
+  });
+
+  it('Fehler in Listener stoppt nicht andere Listener', () => {
+    resetBrain();
+    let secondCalled = false;
+    const badCb = () => { throw new Error('test error'); };
+    const goodCb = () => { secondCalled = true; };
+    Brain.on('testErr', badCb);
+    Brain.on('testErr', goodCb);
+    Brain._emit('testErr');
+    assert(secondCalled, 'Zweiter Listener sollte trotz Fehler im ersten aufgerufen werden');
+    Brain.off('testErr', badCb);
+    Brain.off('testErr', goodCb);
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

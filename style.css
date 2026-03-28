@@ -1862,9 +1862,26 @@ select.settings-input { appearance: none; }
 }
 
 /* ── Send Button Loading State ──────────────────── */
-#chat-send.sending {
+#chat-send.sending,
+.btn-loading {
   opacity: 0.5;
   pointer-events: none;
+}
+
+/* ── Offline Queue Badge ──────────────────────────── */
+.offline-queue-badge {
+  position: fixed;
+  bottom: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card, #2a2a2a);
+  color: var(--text-muted, #aaa);
+  border: 1px solid var(--border, #444);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 #ptr-indicator {
