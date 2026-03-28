@@ -536,73 +536,113 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
     return { role, parts };
   });
 
-  const apiUrl = `${API_BASE}/${model}:generateContent?key=${apiKey}`;
-  const requestBody = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
-    contents: geminiContents,
-    generationConfig: genConfig
-  };
+  // Retry with exponential backoff for 5xx/429 errors + model fallback
+  const MAX_RETRIES = 2;
+  const modelsToTry = [model];
+  // If using fast model, try pro as fallback on server errors
+  if (model === MODELS.fast) modelsToTry.push(MODELS.pro);
 
-  if (options.tools) {
-    requestBody.tools = [{ functionDeclarations: options.tools }];
-  }
+  for (const currentModel of modelsToTry) {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const apiUrl = `${API_BASE}/${currentModel}:generateContent?key=${apiKey}`;
+      const requestBody = {
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: geminiContents,
+        generationConfig: genConfig
+      };
 
-  let response;
-  try {
-    response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody)
-    });
-  } catch (fetchErr) {
-    debugLog(`NETZWERK-FEHLER: ${fetchErr.message}`);
-    throw fetchErr;
-  }
+      if (options.tools) {
+        requestBody.tools = [{ functionDeclarations: options.tools }];
+      }
 
-  debugLog(`HTTP Status: ${response.status} ${response.statusText}`);
+      let response;
+      try {
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+      } catch (fetchErr) {
+        debugLog(`NETZWERK-FEHLER: ${fetchErr.message}`);
+        if (attempt < MAX_RETRIES) {
+          const wait = Math.pow(2, attempt + 1) * 1000;
+          debugLog(`Retry ${attempt + 1}/${MAX_RETRIES} in ${wait / 1000}s…`);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        throw fetchErr;
+      }
 
-  if (!response.ok) {
-    const rawText = await response.text().catch(() => '');
-    debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
-    const err = new Error(
-      response.status === 429 ? 'quota' :
-      response.status === 403 ? 'api_key' :
-      response.status === 400 ? 'bad_request' :
-      `HTTP ${response.status}`
-    );
-    err.httpStatus = response.status;
-    err.responseBody = rawText.slice(0, 500);
-    throw err;
-  }
+      debugLog(`HTTP Status: ${response.status} ${response.statusText} (Modell: ${currentModel}, Versuch: ${attempt + 1})`);
 
-  const data = await response.json();
-  const candidate = data.candidates?.[0];
-  const finishReason = candidate?.finishReason ?? 'UNKNOWN';
-  if (finishReason === 'SAFETY') throw new Error('safety_block');
-  if (finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
+      if (!response.ok) {
+        const rawText = await response.text().catch(() => '');
+        debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
 
-  const parts = candidate?.content?.parts || [];
+        // Non-retryable errors – throw immediately
+        if (response.status === 403) { const e = new Error('api_key'); e.httpStatus = 403; e.responseBody = rawText.slice(0, 500); throw e; }
+        if (response.status === 400) { const e = new Error('bad_request'); e.httpStatus = 400; e.responseBody = rawText.slice(0, 500); throw e; }
 
-  logApiCall(options.taskType || 'chat', model, thinkingCfg, startTime);
+        // Retryable errors (5xx, 429) – retry with backoff
+        if (attempt < MAX_RETRIES && (response.status >= 500 || response.status === 429)) {
+          const wait = Math.pow(2, attempt + 1) * 1000;
+          debugLog(`${currentModel}: HTTP ${response.status} – Retry ${attempt + 1}/${MAX_RETRIES} in ${wait / 1000}s…`);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
 
-  // If function calling is enabled, return structured response
-  if (options.tools) {
-    const textParts = [];
-    const functionCalls = [];
-    for (const part of parts) {
-      if (part.text) textParts.push(part.text);
-      if (part.functionCall) functionCalls.push(part.functionCall);
+        // Last retry failed – try next model if available, otherwise throw
+        if (currentModel !== modelsToTry[modelsToTry.length - 1]) {
+          debugLog(`${currentModel} nicht verfügbar (HTTP ${response.status}) – versuche ${modelsToTry[modelsToTry.indexOf(currentModel) + 1]}…`);
+          break; // break retry loop, continue model loop
+        }
+
+        const err = new Error(response.status === 429 ? 'quota' : `HTTP ${response.status}`);
+        err.httpStatus = response.status;
+        err.responseBody = rawText.slice(0, 500);
+        throw err;
+      }
+
+      // Success – parse response
+      const data = await response.json();
+      const candidate = data.candidates?.[0];
+      const finishReason = candidate?.finishReason ?? 'UNKNOWN';
+      if (finishReason === 'SAFETY') throw new Error('safety_block');
+      if (finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
+
+      const parts = candidate?.content?.parts || [];
+
+      logApiCall(options.taskType || 'chat', currentModel, thinkingCfg, startTime);
+
+      if (currentModel !== model) {
+        debugLog(`Hinweis: Fallback-Modell ${currentModel} verwendet (statt ${model})`);
+      }
+
+      // If function calling is enabled, return structured response
+      if (options.tools) {
+        const textParts = [];
+        const functionCalls = [];
+        for (const part of parts) {
+          if (part.text) textParts.push(part.text);
+          if (part.functionCall) functionCalls.push(part.functionCall);
+        }
+        const text = sanitizeAIResponse(textParts.join(''));
+        debugLog(`Antwort OK – ${text.length} Zeichen, ${functionCalls.length} Function Calls, finishReason: ${finishReason}`);
+        return { text, functionCalls };
+      }
+
+      // Standard text-only response
+      const text = sanitizeAIResponse(parts[0]?.text ?? '');
+      debugLog(`Antwort OK – ${text.length} Zeichen, finishReason: ${finishReason}`);
+      if (!text) debugLog(`Warnung: Leere Antwort. Volle Antwort: ${JSON.stringify(data).slice(0, 500)}`);
+      return text;
     }
-    const text = sanitizeAIResponse(textParts.join(''));
-    debugLog(`Antwort OK – ${text.length} Zeichen, ${functionCalls.length} Function Calls, finishReason: ${finishReason}`);
-    return { text, functionCalls };
   }
 
-  // Standard text-only response
-  const text = sanitizeAIResponse(parts[0]?.text ?? '');
-  debugLog(`Antwort OK – ${text.length} Zeichen, finishReason: ${finishReason}`);
-  if (!text) debugLog(`Warnung: Leere Antwort. Volle Antwort: ${JSON.stringify(data).slice(0, 500)}`);
-  return text;
+  // Should not reach here, but safety net
+  const err = new Error('HTTP 503');
+  err.httpStatus = 503;
+  throw err;
 }
 
 // ── OpenAI-compatible API call (OpenAI, OpenRouter, etc.) ──
@@ -703,7 +743,19 @@ export function getErrorMessage(err) {
 export function getErrorWithDebug(err) {
   const message = getErrorMessage(err);
   const info = err.debugInfo;
-  if (!info) return { message, details: '', hasDebug: false };
+
+  // Even without debugInfo, show basic details for HTTP errors
+  if (!info) {
+    if (err.httpStatus) {
+      const lines = [
+        `HTTP ${err.httpStatus}`,
+        `Retries: 2× mit Backoff (2s, 4s) versucht`,
+      ];
+      if (err.responseBody) lines.push(`Server: ${err.responseBody.slice(0, 200)}`);
+      return { message, details: lines.join('\n'), hasDebug: true };
+    }
+    return { message, details: '', hasDebug: false };
+  }
 
   const lines = [];
   lines.push(`Zeitpunkt: ${new Date(info.timestamp).toLocaleTimeString('de-DE')}`);
@@ -715,9 +767,10 @@ export function getErrorWithDebug(err) {
   if (info.providers) {
     lines.push(`Getestete Provider: ${info.totalProviders}`);
     for (const p of info.providers) {
-      const status = p.status === 'skipped' ? '⏭️ Übersprungen' : `❌ HTTP ${p.httpStatus || '?'}`;
+      const status = p.status === 'skipped' ? 'Übersprungen' : `HTTP ${p.httpStatus || '?'}`;
       lines.push(`  ${p.provider}: ${status} – ${p.reason || p.error || ''}`);
     }
+    lines.push(`Retries: Je 2× mit Backoff (2s, 4s) + Modell-Fallback`);
   }
 
   if (info.provider && info.provider !== 'keine') {
@@ -728,7 +781,7 @@ export function getErrorWithDebug(err) {
   const hasFallbacks = providerCfg.fallbacks.length > 0;
   if (!hasFallbacks) {
     lines.push('');
-    lines.push('Tipp: In den Einstellungen kannst du Fallback-Provider konfigurieren (OpenAI, OpenRouter), damit ORDO automatisch wechselt wenn ein Dienst ausfällt.');
+    lines.push('Tipp: Unter Einstellungen > API kannst du Fallback-Provider aktivieren (OpenAI, OpenRouter).');
   }
 
   return { message, details: lines.join('\n'), hasDebug: true };
