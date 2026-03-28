@@ -145,6 +145,7 @@ const Brain = {
         created: Date.now(),
         rooms: {},
         chat_history: [],
+        quest: null,
         last_updated: Date.now()
       };
       this.save(fresh);
@@ -171,11 +172,16 @@ const Brain = {
         created: Date.now(),
         rooms: {},
         chat_history: [],
+        quest: null,
         last_updated: Date.now()
       });
     } else if (existing.version === '1.2' || existing.version === '1.3' || existing.version === '1.4' || !existing.version) {
       // Upgrade version marker (items migrated lazily on access, purchase/valuation fields are optional)
       existing.version = '1.5';
+      if (existing.quest === undefined) existing.quest = null;
+      this.save(existing);
+    } else if (existing.quest === undefined) {
+      existing.quest = null;
       this.save(existing);
     }
     this.initPhotoDB().catch(err => { if (typeof debugLog === 'function') debugLog(`IndexedDB init fehlgeschlagen: ${err.message}`); });
@@ -1716,13 +1722,14 @@ const Brain = {
 
   saveQuest(questData) {
     const data = this.getData();
-    data.quest = questData;
+    data.quest = questData || null;
     this.save(data);
+    return data.quest;
   },
 
   clearQuest() {
     const data = this.getData();
-    delete data.quest;
+    data.quest = null;
     this.save(data);
   },
 
@@ -1748,7 +1755,7 @@ const Brain = {
       containers_done: done,
       containers_skipped: skipped,
       items_found: totalItems,
-      percent: total > 0 ? Math.round((done / total) * 100) : 0
+      percent: total > 0 ? Math.round(((done + skipped) / total) * 100) : 0
     };
     quest.last_activity = new Date().toISOString();
 
@@ -1795,7 +1802,7 @@ const Brain = {
       containers_done: done,
       containers_skipped: skipped,
       items_found: totalItems,
-      percent: total > 0 ? Math.round((done / total) * 100) : 0
+      percent: total > 0 ? Math.round(((done + skipped) / total) * 100) : 0
     };
     quest.last_activity = new Date().toISOString();
 

@@ -1487,6 +1487,12 @@ function confirmReview() {
     } else {
       showPhotoStatus(`${containerDisplayName}: ${msg}`, 'success');
     }
+
+    if (typeof CustomEvent !== 'undefined') {
+      document.dispatchEvent(new CustomEvent('ordo:review-confirmed', {
+        detail: { roomId, containerId, itemsCount: confirmedNames.length + newItems.length, mode: 'delta' }
+      }));
+    }
   } else {
     // Normal mode (first scan)
     if (mode === 'replace') {
@@ -1513,6 +1519,12 @@ function confirmReview() {
         `${count} ${count === 1 ? 'Gegenstand' : 'Gegenstände'} in "${containerDisplayName}" übernommen.`,
         'success'
       );
+    }
+
+    if (typeof CustomEvent !== 'undefined') {
+      document.dispatchEvent(new CustomEvent('ordo:review-confirmed', {
+        detail: { roomId, containerId, itemsCount: count, mode: 'normal' }
+      }));
     }
   }
 }

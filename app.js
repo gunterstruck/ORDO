@@ -7,6 +7,7 @@ import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, r
 import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
 import { setupCamera } from './camera.js';
+import { loadQuest, showCurrentStep, pauseQuest } from './quest.js';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
@@ -140,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupMoveContainerOverlay();
   setupNfcContextView();
   setupCamera();
+  loadQuest();
 
   if (!localStorage.getItem('onboarding_completed') && Brain.isEmpty()) {
     showOnboarding();
@@ -147,6 +149,15 @@ document.addEventListener('DOMContentLoaded', () => {
     showView('nfc-context');
   } else {
     showView('chat');
+  }
+
+  const activeQuest = Brain.getQuest();
+  if (activeQuest?.active) {
+    setTimeout(() => {
+      const shouldContinue = window.confirm(`Willkommen zurück!\n\nDu bist zu ${activeQuest.progress?.percent || 0}% fertig.\n\nJetzt weitermachen?`);
+      if (shouldContinue) showCurrentStep();
+      else pauseQuest();
+    }, 250);
   }
 
   // Check for expiring warranties and show banner

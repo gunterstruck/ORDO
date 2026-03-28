@@ -5,10 +5,10 @@ import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { showView, debugLog, ensureRoom, getNfcContext, setNfcContext, getCurrentView } from './app.js';
 import { openCameraForContainer, showStagingOverlay, addFileToStaging, setStagingTarget } from './photo-flow.js';
 import { capturePhoto } from './camera.js';
-import { startRoomScan } from './onboarding.js';
 import { sendChatMessage } from './chat.js';
 import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
 import { showReportDialog } from './report.js';
+import { showCurrentStep, startBlueprint } from './quest.js';
 
 // ── State ──────────────────────────────────────────────
 let brainViewMode = localStorage.getItem('brain_view_mode') || 'list';
@@ -47,7 +47,7 @@ function showBrainToast(msg) {
 
 function setupBrain() {
   document.getElementById('brain-add-room').addEventListener('click', showAddRoomDialog);
-  document.getElementById('brain-scan-rooms').addEventListener('click', startRoomScan);
+  document.getElementById('brain-scan-rooms').addEventListener('click', startBlueprint);
   document.getElementById('brain-warranty-overview').addEventListener('click', showWarrantyOverview);
   document.getElementById('brain-report-btn').addEventListener('click', () => showReportDialog());
 
@@ -90,6 +90,18 @@ function renderBrainView() {
     } else {
       headerTitle.textContent = '🏠 Mein Zuhause';
     }
+  }
+
+  const header = document.querySelector('.brain-view-header');
+  const existingQuestBadge = header?.querySelector('.brain-quest-badge');
+  if (existingQuestBadge) existingQuestBadge.remove();
+  const activeQuest = Brain.getQuest();
+  if (header && activeQuest?.active) {
+    const questBtn = document.createElement('button');
+    questBtn.className = 'brain-quest-badge';
+    questBtn.textContent = `🏠 Quest ${activeQuest.progress?.percent || 0}% · Fortsetzen`;
+    questBtn.addEventListener('click', () => showCurrentStep());
+    header.appendChild(questBtn);
   }
 
   // Hide breadcrumb when rendering full view
@@ -256,6 +268,17 @@ function buildContainerNode(roomId, cId, c, depth) {
 
   const headerRight = document.createElement('small');
   headerRight.textContent = c.last_updated ? Brain.formatDate(c.last_updated) : '';
+
+  const activeQuest = Brain.getQuest();
+  const isPendingQuestContainer = !!activeQuest?.active && Array.isArray(activeQuest.plan) &&
+    activeQuest.plan.some(step => step.room_id === roomId && step.container_id === cId && step.status !== 'done');
+  if (isPendingQuestContainer) {
+    el.classList.add('brain-container--quest-pending');
+    const questMark = document.createElement('span');
+    questMark.className = 'brain-container-quest-mark';
+    questMark.textContent = '📷 Noch nicht erfasst';
+    headerRight.appendChild(questMark);
+  }
 
   header.appendChild(headerLeft);
   header.appendChild(headerRight);

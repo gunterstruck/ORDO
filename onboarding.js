@@ -4,6 +4,7 @@ import { showToast } from './modal.js';
 import { debugLog, showView, ROOM_PRESETS } from './app.js';
 import { resizeImage, blobToBase64, showStagingOverlay, addFileToStaging, showReviewPopup, setStagingTarget, closeStagingOverlay } from './photo-flow.js';
 import { capturePhoto, captureVideo } from './camera.js';
+import { startBlueprint } from './quest.js';
 
 let scannedRooms = [];
 let videoScanAbortController = null;
@@ -12,7 +13,7 @@ export function setupOnboarding() {
   document.getElementById('onboarding-start').addEventListener('click', () => {
     // Skip API-key step if key already exists
     if (Brain.getApiKey()) {
-      showOnboardingScreen('scan');
+      showOnboardingScreen('start-choice');
     } else {
       showOnboardingScreen('apikey');
     }
@@ -33,9 +34,11 @@ export function setupOnboarding() {
   document.getElementById('onboarding-add-more').addEventListener('click', () => showOnboardingScreen('scan'));
   document.getElementById('onboarding-confirm-all').addEventListener('click', confirmAllScannedRooms);
   document.getElementById('onboarding-finish').addEventListener('click', finishOnboarding);
+  document.getElementById('onboarding-start-blueprint')?.addEventListener('click', () => startBlueprint());
+  document.getElementById('onboarding-start-single')?.addEventListener('click', () => showOnboardingScreen('scan'));
 
   // Settings re-trigger
-  document.getElementById('settings-room-scan').addEventListener('click', startRoomScan);
+  document.getElementById('settings-room-scan').addEventListener('click', startBlueprint);
 }
 
 function setupApiKeyStep() {
@@ -82,12 +85,12 @@ function setupApiKeyStep() {
     if (key) {
       Brain.setApiKey(key);
     }
-    showOnboardingScreen('scan');
+    showOnboardingScreen('start-choice');
   });
 
   skipBtn.addEventListener('click', () => {
     showToast('Ohne Schlüssel kann die App keine Fotos analysieren. Du kannst ihn später in den Einstellungen eintragen.', 'warning');
-    showOnboardingScreen('scan');
+    showOnboardingScreen('start-choice');
   });
 }
 
@@ -102,12 +105,19 @@ export function showOnboarding() {
 }
 
 export function showOnboardingScreen(screen) {
-  const screens = ['onboarding-welcome', 'onboarding-step-apikey', 'onboarding-step-scan', 'onboarding-step-review', 'onboarding-step-done'];
+  const screens = ['onboarding-welcome', 'onboarding-step-apikey', 'onboarding-step-start-choice', 'onboarding-step-scan', 'onboarding-step-review', 'onboarding-step-done'];
   screens.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
-  const map = { welcome: 'onboarding-welcome', apikey: 'onboarding-step-apikey', scan: 'onboarding-step-scan', review: 'onboarding-step-review', done: 'onboarding-step-done' };
+  const map = {
+    welcome: 'onboarding-welcome',
+    apikey: 'onboarding-step-apikey',
+    'start-choice': 'onboarding-step-start-choice',
+    scan: 'onboarding-step-scan',
+    review: 'onboarding-step-review',
+    done: 'onboarding-step-done'
+  };
   const el = document.getElementById(map[screen]);
   if (el) el.style.display = 'flex';
 
