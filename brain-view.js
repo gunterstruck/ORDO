@@ -1372,6 +1372,11 @@ function renderMapView() {
 
   mapEl.appendChild(grid);
 
+  // Render neighbor connection lines (async, after grid is in DOM)
+  if (hasNeighbors) {
+    requestAnimationFrame(() => renderConnectionLines(rooms, grid));
+  }
+
   // Legend
   const legend = document.createElement('div');
   legend.className = 'map-legend';
@@ -1381,6 +1386,63 @@ function renderMapView() {
     <span><span class="map-legend-dot" style="background:#bdc3c7"></span> &gt;6 Monate</span>
   `;
   mapEl.appendChild(legend);
+}
+
+/**
+ * Renders dashed SVG lines between neighboring rooms on the map grid.
+ * @param {Object} rooms - room data
+ * @param {HTMLElement} grid - the map grid element
+ */
+function renderConnectionLines(rooms, grid) {
+  if (!grid.isConnected) return;
+
+  const gridRect = grid.getBoundingClientRect();
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.classList.add('map-connection-svg');
+  svg.setAttribute('width', gridRect.width);
+  svg.setAttribute('height', gridRect.height);
+
+  const drawn = new Set();
+
+  for (const [roomId, room] of Object.entries(rooms)) {
+    if (!room.spatial?.neighbors) continue;
+
+    const fromCell = grid.querySelector(`.map-room-cell[data-room-id="${roomId}"]`);
+    if (!fromCell) continue;
+
+    for (const neighborId of room.spatial.neighbors) {
+      if (!rooms[neighborId]) continue;
+      // Only draw each pair once
+      const pairKey = [roomId, neighborId].sort().join(':');
+      if (drawn.has(pairKey)) continue;
+      drawn.add(pairKey);
+
+      const toCell = grid.querySelector(`.map-room-cell[data-room-id="${neighborId}"]`);
+      if (!toCell) continue;
+
+      const fromRect = fromCell.getBoundingClientRect();
+      const toRect = toCell.getBoundingClientRect();
+
+      const x1 = fromRect.left + fromRect.width / 2 - gridRect.left;
+      const y1 = fromRect.top + fromRect.height / 2 - gridRect.top;
+      const x2 = toRect.left + toRect.width / 2 - gridRect.left;
+      const y2 = toRect.top + toRect.height / 2 - gridRect.top;
+
+      const line = document.createElementNS(svgNS, 'line');
+      line.classList.add('map-connection-line');
+      line.setAttribute('x1', x1);
+      line.setAttribute('y1', y1);
+      line.setAttribute('x2', x2);
+      line.setAttribute('y2', y2);
+      svg.appendChild(line);
+    }
+  }
+
+  if (svg.childNodes.length > 0) {
+    grid.style.position = 'relative';
+    grid.appendChild(svg);
+  }
 }
 
 // Find the newest photo among all containers in a room, load it as background
