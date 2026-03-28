@@ -1,19 +1,13 @@
 // quest.js – Blueprint & Inventar-Quest
 
 import Brain from './brain.js';
-import { analyzeBlueprint as analyzeBlueprintWithAI } from './ai.js';
+import { analyzeBlueprint as analyzeBlueprintWithAI, loadingManager } from './ai.js';
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { renderBrainView } from './brain-view.js';
 import { handlePhotoFile } from './photo-flow.js';
 import { showView } from './app.js';
 
-const ANALYSIS_MESSAGES = [
-  'Ich schaue mir deine Wohnung an...',
-  'Ah, ich erkenne Möbelstücke...',
-  'Mal sehen was in den Räumen steht...',
-  'Gleich hab ich alles zusammen...',
-  'Fast fertig – ich sortiere die Ergebnisse...'
-];
+// Analysis messages now handled by LoadingManager in ai.js
 
 const PHOTO_TIPS = [
   'Tipp: Gutes Licht hilft – mach das Licht an wenn nötig.',
@@ -111,22 +105,16 @@ export async function analyzeBlueprint(photos) {
   const overlay = document.getElementById('quest-overlay');
   if (!overlay) return null;
 
-  let messageIndex = 0;
   overlay.innerHTML = `
     <div class="quest-card">
       <h2>🏠 Wohnung wird erkannt...</h2>
       <div class="quest-progress-bar"><div id="blueprint-progress-fill" class="quest-progress-fill" style="width:15%"></div></div>
-      <p id="blueprint-analysis-message">${ANALYSIS_MESSAGES[0]}</p>
+      <p id="blueprint-analysis-message"></p>
     </div>
   `;
 
-  const interval = window.setInterval(() => {
-    messageIndex = (messageIndex + 1) % ANALYSIS_MESSAGES.length;
-    const msg = document.getElementById('blueprint-analysis-message');
-    const fill = document.getElementById('blueprint-progress-fill');
-    if (msg) msg.textContent = ANALYSIS_MESSAGES[messageIndex];
-    if (fill) fill.style.width = `${Math.min(95, 15 + messageIndex * 20)}%`;
-  }, 3000);
+  const statusEl = document.getElementById('blueprint-analysis-message');
+  loadingManager.start('analyzeBlueprint', statusEl);
 
   try {
     const analysis = await analyzeBlueprintWithAI(photos);
@@ -138,7 +126,7 @@ export async function analyzeBlueprint(photos) {
     showToast('Blueprint-Analyse fehlgeschlagen. Bitte nochmal versuchen.', 'error');
     throw err;
   } finally {
-    window.clearInterval(interval);
+    loadingManager.stop();
   }
 }
 

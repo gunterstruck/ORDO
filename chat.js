@@ -1,7 +1,7 @@
 // chat.js – Chat-UI, Nachrichten senden/empfangen, Spracheingabe
 
 import Brain from './brain.js';
-import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, buildMessages, resolveContainerFromPath } from './ai.js';
+import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, buildMessages, resolveContainerFromPath, loadingManager } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog, showView, getNfcContext, ensureRoom } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
@@ -136,8 +136,7 @@ export async function sendChatMessage() {
 
   if (!text && !photo) return;
 
-  const sendBtn = document.getElementById('chat-send');
-  if (sendBtn.disabled) return;
+  if (document.getElementById('chat-send')?.disabled) return;
 
   const apiKey = Brain.getApiKey();
   if (!apiKey) {
@@ -146,11 +145,7 @@ export async function sendChatMessage() {
   }
 
   // Disable input while sending
-  sendBtn.disabled = true;
-  sendBtn.classList.add('sending');
-  input.disabled = true;
-  const originalBtnText = sendBtn.textContent;
-  sendBtn.textContent = '⏳';
+  setSendingState(true);
   input.value = '';
   if (photo) clearChatPhoto();
   hideChatSuggestions();
@@ -159,7 +154,15 @@ export async function sendChatMessage() {
   appendMessage('user', displayText);
   Brain.addChatMessage('user', displayText);
 
-  const thinking = appendMessage('assistant', '…', true);
+  // Loading-Bubble mit Phasen-Anzeige
+  const taskType = photo ? 'analyzePhoto' : 'chat';
+  const loadingBubble = createLoadingBubble();
+  const chatContainer = document.getElementById('chat-messages');
+  chatContainer.appendChild(loadingBubble);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+  const statusEl = loadingBubble.querySelector('.loading-status');
+  loadingManager.start(taskType, statusEl);
+
   const nfcContext = getNfcContext();
 
   try {
@@ -243,8 +246,9 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
       ];
     }
 
-    const response = await callGemini(apiKey, systemPrompt, chatMessages, { tools: ORDO_FUNCTIONS });
-    thinking.remove();
+    const response = await callGemini(apiKey, systemPrompt, chatMessages, { tools: ORDO_FUNCTIONS, taskType, hasImage: !!photo });
+    loadingBubble.remove();
+    loadingManager.stop();
 
     // Extract text and function calls
     const responseText = response.text || '';
@@ -301,13 +305,36 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
       .filter(Boolean)
       .forEach(action => executeOrdoAction(action));
   } catch (err) {
-    thinking.remove();
+    loadingBubble.remove();
+    loadingManager.stop();
     showSystemMessage(getErrorMessage(err));
   } finally {
-    sendBtn.disabled = false;
-    sendBtn.classList.remove('sending');
-    sendBtn.textContent = originalBtnText;
-    input.disabled = false;
+    setSendingState(false);
+  }
+}
+
+function createLoadingBubble() {
+  const bubble = document.createElement('div');
+  bubble.classList.add('chat-msg', 'chat-msg--assistant', 'loading-bubble');
+  bubble.innerHTML = `
+    <div class="loading-dots">
+      <span></span><span></span><span></span>
+    </div>
+    <div class="loading-status">Denke nach...</div>
+  `;
+  return bubble;
+}
+
+function setSendingState(isSending) {
+  const btn = document.getElementById('chat-send');
+  const input = document.getElementById('chat-input');
+  if (!btn || !input) return;
+  btn.disabled = isSending;
+  input.disabled = isSending;
+  if (isSending) {
+    btn.classList.add('sending');
+  } else {
+    btn.classList.remove('sending');
     input.focus();
   }
 }

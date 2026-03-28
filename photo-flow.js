@@ -1,7 +1,7 @@
 // photo-flow.js – Foto-Aufnahme, Staging, Picking, Review
 
 import Brain from './brain.js';
-import { callGemini, getErrorMessage } from './ai.js';
+import { callGemini, getErrorMessage, loadingManager } from './ai.js';
 import { showToast, showInputModal } from './modal.js';
 import { ROOM_PRESETS, ensureRoom, debugLog, showView, getNfcContext, getCurrentView } from './app.js';
 import { renderBrainView, showBrainToast } from './brain-view.js';
@@ -298,7 +298,7 @@ Regeln:
         ]
       }];
 
-      const raw = await callGemini(apiKey, systemPrompt, messages);
+      const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'analyzePhoto', hasImage: true });
 
       // Extract JSON from response
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -378,32 +378,17 @@ function showPhotoStatus(msg, type) {
   el.style.display = 'block';
 }
 
-// ── Rotating Analysis Messages ────────────────────────
-const PHOTO_ANALYSIS_MESSAGES = [
-  'Ich schaue mir das Foto an…',
-  'Gegenstände werden erkannt…',
-  'Gleich hab ich alles…',
-  'Positionen werden bestimmt…',
-  'Fast fertig – ich sortiere die Ergebnisse…'
-];
-
-let _analysisInterval = null;
-
-function startAnalysisAnimation() {
+// ── Rotating Analysis Messages (via LoadingManager) ───
+function startAnalysisAnimation(taskType = 'analyzePhoto') {
   stopAnalysisAnimation();
-  let i = 0;
-  showPhotoStatus(PHOTO_ANALYSIS_MESSAGES[0], 'loading');
-  _analysisInterval = setInterval(() => {
-    i++;
-    showPhotoStatus(PHOTO_ANALYSIS_MESSAGES[i % PHOTO_ANALYSIS_MESSAGES.length], 'loading');
-  }, 2500);
+  const el = document.getElementById('photo-status');
+  el.className = 'photo-status photo-status--loading';
+  el.style.display = 'block';
+  loadingManager.start(taskType, el);
 }
 
 function stopAnalysisAnimation() {
-  if (_analysisInterval) {
-    clearInterval(_analysisInterval);
-    _analysisInterval = null;
-  }
+  loadingManager.stop();
 }
 
 // ── PHOTO ANALYSIS CONFIDENCE PROCESSING ──────────────
@@ -520,7 +505,7 @@ Ergänze im JSON pro Hotspot (optional):
     ]
   }];
 
-  const raw = await callGemini(apiKey, systemPrompt, messages);
+  const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'analyzeHotspots', hasImage: true });
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('Kein JSON in Antwort');
   return JSON.parse(jsonMatch[0]);
@@ -1114,7 +1099,7 @@ Regeln:
     };
 
     const messages = [{ role: 'user', content: [...imageContents, textContent] }];
-    const raw = await callGemini(apiKey, systemPrompt, messages);
+    const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'analyzePhoto', hasImage: true });
 
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('Kein JSON in Antwort');
