@@ -4,9 +4,10 @@ import Brain from './brain.js';
 import { analyzeBlueprint as analyzeBlueprintWithAI, loadingManager } from './ai.js';
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { renderBrainView } from './brain-view.js';
-import { handlePhotoFile } from './photo-flow.js';
+import { handlePhotoFile, handleVideoFile } from './photo-flow.js';
 import { showView, escapeHTML } from './app.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
+import { captureVideo } from './camera.js';
 import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide } from './organizer.js';
 import { getPersonality } from './chat.js';
 
@@ -73,10 +74,13 @@ function renderBlueprintCollector() {
       <p>${blueprintState.photos.length} ${blueprintState.photos.length === 1 ? 'Raum' : 'Räume'} fotografiert</p>
       <div class="quest-row">
         <button id="blueprint-add-photo" class="onboarding-btn-primary">📷 Nächsten Raum fotografieren</button>
+        <button id="blueprint-add-video" class="onboarding-btn-secondary">🎬 Video-Rundgang starten</button>
+        <button id="blueprint-upload-video" class="onboarding-btn-secondary">📁 Video hochladen</button>
         <button id="blueprint-finish" class="onboarding-btn-secondary" ${blueprintState.photos.length === 0 ? 'disabled' : ''}>Das waren alle Räume → Weiter</button>
         <button id="blueprint-cancel" class="onboarding-btn-skip">Abbrechen</button>
       </div>
       <input id="blueprint-file-input" type="file" accept="image/*" capture="environment" style="display:none">
+      <input id="blueprint-video-input" type="file" accept="video/*" style="display:none">
     </div>
   `;
 
@@ -86,6 +90,28 @@ function renderBlueprintCollector() {
   overlay.querySelector('#blueprint-file-input')?.addEventListener('change', async e => {
     const file = e.target.files?.[0];
     if (file) await addBlueprintPhoto(file);
+    e.target.value = '';
+  });
+  overlay.querySelector('#blueprint-add-video')?.addEventListener('click', async () => {
+    const file = await captureVideo(300); // max 5 min
+    if (file) {
+      overlay.style.display = 'none';
+      releaseOverlay('blueprint-review');
+      blueprintState = null;
+      handleVideoFile(file);
+    }
+  });
+  overlay.querySelector('#blueprint-upload-video')?.addEventListener('click', () => {
+    overlay.querySelector('#blueprint-video-input')?.click();
+  });
+  overlay.querySelector('#blueprint-video-input')?.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if (file) {
+      overlay.style.display = 'none';
+      releaseOverlay('blueprint-review');
+      blueprintState = null;
+      handleVideoFile(file);
+    }
     e.target.value = '';
   });
   overlay.querySelector('#blueprint-finish')?.addEventListener('click', async () => {

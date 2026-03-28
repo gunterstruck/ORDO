@@ -521,6 +521,22 @@ html, body {
 
 #photo-camera-btn:active, #photo-gallery-btn:active { border-color: var(--accent); background: #fef3ec; }
 
+#photo-video-btn, #photo-video-upload-btn {
+  flex: 1;
+  padding: 14px 12px;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 15px;
+  font-family: inherit;
+  text-align: center;
+  transition: all 0.15s;
+  color: var(--text);
+}
+
+#photo-video-btn:active, #photo-video-upload-btn:active { border-color: var(--accent); background: #fef3ec; }
+
 #photo-preview {
   width: 100%;
   border-radius: var(--radius);
