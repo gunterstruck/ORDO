@@ -1,5 +1,5 @@
 import Brain from './brain.js';
-import { callGemini } from './ai.js';
+import { callGemini, getProviderConfig, setProviderConfig, PROVIDERS } from './ai.js';
 import { showConfirmModal } from './modal.js';
 import { debugLog, ensureRoom, getCurrentView } from './app.js';
 import { renderRoomDropdown } from './photo-flow.js';
@@ -172,12 +172,66 @@ export function setupSettings() {
       .then(() => showSettingsMsg('URL kopiert.', 'success'))
       .catch(() => showSettingsMsg('Kopieren fehlgeschlagen.', 'error'));
   });
+
+  // Fallback Provider toggles
+  document.querySelectorAll('.fallback-toggle').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const card = cb.closest('.fallback-provider-card');
+      const keyInput = card?.querySelector('input[type="password"]');
+      if (keyInput) keyInput.disabled = !cb.checked;
+    });
+  });
+
+  // Fallback Provider save
+  document.getElementById('fallback-save-btn')?.addEventListener('click', () => {
+    const config = getProviderConfig();
+    config.fallbacks = [];
+
+    for (const providerId of ['openai', 'openrouter']) {
+      const enabled = document.getElementById(`fallback-${providerId}-enabled`)?.checked;
+      const key = document.getElementById(`fallback-${providerId}-key`)?.value.trim();
+      if (enabled && key) {
+        config.fallbacks.push(providerId);
+        config.keys[providerId] = key;
+      } else if (!enabled) {
+        delete config.keys[providerId];
+      }
+    }
+
+    setProviderConfig(config);
+
+    const statusEl = document.getElementById('fallback-status');
+    if (statusEl) {
+      const count = config.fallbacks.length;
+      statusEl.textContent = count > 0
+        ? `${count} Fallback-Provider aktiv: ${config.fallbacks.map(id => PROVIDERS[id]?.name).join(', ')}`
+        : 'Keine Fallback-Provider konfiguriert.';
+      statusEl.style.display = 'block';
+      statusEl.style.background = count > 0 ? '#1a3a1a' : '#3a1a1a';
+      statusEl.style.color = count > 0 ? '#4ade80' : '#f87171';
+      setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+    }
+    showSettingsMsg('Fallback-Einstellungen gespeichert.', 'success');
+  });
 }
 
 export function renderSettings() {
   document.getElementById('settings-api-key').value = Brain.getApiKey();
   renderRoomDropdown('nfc-room-select');
   updateNfcPreview();
+
+  // Restore fallback provider settings
+  const providerCfg = getProviderConfig();
+  for (const providerId of ['openai', 'openrouter']) {
+    const cb = document.getElementById(`fallback-${providerId}-enabled`);
+    const keyInput = document.getElementById(`fallback-${providerId}-key`);
+    if (cb && keyInput) {
+      const isEnabled = providerCfg.fallbacks.includes(providerId);
+      cb.checked = isEnabled;
+      keyInput.disabled = !isEnabled;
+      keyInput.value = providerCfg.keys?.[providerId] || '';
+    }
+  }
 
   // Set personality radio
   const currentPersonality = getPersonality();

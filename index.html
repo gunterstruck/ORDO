@@ -309,7 +309,7 @@
     <!-- API -->
     <div class="settings-section">
       <div class="settings-section-title">API</div>
-      <label class="settings-label" for="settings-api-key">Google AI API Key</label>
+      <label class="settings-label" for="settings-api-key">Google AI API Key (Gemini)</label>
       <div class="settings-api-key-row">
         <input
           type="password"
@@ -322,6 +322,33 @@
         <button id="settings-api-key-toggle" class="settings-eye-btn" type="button" aria-label="Key anzeigen/verbergen">👁️</button>
       </div>
       <button id="settings-save-key" class="settings-btn settings-btn--primary">Speichern</button>
+
+      <!-- Fallback Provider -->
+      <details id="fallback-provider-section" style="margin-top:14px">
+        <summary style="font-size:13px;color:#aaa;cursor:pointer;user-select:none">Fallback-Provider (optional)</summary>
+        <p style="font-size:12px;color:#888;margin:8px 0 12px">Wenn der Haupt-Provider nicht erreichbar ist, versucht ORDO automatisch den nächsten.</p>
+
+        <div id="fallback-provider-list" style="display:flex;flex-direction:column;gap:12px">
+          <!-- OpenAI -->
+          <div class="fallback-provider-card" data-provider="openai">
+            <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600">
+              <input type="checkbox" id="fallback-openai-enabled" class="fallback-toggle"> OpenAI
+            </label>
+            <input type="password" id="fallback-openai-key" class="settings-input" placeholder="sk-…" autocomplete="off" style="margin-top:6px;font-size:13px" disabled aria-label="OpenAI API Key">
+          </div>
+
+          <!-- OpenRouter -->
+          <div class="fallback-provider-card" data-provider="openrouter">
+            <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600">
+              <input type="checkbox" id="fallback-openrouter-enabled" class="fallback-toggle"> OpenRouter
+            </label>
+            <input type="password" id="fallback-openrouter-key" class="settings-input" placeholder="sk-or-…" autocomplete="off" style="margin-top:6px;font-size:13px" disabled aria-label="OpenRouter API Key">
+          </div>
+        </div>
+
+        <button id="fallback-save-btn" class="settings-btn settings-btn--secondary" style="margin-top:10px">Fallback speichern</button>
+        <div id="fallback-status" style="display:none;margin-top:8px;font-size:12px;padding:6px 10px;border-radius:8px"></div>
+      </details>
     </div>
 
     <!-- Persönlichkeit -->

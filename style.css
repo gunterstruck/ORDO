@@ -165,6 +165,55 @@ html, body {
   padding: 4px 12px;
 }
 
+.chat-msg--error {
+  background: #2a1a1a;
+  border: 1px solid #4a2020;
+  border-radius: 12px;
+  padding: 10px 14px;
+  text-align: left;
+  max-width: 92%;
+}
+.chat-msg--error .error-main {
+  color: #f87171;
+  font-weight: 600;
+  font-size: 13px;
+}
+.error-debug-panel {
+  margin-top: 8px;
+}
+.error-debug-panel summary {
+  font-size: 11px;
+  color: #888;
+  cursor: pointer;
+  user-select: none;
+}
+.error-debug-log {
+  font-size: 11px;
+  background: #111;
+  color: #aaa;
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: monospace;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Fallback Provider Cards */
+.fallback-provider-card {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.fallback-toggle {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
 /* ── Loading Bubble (granular feedback) ────────── */
 .loading-bubble {
   display: flex;
