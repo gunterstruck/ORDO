@@ -172,33 +172,40 @@ html, body {
   padding: 10px 14px;
   text-align: left;
   max-width: 92%;
+  align-self: center;
 }
 .chat-msg--error .error-main {
   color: #f87171;
   font-weight: 600;
   font-size: 13px;
+  margin-bottom: 4px;
 }
 .error-debug-panel {
-  margin-top: 8px;
+  margin-top: 4px;
 }
 .error-debug-panel summary {
-  font-size: 11px;
-  color: #888;
+  font-size: 12px;
+  color: #999;
   cursor: pointer;
   user-select: none;
+  padding: 2px 0;
+}
+.error-debug-panel[open] summary {
+  margin-bottom: 4px;
 }
 .error-debug-log {
   font-size: 11px;
   background: #111;
-  color: #aaa;
-  padding: 8px;
-  border-radius: 6px;
-  margin-top: 6px;
+  color: #bbb;
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin: 0;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
   font-family: monospace;
-  max-height: 200px;
+  max-height: 180px;
   overflow-y: auto;
+  line-height: 1.4;
 }
 
 /* Fallback Provider Cards */
