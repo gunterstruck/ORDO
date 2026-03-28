@@ -2,7 +2,7 @@
 const BASE_URL = new URL('./', self.location.href).href;
 
 // Version hochzählen bei jedem Deploy → löscht automatisch alten Cache
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const CACHE_NAME = `ordo-${CACHE_VERSION}`;
 
 // App-Shell-Dateien
