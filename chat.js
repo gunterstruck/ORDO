@@ -143,9 +143,7 @@ async function startVoiceInput() {
     const text = await listenForSpeech();
 
     if (text) {
-      // Show what was recognized
-      appendMessage('user', text);
-      // Set in input and send as chat message
+      // Set in input and send as chat message (sendChatMessage handles appendMessage)
       const input = document.getElementById('chat-input');
       if (input) input.value = text;
       await sendChatMessage();
@@ -179,20 +177,22 @@ function listenForSpeech() {
     rec.continuous = false;
 
     rec.onresult = (event) => {
-      const text = event.results[0][0].transcript;
-      resolve(text);
+      if (!settled) { settled = true; resolve(event.results[0][0].transcript); }
     };
 
     rec.onerror = (event) => {
+      if (settled) return;
       if (event.error === 'no-speech') {
-        resolve(null);
+        settled = true; resolve(null);
       } else {
-        reject(event);
+        settled = true; reject(event);
       }
     };
 
+    let settled = false;
     rec.onend = () => {
       // If no result came, resolve null
+      if (!settled) { settled = true; resolve(null); }
     };
 
     rec.start();
@@ -200,7 +200,6 @@ function listenForSpeech() {
     // Timeout after 10 seconds
     setTimeout(() => {
       rec.stop();
-      resolve(null);
     }, 10000);
   });
 }
