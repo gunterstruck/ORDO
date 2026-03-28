@@ -1,7 +1,7 @@
 // chat.js – Chat-UI, Nachrichten senden/empfangen, Spracheingabe
 
 import Brain from './brain.js';
-import { callGemini, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, buildMessages, resolveContainerFromPath } from './ai.js';
+import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, buildMessages, resolveContainerFromPath } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog, showView, getNfcContext, ensureRoom } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
@@ -137,7 +137,7 @@ export async function sendChatMessage() {
   if (!text && !photo) return;
 
   const sendBtn = document.getElementById('chat-send');
-  if (sendBtn.classList.contains('sending')) return;
+  if (sendBtn.disabled) return;
 
   const apiKey = Brain.getApiKey();
   if (!apiKey) {
@@ -145,7 +145,12 @@ export async function sendChatMessage() {
     return;
   }
 
+  // Disable input while sending
+  sendBtn.disabled = true;
   sendBtn.classList.add('sending');
+  input.disabled = true;
+  const originalBtnText = sendBtn.textContent;
+  sendBtn.textContent = '⏳';
   input.value = '';
   if (photo) clearChatPhoto();
   hideChatSuggestions();
@@ -168,27 +173,27 @@ REGELN:
 - Wenn du etwas nicht weißt, bitte um ein Foto.
 
 AKTIONEN:
-Du kannst die Datenbank verändern über Marker. Der Nutzer sieht die Marker nicht.
-Format: <!--ORDO:{"type":"...","room":"...","path":[...],...}-->
+Du kannst die Datenbank verändern. Nutze dazu die bereitgestellten Funktionen (Function Calls).
+Bevorzuge IMMER Function Calls statt Text-Marker.
 
-Verfügbare Typen:
-- add_item: Gegenstand hinzufügen (mit menge). {"type":"add_item","room":"...","path":["container_id"],"item":"...","menge":1}
-- remove_item: Gegenstand entfernen. {"type":"remove_item","room":"...","path":["container_id"],"item":"..."}
-- remove_items: Mehrere entfernen. {"type":"remove_items","room":"...","path":["container_id"],"items":["...","..."]}
-- move_item: Gegenstand verschieben. {"type":"move_item","from_room":"...","from_path":["container_id"],"to_room":"...","to_path":["container_id"],"item":"..."}
-- replace_items: Alle Items ersetzen. {"type":"replace_items","room":"...","path":["container_id"],"items":[{"name":"...","menge":1}]}
-- add_container: Neuen Behälter anlegen. {"type":"add_container","room":"...","path":["parent_id"],"id":"...","name":"...","typ":"..."}
-- delete_container: Behälter löschen. {"type":"delete_container","room":"...","path":["container_id"]}
-- rename_container: Behälter umbenennen. {"type":"rename_container","room":"...","path":["container_id"],"new_name":"..."}
-- delete_room: Raum löschen. {"type":"delete_room","room":"..."}
-- found: Gegenstand in Datenbank gefunden. {"type":"found","room":"...","path":["container_id"],"item":"..."}
+Verfügbare Funktionen:
+- add_item: Gegenstand hinzufügen (room, container_id, item, menge)
+- remove_item: Gegenstand entfernen (room, container_id, item)
+- remove_items: Mehrere entfernen (room, container_id, items[])
+- move_item: Verschieben (from_room, from_container_id, item, to_room, to_container_id)
+- replace_items: Alle Items ersetzen (room, container_id, items[{name, menge}])
+- add_room: Neuen Raum anlegen (room, name, emoji)
+- add_container: Neuen Behälter anlegen (room, container_id, name, typ)
+- delete_container: Behälter löschen (room, container_id)
+- rename_container: Umbenennen (room, container_id, new_name)
+- delete_room: Raum löschen (room)
+- show_found_item: Zeige wo ein Gegenstand liegt (item, room, container_id)
 
 WICHTIG:
-- Bei destruktiven Aktionen (delete_container, delete_room): IMMER erst nachfragen, dann erst beim nächsten Turn den Marker einfügen.
+- Bei destruktiven Aktionen (delete_container, delete_room): IMMER erst nachfragen, dann erst beim nächsten Turn die Funktion aufrufen.
 - Bei einfachen Änderungen: Direkt ausführen + bestätigen.
-- Verwende path als Array von Container-IDs. Für flache Container: ["container_id"].
-- Wenn du unsicher bist welcher Behälter gemeint ist: Frage nach, kein Marker.
-- Bei found: Nenne den Ort UND füge den found-Marker ein. Die App zeigt dann automatisch einen Foto-Button falls ein Foto existiert.
+- Wenn du unsicher bist welcher Behälter gemeint ist: Frage nach, keine Aktion.
+- Bei show_found_item: Nenne den Ort UND rufe die Funktion auf. Die App zeigt dann automatisch einen Foto-Button.
 - Verwende slugifizierte IDs: Kleinbuchstaben, Umlaute umschreiben (ä→ae, ö→oe, ü→ue, ß→ss), Leerzeichen zu Unterstrichen.
 - Beispiele: "Küche" → "kueche", "Schrank links" → "schrank_links"
 
@@ -238,28 +243,72 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
       ];
     }
 
-    const response = await callGemini(apiKey, systemPrompt, chatMessages);
+    const response = await callGemini(apiKey, systemPrompt, chatMessages, { tools: ORDO_FUNCTIONS });
     thinking.remove();
 
-    if (response.includes('##SAVE##')) {
-      handleSaveResponse(response);
-    } else {
-      const { cleanText, actions, foundItems } = processMarkers(response);
-      const msgDiv = appendMessage('assistant', cleanText);
-      Brain.addChatMessage('assistant', cleanText);
-      actions
-        .map(normalizeOrdoAction)
-        .filter(Boolean)
-        .forEach(action => executeOrdoAction(action));
-      if (foundItems.length > 0) {
-        renderFoundPhotoButtons(msgDiv, foundItems);
+    // Extract text and function calls
+    const responseText = response.text || '';
+    const functionCalls = response.functionCalls || [];
+
+    // Process function calls (preferred over markers)
+    const fcActions = [];
+    const fcFoundItems = [];
+    for (const call of functionCalls) {
+      const action = functionCallToAction(call);
+      if (!action) continue;
+      if (action.type === 'found') {
+        fcFoundItems.push(action);
+      } else {
+        fcActions.push(action);
       }
     }
+
+    // Fallback: parse legacy markers from text if no function calls
+    let cleanText = responseText;
+    let markerActions = [];
+    let markerFoundItems = [];
+    if (fcActions.length === 0 && fcFoundItems.length === 0 && responseText) {
+      if (responseText.includes('##SAVE##')) {
+        handleSaveResponse(responseText);
+        // handleSaveResponse does its own message display, skip below
+        cleanText = '';
+      } else {
+        const parsed = processMarkers(responseText);
+        cleanText = parsed.cleanText;
+        markerActions = parsed.actions;
+        markerFoundItems = parsed.foundItems;
+      }
+    } else if (responseText) {
+      // Strip markers from text even when function calls exist
+      cleanText = processMarkers(responseText).cleanText;
+    }
+
+    // Combine: function calls take priority, fallback markers supplement
+    const allActions = fcActions.length > 0 ? fcActions : markerActions;
+    const allFoundItems = fcFoundItems.length > 0 ? fcFoundItems : markerFoundItems;
+
+    if (cleanText) {
+      const msgDiv = appendMessage('assistant', cleanText);
+      Brain.addChatMessage('assistant', cleanText);
+      if (allFoundItems.length > 0) {
+        renderFoundPhotoButtons(msgDiv, allFoundItems);
+      }
+    }
+
+    // Execute actions
+    allActions
+      .map(normalizeOrdoAction)
+      .filter(Boolean)
+      .forEach(action => executeOrdoAction(action));
   } catch (err) {
     thinking.remove();
     showSystemMessage(getErrorMessage(err));
   } finally {
-    document.getElementById('chat-send').classList.remove('sending');
+    sendBtn.disabled = false;
+    sendBtn.classList.remove('sending');
+    sendBtn.textContent = originalBtnText;
+    input.disabled = false;
+    input.focus();
   }
 }
 

@@ -6,22 +6,221 @@ import { debugLog, ensureRoom } from './app.js';
 import { showSystemMessage } from './chat.js';
 import { renderBrainView } from './brain-view.js';
 
-export const MODEL = 'gemini-3-flash-preview';
-export const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+export const GEMINI_MODEL = 'gemini-2.5-flash';
+export const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 export const FILE_API_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 export const FILE_API_GET_URL = 'https://generativelanguage.googleapis.com/v1beta/files';
 export const MAX_VIDEO_DURATION_SEC = 300;
 export const MAX_VIDEO_SIZE_MB = 200;
 
+// ── Function Calling Declarations ─────────────────────
+const ORDO_FUNCTIONS = [
+  {
+    name: "add_item",
+    description: "Füge einen Gegenstand zu einem Container hinzu",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string", description: "ID des Raums" },
+        container_id: { type: "string", description: "ID des Containers" },
+        item: { type: "string", description: "Name des Gegenstands" },
+        menge: { type: "number", description: "Anzahl (default: 1)" }
+      },
+      required: ["room", "container_id", "item"]
+    }
+  },
+  {
+    name: "remove_item",
+    description: "Entferne einen Gegenstand aus einem Container",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string", description: "ID des Raums" },
+        container_id: { type: "string", description: "ID des Containers" },
+        item: { type: "string", description: "Name des Gegenstands" }
+      },
+      required: ["room", "container_id", "item"]
+    }
+  },
+  {
+    name: "remove_items",
+    description: "Entferne mehrere Gegenstände aus einem Container",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string", description: "ID des Raums" },
+        container_id: { type: "string", description: "ID des Containers" },
+        items: { type: "array", items: { type: "string" }, description: "Liste der Gegenstandsnamen" }
+      },
+      required: ["room", "container_id", "items"]
+    }
+  },
+  {
+    name: "move_item",
+    description: "Verschiebe einen Gegenstand in einen anderen Container",
+    parameters: {
+      type: "object",
+      properties: {
+        from_room: { type: "string" },
+        from_container_id: { type: "string" },
+        item: { type: "string" },
+        to_room: { type: "string" },
+        to_container_id: { type: "string" }
+      },
+      required: ["from_room", "from_container_id", "item", "to_room", "to_container_id"]
+    }
+  },
+  {
+    name: "replace_items",
+    description: "Ersetze alle Items in einem Container durch eine neue Liste",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string" },
+        container_id: { type: "string" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              menge: { type: "number" }
+            },
+            required: ["name"]
+          }
+        }
+      },
+      required: ["room", "container_id", "items"]
+    }
+  },
+  {
+    name: "add_room",
+    description: "Lege einen neuen Raum an",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string", description: "Slugifizierte ID des Raums" },
+        name: { type: "string", description: "Anzeigename des Raums" },
+        emoji: { type: "string" }
+      },
+      required: ["room", "name"]
+    }
+  },
+  {
+    name: "add_container",
+    description: "Lege einen neuen Container in einem Raum an",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string" },
+        container_id: { type: "string", description: "Slugifizierte ID" },
+        name: { type: "string" },
+        typ: { type: "string", enum: ["schrank", "regal", "schublade", "kiste", "kommode", "sonstiges"] }
+      },
+      required: ["room", "container_id", "name"]
+    }
+  },
+  {
+    name: "delete_container",
+    description: "Lösche einen Container",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string" },
+        container_id: { type: "string" }
+      },
+      required: ["room", "container_id"]
+    }
+  },
+  {
+    name: "rename_container",
+    description: "Benenne einen Container um",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string" },
+        container_id: { type: "string" },
+        new_name: { type: "string" }
+      },
+      required: ["room", "container_id", "new_name"]
+    }
+  },
+  {
+    name: "delete_room",
+    description: "Lösche einen Raum",
+    parameters: {
+      type: "object",
+      properties: {
+        room: { type: "string" }
+      },
+      required: ["room"]
+    }
+  },
+  {
+    name: "show_found_item",
+    description: "Zeige dem Nutzer wo ein Gegenstand gefunden wurde",
+    parameters: {
+      type: "object",
+      properties: {
+        item: { type: "string", description: "Name des Gegenstands" },
+        room: { type: "string", description: "Raum-ID" },
+        container_id: { type: "string", description: "Container-ID" }
+      },
+      required: ["item", "room", "container_id"]
+    }
+  }
+];
+
+// Convert a function call from Gemini to the internal ORDO action format
+function functionCallToAction(call) {
+  const args = call.args || {};
+  switch (call.name) {
+    case 'add_item':
+      return { type: 'add_item', room: args.room, path: [args.container_id], item: args.item, menge: args.menge || 1 };
+    case 'remove_item':
+      return { type: 'remove_item', room: args.room, path: [args.container_id], item: args.item };
+    case 'remove_items':
+      return { type: 'remove_items', room: args.room, path: [args.container_id], items: args.items || [] };
+    case 'move_item':
+      return { type: 'move_item', from_room: args.from_room, from_path: [args.from_container_id], to_room: args.to_room, to_path: [args.to_container_id], item: args.item };
+    case 'replace_items':
+      return { type: 'replace_items', room: args.room, path: [args.container_id], items: (args.items || []).map(i => typeof i === 'string' ? { name: i, menge: 1 } : i) };
+    case 'add_room':
+      return { type: 'add_room', room: args.room, name: args.name, emoji: args.emoji };
+    case 'add_container':
+      return { type: 'add_container', room: args.room, path: [], id: args.container_id, name: args.name, typ: args.typ || 'sonstiges' };
+    case 'delete_container':
+      return { type: 'delete_container', room: args.room, path: [args.container_id] };
+    case 'rename_container':
+      return { type: 'rename_container', room: args.room, path: [args.container_id], new_name: args.new_name };
+    case 'delete_room':
+      return { type: 'delete_room', room: args.room };
+    case 'show_found_item':
+      return { type: 'found', room: args.room, path: [args.container_id], item: args.item };
+    default:
+      debugLog(`Unbekannter Function Call: ${call.name}`);
+      return null;
+  }
+}
+
+export { ORDO_FUNCTIONS, functionCallToAction };
+
 // ── Gemini API ─────────────────────────────────────────
-export async function callGemini(apiKey, systemPrompt, messages) {
+/**
+ * @param {string} apiKey
+ * @param {string} systemPrompt
+ * @param {Array<{role: string, content: string|Array}>} messages
+ * @param {{tools?: Array, thinkingBudget?: number}} [options]
+ * @returns {Promise<string|{text: string, functionCalls: Array}>}
+ */
+export async function callGemini(apiKey, systemPrompt, messages, options) {
   if (!navigator.onLine) {
     debugLog('FEHLER: Gerät ist offline (navigator.onLine = false)');
     throw new Error('offline');
   }
 
   const keyPreview = apiKey ? apiKey.slice(0, 8) + '…' : '(leer)';
-  debugLog(`Anfrage starten → Modell: ${MODEL}, Key: ${keyPreview}`);
+  debugLog(`Anfrage starten → Modell: ${GEMINI_MODEL}, Key: ${keyPreview}`);
 
   const geminiContents = messages.map(msg => {
     const role = msg.role === 'assistant' ? 'model' : 'user';
@@ -45,16 +244,28 @@ export async function callGemini(apiKey, systemPrompt, messages) {
     return { role, parts };
   });
 
+  const requestBody = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: geminiContents,
+    generationConfig: { maxOutputTokens: 8192 }
+  };
+
+  // Optional: Function calling tools
+  if (options?.tools) {
+    requestBody.tools = [{ functionDeclarations: options.tools }];
+  }
+
+  // Optional: Thinking mode for complex analyses
+  if (options?.thinkingBudget) {
+    requestBody.generationConfig.thinkingConfig = { thinkingBudget: options.thinkingBudget };
+  }
+
   let response;
   try {
     response = await fetch(`${API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: geminiContents,
-        generationConfig: { maxOutputTokens: 8192 }
-      })
+      body: JSON.stringify(requestBody)
     });
   } catch (fetchErr) {
     debugLog(`NETZWERK-FEHLER: ${fetchErr.message}`);
@@ -75,10 +286,27 @@ export async function callGemini(apiKey, systemPrompt, messages) {
   const data = await response.json();
   const candidate = data.candidates?.[0];
   const finishReason = candidate?.finishReason ?? 'UNKNOWN';
-  const text = candidate?.content?.parts?.[0]?.text ?? '';
-  debugLog(`Antwort OK – ${text.length} Zeichen, finishReason: ${finishReason}`);
   if (finishReason === 'SAFETY') throw new Error('safety_block');
   if (finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
+
+  const parts = candidate?.content?.parts || [];
+
+  // If function calling is enabled, return structured response
+  if (options?.tools) {
+    const textParts = [];
+    const functionCalls = [];
+    for (const part of parts) {
+      if (part.text) textParts.push(part.text);
+      if (part.functionCall) functionCalls.push(part.functionCall);
+    }
+    const text = textParts.join('');
+    debugLog(`Antwort OK – ${text.length} Zeichen, ${functionCalls.length} Function Calls, finishReason: ${finishReason}`);
+    return { text, functionCalls };
+  }
+
+  // Standard text-only response
+  const text = parts[0]?.text ?? '';
+  debugLog(`Antwort OK – ${text.length} Zeichen, finishReason: ${finishReason}`);
   if (!text) debugLog(`Warnung: Leere Antwort. Volle Antwort: ${JSON.stringify(data).slice(0, 500)}`);
   return text;
 }
@@ -98,6 +326,23 @@ export function getErrorMessage(err) {
   if (err instanceof TypeError) return 'Keine Internetverbindung. Versuch es gleich nochmal.';
   if (err.message?.startsWith('HTTP 5')) return 'Der KI-Dienst ist gerade nicht erreichbar. Versuch es später.';
   return 'Kurze Verbindungsstörung – bitte nochmal versuchen.';
+}
+
+// ── Loading State Helper ──────────────────────────────
+export function withLoading(buttonEl, asyncFn) {
+  return async function(...args) {
+    const originalText = buttonEl.textContent;
+    buttonEl.disabled = true;
+    buttonEl.classList.add('btn-loading');
+    buttonEl.textContent = '⏳';
+    try {
+      return await asyncFn(...args);
+    } finally {
+      buttonEl.disabled = false;
+      buttonEl.classList.remove('btn-loading');
+      buttonEl.textContent = originalText;
+    }
+  };
 }
 
 export async function analyzeBlueprint(roomPhotos) {
@@ -176,7 +421,7 @@ ${labelHints}
 
   const response = await callGemini(apiKey, 'Du antwortest ausschließlich mit validem JSON.', [
     { role: 'user', content: [{ type: 'text', text: prompt }, ...images] }
-  ]);
+  ], { thinkingBudget: 1024 });
 
   const cleaned = response.replace(/```json/gi, '```');
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
@@ -301,6 +546,7 @@ const ALLOWED_FIELDS = {
   remove_items:     ['type', 'room', 'path', 'items'],
   replace_items:    ['type', 'room', 'path', 'items'],
   move_item:        ['type', 'from_room', 'from_path', 'to_room', 'to_path', 'item'],
+  add_room:         ['type', 'room', 'name', 'emoji'],
   add_container:    ['type', 'room', 'path', 'id', 'name', 'typ'],
   delete_container: ['type', 'room', 'path'],
   rename_container: ['type', 'room', 'path', 'new_name'],
@@ -480,6 +726,14 @@ export function executeOrdoAction(action) {
           Brain.save(data);
         }
         showSystemMessage(`✓ Inhalt aktualisiert: ${c?.name || containerId} (${r?.name || action.room})`);
+        renderBrainView();
+        break;
+      }
+      case 'add_room': {
+        if (!Brain.getRoom(action.room)) {
+          Brain.addRoom(action.room, action.name || action.room, action.emoji || '🏠');
+        }
+        showSystemMessage(`✓ Neuer Raum: ${action.name || action.room}`);
         renderBrainView();
         break;
       }
@@ -741,7 +995,7 @@ Gegenstände:
 ${itemList}`;
 
     const messages = [{ role: 'user', content: prompt }];
-    const raw = await callGemini(apiKey, 'Du bist ein Versicherungsberater für Hausratversicherungen. Antworte nur mit JSON.', messages);
+    const raw = await callGemini(apiKey, 'Du bist ein Versicherungsberater für Hausratversicherungen. Antworte nur mit JSON.', messages, { thinkingBudget: 1024 });
 
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
@@ -823,7 +1077,7 @@ Wenn das Foto kein Kassenbon ist, antworte mit:
     ]
   }];
 
-  const response = await callGemini(apiKey, 'Du bist ein Kassenbon-Scanner. Antworte nur mit JSON.', messages);
+  const response = await callGemini(apiKey, 'Du bist ein Kassenbon-Scanner. Antworte nur mit JSON.', messages, { thinkingBudget: 1024 });
 
   // Extract JSON from response
   const jsonMatch = response.match(/\{[\s\S]*\}/);

@@ -1,5 +1,90 @@
 // brain.js – LocalStorage management and knowledge base
 
+/**
+ * @typedef {Object} OrdoItem
+ * @property {string} name
+ * @property {'aktiv'|'vermisst'|'archiviert'} status
+ * @property {string} [first_seen]
+ * @property {string} [last_seen]
+ * @property {number} [seen_count]
+ * @property {number} [menge]
+ * @property {string} [archived_at]
+ * @property {OrdoPurchase} [purchase]
+ * @property {OrdoValuation} [valuation]
+ * @property {string} [object_id]
+ * @property {string} [crop_ref]
+ * @property {Object} [spatial]
+ */
+
+/**
+ * @typedef {Object} OrdoPurchase
+ * @property {string} [date]
+ * @property {number} [price]
+ * @property {string} [store]
+ * @property {number} [warranty_months]
+ * @property {string} [warranty_expires]
+ * @property {string} [receipt_photo_key]
+ * @property {string} [notes]
+ */
+
+/**
+ * @typedef {Object} OrdoValuation
+ * @property {number} [replacement_value]
+ * @property {number} [replacement_range_min]
+ * @property {number} [replacement_range_max]
+ * @property {'photo_ai'|'batch_ai'|'manual'} [source]
+ * @property {string} [estimated_at]
+ * @property {string} [model_recognized]
+ */
+
+/**
+ * @typedef {Object} OrdoContainer
+ * @property {string} name
+ * @property {string} [typ]
+ * @property {(string|OrdoItem)[]} items
+ * @property {OrdoItem[]} [uncertain_items]
+ * @property {Object.<string, OrdoContainer>} [containers]
+ * @property {Object.<string, number>} [quantities]
+ * @property {boolean} [photo_analyzed]
+ * @property {boolean} [has_photo]
+ * @property {string[]} [photo_history]
+ * @property {number} [last_updated]
+ * @property {Array<{name: string, marked_at: string}>} [infrastructure_ignore]
+ * @property {Object} [spatial]
+ */
+
+/**
+ * @typedef {Object} OrdoRoom
+ * @property {string} name
+ * @property {string} [emoji]
+ * @property {Object.<string, OrdoContainer>} containers
+ * @property {string[]} [container_order]
+ * @property {number} [last_updated]
+ * @property {string} [hint]
+ * @property {Object} [spatial]
+ */
+
+/**
+ * @typedef {Object} OrdoQuest
+ * @property {boolean} active
+ * @property {string} started
+ * @property {string} last_activity
+ * @property {Object} progress
+ * @property {Object} [current_step]
+ * @property {Array} plan
+ * @property {string} [completed_at]
+ */
+
+/**
+ * @typedef {Object} OrdoData
+ * @property {string} version
+ * @property {number} created
+ * @property {Object.<string, OrdoRoom>} rooms
+ * @property {Array<{role: string, content: string, ts: number}>} chat_history
+ * @property {number} last_updated
+ * @property {OrdoQuest} [quest]
+ */
+
 const STORAGE_KEY = 'haushalt_data';
 const PHOTO_DB_NAME = 'haushalt_photos';
 const PHOTO_DB_VERSION = 1;
@@ -7,6 +92,26 @@ const PHOTO_STORE = 'photos';
 const MAX_PHOTO_HISTORY = 10;
 
 const Brain = {
+
+  // --- Event System (Observer Pattern) ---
+  _listeners: {},
+
+  on(event, callback) {
+    if (!this._listeners[event]) this._listeners[event] = [];
+    this._listeners[event].push(callback);
+  },
+
+  off(event, callback) {
+    if (!this._listeners[event]) return;
+    this._listeners[event] = this._listeners[event].filter(cb => cb !== callback);
+  },
+
+  _emit(event, data) {
+    if (!this._listeners[event]) return;
+    for (const cb of this._listeners[event]) {
+      try { cb(data); } catch (e) { console.warn('Brain event error:', e); }
+    }
+  },
 
   // --- In-Memory Cache ---
   _cache: null,
@@ -126,6 +231,7 @@ const Brain = {
     }
   },
   // --- Core Data ---
+  /** @returns {OrdoData|null} */
   getData() {
     if (this._cache) return this._cache;
     try {
@@ -158,10 +264,12 @@ const Brain = {
     this._cache = null;
   },
 
+  /** @param {OrdoData} data */
   save(data) {
     data.last_updated = Date.now();
     this._cache = data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    this._emit('dataChanged', { type: 'save' });
   },
 
   init() {
@@ -200,10 +308,12 @@ const Brain = {
   },
 
   // --- Rooms ---
+  /** @returns {Object.<string, OrdoRoom>} */
   getRooms() {
     return this.getData()?.rooms || {};
   },
 
+  /** @param {string} roomId @returns {OrdoRoom|null} */
   getRoom(roomId) {
     return this.getRooms()[roomId] || null;
   },
@@ -220,6 +330,7 @@ const Brain = {
       if (spatial) room.spatial = spatial;
       data.rooms[roomId] = room;
       this.save(data);
+      this._emit('roomAdded', { roomId, name, emoji });
     }
     return data.rooms[roomId];
   },
@@ -243,6 +354,7 @@ const Brain = {
     }
     delete data.rooms[roomId];
     this.save(data);
+    this._emit('roomDeleted', { roomId });
   },
 
   // Helper: recursively delete photos for containers and their children
@@ -269,8 +381,13 @@ const Brain = {
 
   // --- Containers (recursive) ---
 
-  // Get a container by ID – searches recursively through all levels
-  // Performs lazy migration of string items to objects
+  /**
+   * Get a container by ID – searches recursively through all levels.
+   * Performs lazy migration of string items to objects.
+   * @param {string} roomId
+   * @param {string} containerId
+   * @returns {OrdoContainer|null}
+   */
   getContainer(roomId, containerId) {
     const room = this.getRoom(roomId);
     if (!room) return null;
@@ -357,6 +474,7 @@ const Brain = {
     data.rooms[roomId].containers[containerId] = container;
     data.rooms[roomId].last_updated = Date.now();
     this.save(data);
+    this._emit('containerAdded', { roomId, containerId, name });
     return data.rooms[roomId].containers[containerId];
   },
 
@@ -445,6 +563,7 @@ const Brain = {
     }
     delete parent[containerId];
     this.save(data);
+    this._emit('containerDeleted', { roomId, containerId });
     this.deletePhoto(`${roomId}_${containerId}`).catch(err => {
       console.warn(`Legacy-Foto löschen fehlgeschlagen (${roomId}_${containerId}):`, err);
     });
@@ -546,6 +665,7 @@ const Brain = {
       c.items.push(this.createItemObject(item));
       c.last_updated = Date.now();
       this.save(data);
+      this._emit('itemAdded', { roomId, containerId, item });
     }
   },
 
@@ -558,6 +678,7 @@ const Brain = {
       if (c.quantities) delete c.quantities[item];
       c.last_updated = Date.now();
       this.save(data);
+      this._emit('itemRemoved', { roomId, containerId, item });
     }
   },
 
@@ -581,6 +702,7 @@ const Brain = {
     fromC.last_updated = Date.now();
     toC.last_updated = Date.now();
     this.save(data);
+    this._emit('itemMoved', { roomId, fromContainerId, toContainerId, itemName });
     return true;
   },
 
@@ -949,6 +1071,7 @@ const Brain = {
       item.archived_at = new Date().toISOString().replace(/\.\d{3}Z$/, '');
       c.last_updated = Date.now();
       this.save(data);
+      this._emit('itemArchived', { roomId, containerId, itemName });
     }
   },
 
@@ -1545,7 +1668,13 @@ const Brain = {
 
   // --- Purchase & Warranty ---
 
-  // Set or update purchase data for an item
+  /**
+   * @param {string} roomId
+   * @param {string} containerId
+   * @param {string} itemName
+   * @param {Partial<OrdoPurchase>} purchaseData
+   * @returns {boolean}
+   */
   setPurchaseData(roomId, containerId, itemName, purchaseData) {
     const data = this.getData();
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
