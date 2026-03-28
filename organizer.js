@@ -95,10 +95,16 @@ const ITEM_CATEGORIES = {
   }
 };
 
-// ROOM_TYPE_LABELS derived from centralized ROOM_TYPES
-const ROOM_TYPE_LABELS = Object.fromEntries(
-  Object.entries(ROOM_TYPES).map(([k, v]) => [k, v.name])
-);
+// ROOM_TYPE_LABELS derived from centralized ROOM_TYPES (lazy to avoid circular import issue)
+let _roomTypeLabels = null;
+function getRoomTypeLabels() {
+  if (!_roomTypeLabels) {
+    _roomTypeLabels = Object.fromEntries(
+      Object.entries(ROOM_TYPES).map(([k, v]) => [k, v.name])
+    );
+  }
+  return _roomTypeLabels;
+}
 
 const DISPOSAL_GUIDE = {
   elektro: { text: 'Elektroschrott: Zum Wertstoffhof oder Saturn/MediaMarkt Rückgabe', icon: '⚡', hinweis: 'Elektrogeräte nicht in den Hausmüll!' },
@@ -147,7 +153,7 @@ export function checkItemPlacement(item, roomType) {
     problem: 'falscher_ort',
     category: classification.category,
     suggestion: classification.allowedRooms[0],
-    suggestedRoomName: ROOM_TYPE_LABELS[classification.allowedRooms[0]] || classification.allowedRooms[0]
+    suggestedRoomName: getRoomTypeLabels()[classification.allowedRooms[0]] || classification.allowedRooms[0]
   };
 }
 
