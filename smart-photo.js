@@ -78,7 +78,7 @@ export async function startSmartPhotoCapture() {
   // 2. Resize & convert
   let resizedBlob;
   try {
-    resizedBlob = await resizeImage(file, 1200, 0.7);
+    resizedBlob = await resizeImage(file, 1200, { quality: 0.7 });
   } catch {
     resizedBlob = file;
   }

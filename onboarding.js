@@ -67,7 +67,7 @@ function setupFirstPhotoStep() {
     document.getElementById('onboarding-scan-status-text').textContent = 'KI analysiert den Raum…';
 
     try {
-      const resizedBlob = await resizeImage(file, 1200, 0.7);
+      const resizedBlob = await resizeImage(file, 1200, { quality: 0.7 });
       const base64 = await blobToBase64(resizedBlob);
       const mimeType = resizedBlob.type || 'image/jpeg';
 

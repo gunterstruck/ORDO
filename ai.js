@@ -77,6 +77,7 @@ function sanitizeAIResponse(text) {
   return text
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/\bon\w+\s*=\s*[^\s>"']+/gi, '')
     .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, '')
     .replace(/<object\b[^>]*>.*?<\/object>/gi, '')
     .replace(/<embed\b[^>]*>/gi, '');

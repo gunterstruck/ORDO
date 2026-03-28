@@ -54,6 +54,7 @@ function getRoomFreshness(room) {
   if (latestUpdate === 0) return { cls: 'stale', label: 'Noch nie aktualisiert' };
 
   const daysSince = (Date.now() - latestUpdate) / (1000 * 60 * 60 * 24);
+  if (daysSince < 1) return { cls: 'fresh', label: 'Heute' };
   if (daysSince < 30) return { cls: 'fresh', label: `Vor ${Math.round(daysSince)} Tagen` };
   if (daysSince < 180) return { cls: 'aging', label: `Vor ${Math.round(daysSince / 30)} Monaten` };
   return { cls: 'stale', label: `Vor ${Math.round(daysSince / 30)} Monaten` };

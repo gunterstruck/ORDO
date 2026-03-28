@@ -320,6 +320,11 @@ const Brain = {
               pending--;
               if (pending === 0) resolve();
             };
+            reader.onerror = () => {
+              console.warn(`Export-Foto lesen fehlgeschlagen: ${entry.id}`);
+              pending--;
+              if (pending === 0) resolve();
+            };
             reader.readAsDataURL(entry.blob);
           });
         };
