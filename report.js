@@ -6,6 +6,10 @@ import { batchEstimateValues } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog } from './app.js';
 
+const JSPDF_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js';
+const JSPDF_AUTOTABLE_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js';
+let pdfLibrariesLoadPromise = null;
+
 // ── PDF Colors ───────────────────────────────────────────
 const COLORS = {
   primary: [232, 124, 62],
@@ -18,6 +22,53 @@ const COLORS = {
   warning: [232, 163, 62],
   error: [192, 57, 43],
 };
+
+function isPdfLibraryReady() {
+  const jsPDF = window.jspdf?.jsPDF;
+  return Boolean(jsPDF && typeof jsPDF.prototype?.autoTable === 'function');
+}
+
+function loadExternalScript(url) {
+  return new Promise((resolve, reject) => {
+    const existing = Array.from(document.querySelectorAll('script')).find(s => s.src === url);
+    if (existing) {
+      if (existing.dataset.loaded === 'true') return resolve();
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error(`Script konnte nicht geladen werden: ${url}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = url;
+    script.async = true;
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
+    script.onerror = () => reject(new Error(`Script konnte nicht geladen werden: ${url}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function ensurePdfLibrariesLoaded() {
+  if (isPdfLibraryReady()) return;
+  if (!navigator.onLine) throw new Error('offline');
+  if (!pdfLibrariesLoadPromise) {
+    pdfLibrariesLoadPromise = (async () => {
+      await loadExternalScript(JSPDF_CDN_URL);
+      await loadExternalScript(JSPDF_AUTOTABLE_CDN_URL);
+      if (!isPdfLibraryReady()) {
+        throw new Error('PDF-Bibliotheken nicht verfügbar');
+      }
+    })();
+  }
+  try {
+    await pdfLibrariesLoadPromise;
+  } catch (err) {
+    pdfLibrariesLoadPromise = null;
+    throw err;
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────
 function formatDateDE(dateStr) {
@@ -213,6 +264,8 @@ async function generateReportWithProgress(options) {
   }
 
   try {
+    updateProgress(2, 'Lade PDF-Bibliotheken...');
+    await ensurePdfLibrariesLoaded();
     const blob = await generateInsuranceReport(options, updateProgress);
     overlay.remove();
 
