@@ -9,6 +9,7 @@
  * @property {number} [seen_count]
  * @property {number} [menge]
  * @property {string} [archived_at]
+ * @property {string} [archived_reason]
  * @property {OrdoPurchase} [purchase]
  * @property {OrdoValuation} [valuation]
  * @property {string} [object_id]
@@ -1060,7 +1061,7 @@ const Brain = {
 
   // --- Archive & Lifecycle ---
 
-  archiveItem(roomId, containerId, itemName) {
+  archiveItem(roomId, containerId, itemName, reason = 'archiviert') {
     const data = this.getData();
     const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
     if (!c) return;
@@ -1069,9 +1070,10 @@ const Brain = {
     if (item && typeof item === 'object') {
       item.status = 'archiviert';
       item.archived_at = new Date().toISOString().replace(/\.\d{3}Z$/, '');
+      item.archived_reason = reason;
       c.last_updated = Date.now();
       this.save(data);
-      this._emit('itemArchived', { roomId, containerId, itemName });
+      this._emit('itemArchived', { roomId, containerId, itemName, reason });
     }
   },
 

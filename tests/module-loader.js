@@ -43,6 +43,7 @@ function loadAllModules(rootDir) {
     'brain.js',
     'modal.js',
     'ai.js',
+    'organizer.js',
     'chat.js',
     'photo-flow.js',
     'brain-view.js',

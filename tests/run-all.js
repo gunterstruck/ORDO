@@ -7,6 +7,7 @@ const path = require('path');
 
 const testFiles = [
   'brain.test.js',
+  'organizer.test.js',
   'quest.test.js',
   'app-logic.test.js',
   'ux-flows.test.js'
