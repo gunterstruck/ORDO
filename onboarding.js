@@ -96,11 +96,18 @@ function setupApiKeyStep() {
 
 export function showOnboarding() {
   scannedRooms = [];
-  document.getElementById('nav').style.display = 'none';
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const nav = document.getElementById('nav');
+  if (nav) nav.style.display = 'none';
+  // Hide all views (including chat which has active class in HTML by default)
+  document.querySelectorAll('.view').forEach(v => {
+    v.classList.remove('active');
+    v.style.display = 'none';
+  });
   const onb = document.getElementById('view-onboarding');
-  onb.style.display = 'flex';
-  onb.classList.add('active');
+  if (onb) {
+    onb.style.display = 'flex';
+    onb.classList.add('active');
+  }
   showOnboardingScreen('welcome');
 }
 
@@ -664,20 +671,34 @@ export function showOnboardingDoneStep() {
 export function finishOnboarding() {
   localStorage.setItem('ordo_onboarding_completed', 'true');
   scannedRooms = [];
-  document.getElementById('view-onboarding').style.display = 'none';
-  document.getElementById('view-onboarding').classList.remove('active');
-  document.getElementById('nav').style.display = 'flex';
+  const onb = document.getElementById('view-onboarding');
+  if (onb) {
+    onb.style.display = 'none';
+    onb.classList.remove('active');
+  }
+  // Reset inline display on all views so CSS classes take over again
+  document.querySelectorAll('.view').forEach(v => { v.style.display = ''; });
+  // Re-hide onboarding after clearing inline styles
+  if (onb) onb.style.display = 'none';
+  const nav = document.getElementById('nav');
+  if (nav) nav.style.display = 'flex';
   showView('brain');
 }
 
 // Re-trigger room scan from settings (or brain view)
 export function startRoomScan() {
   scannedRooms = [];
-  document.getElementById('nav').style.display = 'none';
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const nav = document.getElementById('nav');
+  if (nav) nav.style.display = 'none';
+  document.querySelectorAll('.view').forEach(v => {
+    v.classList.remove('active');
+    v.style.display = 'none';
+  });
   const onb = document.getElementById('view-onboarding');
-  onb.style.display = 'flex';
-  onb.classList.add('active');
+  if (onb) {
+    onb.style.display = 'flex';
+    onb.classList.add('active');
+  }
   showOnboardingScreen('scan');
 }
 

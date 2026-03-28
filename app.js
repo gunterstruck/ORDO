@@ -131,7 +131,7 @@ function setupNavigation() {
 }
 
 function closeAllOverlays() {
-  const overlayIds = ['camera-overlay', 'staging-overlay', 'review-overlay', 'picking-overlay', 'photo-timeline-overlay', 'move-container-overlay', 'lightbox'];
+  const overlayIds = ['camera-overlay', 'staging-overlay', 'review-overlay', 'picking-overlay', 'photo-timeline-overlay', 'move-container-overlay', 'lightbox', 'quest-overlay', 'item-detail-panel'];
   overlayIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -139,13 +139,28 @@ function closeAllOverlays() {
       el.classList.remove('lightbox--visible');
     }
   });
+  // Ensure modal backdrop is also closed
+  const modal = document.getElementById('ordo-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 function showView(name) {
   closeAllOverlays();
   currentView = name;
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  // Clear inline display styles so CSS .view / .view.active rules take effect
+  document.querySelectorAll('.view').forEach(v => {
+    v.classList.remove('active');
+    v.style.display = '';
+  });
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+  // Keep onboarding hidden (it uses inline display managed by showOnboarding)
+  const onb = document.getElementById('view-onboarding');
+  if (onb) onb.style.display = 'none';
+
+  // Show nav (may have been hidden by onboarding)
+  const nav = document.getElementById('nav');
+  if (nav) nav.style.display = 'flex';
 
   const view = document.getElementById(`view-${name}`);
   if (view) view.classList.add('active');
@@ -183,28 +198,38 @@ function migrateLocalStorageKeys() {
 
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Critical init – must succeed for app to work
   migrateLocalStorageKeys();
   Brain.init();
   parseNfcParams();
-  registerServiceWorker();
-  setupNavigation();
-  setupChat();
-  setupPhoto();
-  setupBrain();
-  setupSettings();
-  setupPickingView();
-  setupStagingOverlay();
-  setupReviewOverlay();
-  setupPullToRefresh();
-  setupOnboarding();
-  setupPhotoTimeline();
-  setupMoveContainerOverlay();
-  setupNfcContextView();
-  setupCamera();
-  setupOfflineQueue();
-  loadQuest();
-  setupGlobalKeyboardHandling();
 
+  // Safe setup – each function is wrapped so a single failure
+  // does not prevent the rest of the app from initializing.
+  const safeSetup = [
+    ['registerServiceWorker', registerServiceWorker],
+    ['setupNavigation', setupNavigation],
+    ['setupChat', setupChat],
+    ['setupPhoto', setupPhoto],
+    ['setupBrain', setupBrain],
+    ['setupSettings', setupSettings],
+    ['setupPickingView', setupPickingView],
+    ['setupStagingOverlay', setupStagingOverlay],
+    ['setupReviewOverlay', setupReviewOverlay],
+    ['setupPullToRefresh', setupPullToRefresh],
+    ['setupOnboarding', setupOnboarding],
+    ['setupPhotoTimeline', setupPhotoTimeline],
+    ['setupMoveContainerOverlay', setupMoveContainerOverlay],
+    ['setupNfcContextView', setupNfcContextView],
+    ['setupCamera', setupCamera],
+    ['setupOfflineQueue', setupOfflineQueue],
+    ['loadQuest', loadQuest],
+    ['setupGlobalKeyboardHandling', setupGlobalKeyboardHandling],
+  ];
+  for (const [name, fn] of safeSetup) {
+    try { fn(); } catch (err) { console.error(`[ORDO] ${name} fehlgeschlagen:`, err); }
+  }
+
+  // Determine initial view – always runs even if setup partially failed
   if (!localStorage.getItem('ordo_onboarding_completed') && Brain.isEmpty()) {
     showOnboarding();
   } else if (nfcContext && nfcContext.tag) {
@@ -213,17 +238,19 @@ document.addEventListener('DOMContentLoaded', () => {
     showView('chat');
   }
 
-  const activeQuest = Brain.getQuest();
-  if (activeQuest?.active) {
-    setTimeout(() => {
-      const shouldContinue = window.confirm(`Du warst mittendrin – ${activeQuest.progress?.percent || 0}% geschafft.\n\nWeitermachen?`);
-      if (shouldContinue) showCurrentStep();
-      else pauseQuest();
-    }, 250);
-  }
+  try {
+    const activeQuest = Brain.getQuest();
+    if (activeQuest?.active) {
+      setTimeout(() => {
+        const shouldContinue = window.confirm(`Du warst mittendrin – ${activeQuest.progress?.percent || 0}% geschafft.\n\nWeitermachen?`);
+        if (shouldContinue) showCurrentStep();
+        else pauseQuest();
+      }, 250);
+    }
+  } catch (err) { console.error('[ORDO] Quest-Check fehlgeschlagen:', err); }
 
   // Check for expiring warranties and show banner
-  checkWarrantyBanner();
+  try { checkWarrantyBanner(); } catch (err) { console.error('[ORDO] Warranty-Check fehlgeschlagen:', err); }
 });
 
 // ── Global Keyboard Handling ──────────────────────────
