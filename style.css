@@ -1120,6 +1120,7 @@ html, body {
   width: 100%;
   max-width: 480px;
   padding: 20px 16px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1150,7 +1151,7 @@ html, body {
 
 /* ── SETTINGS & IMPRESSUM ─────────────────────────── */
 #view-settings, #view-impressum {
-  padding: 24px 16px calc(var(--nav-h) + var(--footer-h) + 24px);
+  padding: 24px 16px calc(var(--nav-h) + var(--footer-h) + 24px + env(safe-area-inset-bottom, 0px));
   gap: 28px;
 }
 
@@ -1243,6 +1244,42 @@ select.settings-input { appearance: none; }
 .settings-msg--success { background: #e8f5e9; color: #2e7d32; }
 .settings-msg--error { background: #ffebee; color: var(--error); }
 .settings-msg--loading { background: var(--surface); color: var(--text-muted); }
+
+/* Personality options */
+.personality-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.personality-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.personality-option:has(input:checked) {
+  border-color: var(--accent);
+  background: #fef3ec;
+}
+
+.personality-option input[type="radio"] {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.personality-label {
+  font-size: 14px;
+  line-height: 1.4;
+}
 
 /* NFC steps */
 .nfc-step {
@@ -1642,6 +1679,7 @@ select.settings-input { appearance: none; }
 /* Confirmation panel */
 .picking-panel {
   padding: 12px 16px 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   background: var(--bg);
   border-top: 2px solid var(--accent);
   flex-direction: column;
@@ -1729,7 +1767,7 @@ select.settings-input { appearance: none; }
 /* ── Toast Notifications ─────────────────────────── */
 .toast-container {
   position: fixed;
-  bottom: calc(var(--nav-h) + 12px);
+  bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 10000;
@@ -1794,6 +1832,7 @@ select.settings-input { appearance: none; }
   width: 100%;
   max-width: 480px;
   padding: 24px 20px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1906,7 +1945,7 @@ select.settings-input { appearance: none; }
 /* ── Offline Queue Badge ──────────────────────────── */
 .offline-queue-badge {
   position: fixed;
-  bottom: 70px;
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-card, #2a2a2a);
@@ -2064,7 +2103,12 @@ select.settings-input { appearance: none; }
 .staging-footer {
   display: flex;
   gap: 10px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 12px 0;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
 }
 
 .staging-cancel-btn {
@@ -2428,6 +2472,7 @@ select.settings-input { appearance: none; }
   align-items: center;
   justify-content: center;
   padding: 40px 24px;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
   flex: 1;
   min-height: 100%;
   text-align: center;
@@ -3881,6 +3926,7 @@ select.settings-input { appearance: none; }
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
   background: linear-gradient(135deg, #e8a33e 0%, var(--accent) 100%);
   color: white;
   font-size: 0.9em;
@@ -4186,6 +4232,7 @@ select.settings-input { appearance: none; }
   display: flex;
   flex-direction: column;
   padding: 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
 }
 
@@ -4248,7 +4295,7 @@ select.settings-input { appearance: none; }
 
 .quest-mini-badge {
   position: fixed;
-  bottom: 80px;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   right: 16px;
   background: var(--primary, #e87c3e);
   color: white;
