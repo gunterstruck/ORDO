@@ -556,6 +556,96 @@ describe('Edge Cases – Robustheit', () => {
   });
 });
 
+// ── Map View – getRoomFreshness ────────────────────────
+describe('getRoomFreshness', () => {
+  it('gibt "stale" wenn kein Container vorhanden', () => {
+    const result = context.getRoomFreshness({ containers: {} });
+    assertEqual(result.cls, 'stale');
+  });
+
+  it('gibt "stale" wenn Container nie aktualisiert', () => {
+    const result = context.getRoomFreshness({
+      containers: { c1: { name: 'Schrank', items: [] } }
+    });
+    assertEqual(result.cls, 'stale');
+    assert(result.label.includes('nie'), 'Label sollte "nie" enthalten');
+  });
+
+  it('gibt "fresh" wenn letztes Update heute', () => {
+    const result = context.getRoomFreshness({
+      containers: { c1: { name: 'Schrank', items: [], last_updated: Date.now() } }
+    });
+    assertEqual(result.cls, 'fresh');
+  });
+
+  it('gibt "fresh" wenn letztes Update vor 10 Tagen', () => {
+    const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000);
+    const result = context.getRoomFreshness({
+      containers: { c1: { name: 'Schrank', items: [], last_updated: tenDaysAgo } }
+    });
+    assertEqual(result.cls, 'fresh');
+  });
+
+  it('gibt "aging" wenn letztes Update vor 60 Tagen', () => {
+    const sixtyDaysAgo = Date.now() - (60 * 24 * 60 * 60 * 1000);
+    const result = context.getRoomFreshness({
+      containers: { c1: { name: 'Schrank', items: [], last_updated: sixtyDaysAgo } }
+    });
+    assertEqual(result.cls, 'aging');
+  });
+
+  it('gibt "stale" wenn letztes Update vor 200 Tagen', () => {
+    const longAgo = Date.now() - (200 * 24 * 60 * 60 * 1000);
+    const result = context.getRoomFreshness({
+      containers: { c1: { name: 'Schrank', items: [], last_updated: longAgo } }
+    });
+    assertEqual(result.cls, 'stale');
+  });
+
+  it('berücksichtigt verschachtelte Container', () => {
+    const result = context.getRoomFreshness({
+      containers: {
+        c1: { name: 'Schrank', items: [], last_updated: 0,
+              containers: { c2: { name: 'Fach', items: [], last_updated: Date.now() } } }
+      }
+    });
+    assertEqual(result.cls, 'fresh');
+  });
+});
+
+// ── Map View – getRoomColor ───────────────────────────
+describe('getRoomColor', () => {
+  it('gibt Orange für Küche', () => {
+    const color = context.getRoomColor('kueche');
+    assertEqual(color.bg, '#FFF3E0');
+    assertEqual(color.border, '#FFB74D');
+  });
+
+  it('gibt Blau für Bad', () => {
+    const color = context.getRoomColor('bad');
+    assertEqual(color.bg, '#E3F2FD');
+    assertEqual(color.border, '#64B5F6');
+  });
+
+  it('gibt Lila für Schlafzimmer', () => {
+    const color = context.getRoomColor('schlafzimmer');
+    assertEqual(color.bg, '#F3E5F5');
+    assertEqual(color.border, '#BA68C8');
+  });
+
+  it('gibt Default-Farbe für unbekannten Typ', () => {
+    const color = context.getRoomColor('unbekannt_xyz');
+    assertEqual(color.bg, '#F5F0EB');
+    assertEqual(color.border, '#D4C5B5');
+  });
+
+  it('gibt Grün für Kinderzimmer', () => {
+    const color = context.getRoomColor('kinderzimmer');
+    assertEqual(color.bg, '#E8F5E9');
+    assertEqual(color.border, '#81C784');
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);
