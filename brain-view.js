@@ -8,7 +8,7 @@ import { capturePhoto } from './camera.js';
 import { sendChatMessage } from './chat.js';
 import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
 import { showReportDialog } from './report.js';
-import { showCurrentStep, startBlueprint } from './quest.js';
+import { showCurrentStep, startBlueprint, startCleanupQuest } from './quest.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 import { showItemDetailPanel } from './item-detail.js';
 import { showWarrantyOverview, checkWarrantyBanner } from './warranty-view.js';
@@ -2030,8 +2030,9 @@ async function showOrganizerSessionChoices() {
     return;
   }
 
-  const list = (tasks.tasks || []).slice(0, 3).map(t => `• ${t.description}`).join('\n');
-  showToast(list || 'Keine offenen Aufgaben gefunden.', 'success', 4000);
+  // 5/15/30 Min → Aufräum-Quest starten
+  const minutes = parseInt(result[0], 10);
+  startCleanupQuest(minutes);
 }
 
 function showQuickDecisionOverlay() {
