@@ -563,6 +563,9 @@ Identifiziere pro Raum:
 4. Ungefähre Position des Möbels im Raum
    ("linke Wand", "neben dem Fenster", "gegenüber der Tür")
 
+Ergänze für jeden Raum eine Liste der angrenzenden Räume (neighbors).
+Beispiel: Die Küche grenzt an den Flur und das Wohnzimmer.
+
 Antworte NUR mit JSON:
 {
   "wohnung_typ": "Wohnung",
@@ -573,6 +576,7 @@ Antworte NUR mit JSON:
       "name": "Küche",
       "emoji": "🍳",
       "merkmale": "hell, Fenster zur Straße, Fliesenboden",
+      "neighbors": ["flur", "wohnzimmer"],
       "moebel": [
         {
           "id": "kuechenzeile_ober",

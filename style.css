@@ -3035,8 +3035,9 @@ select.settings-input { appearance: none; }
 /* Room grid */
 .map-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 12px;
+  padding: 16px;
   transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
 }
 
@@ -3050,19 +3051,20 @@ select.settings-input { appearance: none; }
 /* Room cell */
 .map-room-cell {
   background: var(--surface);
-  border-radius: 12px;
-  padding: 14px 12px;
+  border-radius: 16px;
+  padding: 16px 14px;
   cursor: pointer;
-  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1), box-shadow 0.2s, opacity 0.2s;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  border: 2.5px solid transparent;
+  border: 2px solid transparent;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 110px;
+  min-height: 100px;
   position: relative;
   overflow: hidden;
-  justify-content: flex-end;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .map-room-cell:active {
@@ -3177,12 +3179,11 @@ select.settings-input { appearance: none; }
 }
 
 .map-back-btn {
-  border: none;
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 15px;
+  font-size: 18px;
+  padding: 8px;
   cursor: pointer;
+  border: none;
+  background: none;
   color: var(--text);
 }
 
@@ -3191,116 +3192,27 @@ select.settings-input { appearance: none; }
   font-weight: 700;
 }
 
-/* Container tiles in room detail */
+/* Container tiles in room detail (Ebene 2 – horizontal layout) */
 .map-container-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
 .map-container-tile {
-  background: #fff;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
   display: flex;
-  flex-direction: column;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  overflow: hidden;
-  position: relative;
-  border: 2.5px solid transparent;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border, #e0d6cc);
+  background: white;
+  cursor: pointer;
+  transition: transform 0.1s;
+  align-items: center;
 }
-
-/* Freshness border on container tiles */
-.map-container-tile--fresh { border-color: var(--success); }
-.map-container-tile--stale { border-color: #F9C74F; }
-.map-container-tile--old   { border-color: #ccc; }
 
 .map-container-tile:active {
-  transform: scale(0.97);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-/* Photo area: top half */
-.map-container-photo-area {
-  width: 100%;
-  aspect-ratio: 4/3;
-  overflow: hidden;
-  background: var(--surface);
-}
-
-.map-container-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.map-container-emoji {
-  font-size: 32px;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  background: var(--surface);
-}
-
-/* Info area: bottom half */
-.map-container-info {
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.map-container-name {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.map-container-meta {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-/* Camera button on container tile */
-.map-container-cam-btn {
-  position: absolute;
-  bottom: 6px;
-  right: 6px;
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.85);
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
-  transition: background 0.15s;
-  z-index: 2;
-  padding: 0;
-  line-height: 1;
-}
-
-.map-container-cam-btn:active {
-  background: rgba(255,255,255,1);
-}
-
-.map-container-cam-btn--cta {
-  background: var(--primary);
-  color: #fff;
-  width: 34px;
-  height: 34px;
-  font-size: 16px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  transform: scale(0.98);
 }
 
 .map-empty-state {
@@ -3308,6 +3220,174 @@ select.settings-input { appearance: none; }
   color: var(--text-muted);
   padding: 40px 20px;
   font-size: 15px;
+}
+
+/* ── MAP VIEW — Freshness Dot Indicators ─────────── */
+.map-freshness {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.map-freshness.fresh { background: #2ecc71; }
+.map-freshness.aging { background: #f39c12; }
+.map-freshness.stale { background: #bdc3c7; }
+
+/* ── MAP VIEW — Legend ───────────────────────────── */
+.map-legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  justify-content: center;
+}
+.map-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* ── MAP VIEW — Zoom Animation ───────────────────── */
+.map-zoom-transition {
+  position: fixed;
+  z-index: 300;
+  border-radius: 16px;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+.map-zoom-transition.expanding {
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0 !important;
+}
+
+/* ── MAP VIEW — Room Detail (Ebene 2) Overrides ──── */
+.map-room-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 16px;
+}
+.map-room-detail-title {
+  font-size: 18px;
+  font-weight: 600;
+  flex: 1;
+}
+
+/* ── MAP VIEW — Tile Layout (Ebene 2) ────────────── */
+.tile-thumb-container {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--surface, #f5f0eb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tile-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tile-thumb-placeholder {
+  font-size: 28px;
+}
+.tile-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tile-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.tile-photo-btn {
+  padding: 8px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── MAP VIEW — Room Footer (Organizer Info) ─────── */
+.map-room-footer {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: pre-line;
+}
+
+/* ── MAP VIEW — Context Menu (Long Press) ────────── */
+.map-context-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+.map-context-sheet {
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  width: 100%;
+  max-width: 420px;
+  padding: 16px 0 env(safe-area-inset-bottom, 8px);
+  animation: slideUp 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.map-context-title {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 4px 20px 12px;
+  border-bottom: 1px solid var(--border, #e0d6cc);
+}
+.map-context-action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 20px;
+  border: none;
+  background: none;
+  font-size: 15px;
+  cursor: pointer;
+  color: var(--text);
+}
+.map-context-action:active {
+  background: var(--surface, #f5f0eb);
+}
+.map-context-cancel {
+  color: var(--text-muted);
+  border-top: 1px solid var(--border, #e0d6cc);
+  margin-top: 4px;
 }
 
 /* ── Camera Capture Overlay ────────────────────────── */

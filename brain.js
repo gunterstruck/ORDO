@@ -97,6 +97,124 @@ function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, '');
 }
 
+/**
+ * Calculates automatic grid layout for rooms without spatial data.
+ * @param {Object} rooms - All rooms from brain data
+ * @returns {Object} roomId → { x, y, w, h }
+ */
+function calculateAutoLayout(rooms) {
+  const roomIds = Object.keys(rooms);
+  if (roomIds.length === 0) return {};
+  const cols = Math.min(3, Math.ceil(Math.sqrt(roomIds.length)));
+
+  return roomIds.reduce((layout, id, i) => {
+    layout[id] = {
+      x: (i % cols) * 1.2,
+      y: Math.floor(i / cols) * 1.2,
+      w: 1,
+      h: 1,
+    };
+    return layout;
+  }, {});
+}
+
+/**
+ * Positions rooms based on neighbor relationships.
+ * Neighbors are placed adjacent; unconnected rooms fall back to grid.
+ * @param {Object} rooms - All rooms from brain data
+ * @returns {Object} roomId → { x, y, w, h }
+ */
+function calculateNeighborLayout(rooms) {
+  const roomIds = Object.keys(rooms);
+  if (roomIds.length === 0) return {};
+
+  // Check if any room has neighbors
+  const hasNeighbors = roomIds.some(id => rooms[id].spatial?.neighbors?.length > 0);
+  if (!hasNeighbors) return calculateAutoLayout(rooms);
+
+  const placed = {};
+  const directions = [
+    { dx: 1.2, dy: 0 },   // right
+    { dx: 0, dy: 1.2 },   // down
+    { dx: -1.2, dy: 0 },  // left
+    { dx: 0, dy: -1.2 },  // up
+    { dx: 1.2, dy: 1.2 }, // diagonal
+    { dx: -1.2, dy: 1.2 },
+  ];
+
+  function isOccupied(x, y) {
+    return Object.values(placed).some(p => Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5);
+  }
+
+  const visited = new Set();
+
+  function placeNeighbors(roomId) {
+    if (visited.has(roomId)) return;
+    visited.add(roomId);
+
+    const room = rooms[roomId];
+    const neighbors = room.spatial?.neighbors || [];
+    const origin = placed[roomId];
+
+    for (const nId of neighbors) {
+      if (placed[nId] || !rooms[nId]) continue;
+      let didPlace = false;
+      for (const dir of directions) {
+        const nx = origin.x + dir.dx;
+        const ny = origin.y + dir.dy;
+        if (!isOccupied(nx, ny)) {
+          placed[nId] = { x: nx, y: ny, w: 1, h: 1 };
+          didPlace = true;
+          break;
+        }
+      }
+      if (!didPlace) {
+        // Fallback: find any free spot nearby
+        for (let r = 2; r <= 4; r++) {
+          for (const dir of directions) {
+            const nx = origin.x + dir.dx * r;
+            const ny = origin.y + dir.dy * r;
+            if (!isOccupied(nx, ny)) {
+              placed[nId] = { x: nx, y: ny, w: 1, h: 1 };
+              didPlace = true;
+              break;
+            }
+          }
+          if (didPlace) break;
+        }
+      }
+    }
+    // Recursively place neighbors of neighbors
+    for (const nId of neighbors) {
+      if (placed[nId] && !visited.has(nId)) placeNeighbors(nId);
+    }
+  }
+
+  // Start with the first room that has neighbors, or just the first room
+  const startRoom = roomIds.find(id => rooms[id].spatial?.neighbors?.length > 0) || roomIds[0];
+  placed[startRoom] = { x: 0, y: 0, w: 1, h: 1 };
+  placeNeighbors(startRoom);
+
+  // Place any remaining rooms that weren't connected via neighbors
+  const cols = Math.min(3, Math.ceil(Math.sqrt(roomIds.length)));
+  let fallbackIdx = 0;
+  for (const id of roomIds) {
+    if (placed[id]) continue;
+    // Find next free grid position
+    while (true) {
+      const x = (fallbackIdx % cols) * 1.2;
+      const y = (Math.floor(fallbackIdx / cols) + Math.ceil(Object.keys(placed).length / cols) + 1) * 1.2;
+      fallbackIdx++;
+      if (!isOccupied(x, y)) {
+        placed[id] = { x, y, w: 1, h: 1 };
+        break;
+      }
+    }
+  }
+
+  return placed;
+}
+
 const Brain = {
 
   // --- Event System (Observer Pattern) ---
@@ -361,6 +479,70 @@ const Brain = {
     delete data.rooms[roomId];
     this.save(data);
     this._emit('roomDeleted', { roomId });
+  },
+
+  // --- Spatial Data ---
+
+  /**
+   * Returns spatial data for a room (with auto-fallback to null).
+   * @param {string} roomId
+   * @returns {Object|null} spatial data or null if no explicit data
+   */
+  getRoomSpatial(roomId) {
+    const room = this.getRoom(roomId);
+    if (!room) return null;
+    if (room.spatial?.position) return room.spatial;
+    return null;
+  },
+
+  /**
+   * Saves manually adjusted room position.
+   * @param {string} roomId
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  setRoomPosition(roomId, x, y) {
+    const data = this.getData();
+    const room = data.rooms[roomId];
+    if (!room) return false;
+    if (!room.spatial) room.spatial = {};
+    room.spatial.position = { x, y };
+    this.save(data);
+    return true;
+  },
+
+  /**
+   * Saves room size in spatial data.
+   * @param {string} roomId
+   * @param {number} w
+   * @param {number} h
+   * @returns {boolean}
+   */
+  setRoomSize(roomId, w, h) {
+    const data = this.getData();
+    const room = data.rooms[roomId];
+    if (!room) return false;
+    if (!room.spatial) room.spatial = {};
+    room.spatial.size = { w, h };
+    this.save(data);
+    return true;
+  },
+
+  /**
+   * Sets neighbor list for a room.
+   * @param {string} roomId
+   * @param {string[]} neighbors - array of adjacent room IDs
+   * @returns {boolean}
+   */
+  setRoomNeighbors(roomId, neighbors) {
+    const data = this.getData();
+    const room = data.rooms[roomId];
+    if (!room) return false;
+    if (!room.spatial) room.spatial = {};
+    room.spatial.neighbors = neighbors;
+    this.save(data);
+    return true;
   },
 
   // Helper: recursively delete photos for containers and their children
@@ -1984,4 +2166,4 @@ const Brain = {
 
 // ES Module export (brain.js bleibt inhaltlich unverändert)
 export default Brain;
-export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE };
+export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE, calculateAutoLayout, calculateNeighborLayout };
