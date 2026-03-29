@@ -529,8 +529,16 @@ async function startLiveMode() {
   // System-Prompt mit Live-Regeln
   const systemPrompt = buildLiveSystemPrompt();
 
-  // Verbinden
-  await liveSession.connect(apiKey, systemPrompt);
+  // Verbinden – Fehler explizit abfangen und im Chat anzeigen
+  try {
+    await liveSession.connect(apiKey, systemPrompt);
+  } catch (err) {
+    const detail = err?.message || String(err);
+    appendCompanionMessage('assistant', `Live-Fehler: ${detail}`);
+    cleanupLiveUI();
+    liveSession = null;
+    return;
+  }
 
   // Idle-Timer starten
   resetIdleTimer();
