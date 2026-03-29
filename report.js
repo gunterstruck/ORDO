@@ -6,8 +6,16 @@ import { batchEstimateValues } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog } from './app.js';
 
-const JSPDF_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js';
-const JSPDF_AUTOTABLE_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js';
+const JSPDF_CDN_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js',
+  'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
+  'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js',
+];
+const JSPDF_AUTOTABLE_CDN_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js',
+  'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
+  'https://unpkg.com/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
+];
 let pdfLibrariesLoadPromise = null;
 
 // ── PDF Colors ───────────────────────────────────────────
@@ -28,7 +36,7 @@ function isPdfLibraryReady() {
   return Boolean(jsPDF && typeof jsPDF.prototype?.autoTable === 'function');
 }
 
-function loadExternalScript(url) {
+function loadExternalScript(url, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const existing = Array.from(document.querySelectorAll('script')).find(s => s.src === url);
     if (existing) {
@@ -41,13 +49,36 @@ function loadExternalScript(url) {
     const script = document.createElement('script');
     script.src = url;
     script.async = true;
+    const timer = setTimeout(() => {
+      script.remove();
+      reject(new Error(`Timeout beim Laden: ${url}`));
+    }, timeoutMs);
     script.onload = () => {
+      clearTimeout(timer);
       script.dataset.loaded = 'true';
       resolve();
     };
-    script.onerror = () => reject(new Error(`Script konnte nicht geladen werden: ${url}`));
+    script.onerror = () => {
+      clearTimeout(timer);
+      script.remove();
+      reject(new Error(`Script konnte nicht geladen werden: ${url}`));
+    };
     document.head.appendChild(script);
   });
+}
+
+async function loadFromCdnWithFallback(urls) {
+  let lastError;
+  for (const url of urls) {
+    try {
+      await loadExternalScript(url);
+      return;
+    } catch (err) {
+      debugLog(`CDN fehlgeschlagen: ${err.message}`);
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 async function ensurePdfLibrariesLoaded() {
@@ -55,8 +86,8 @@ async function ensurePdfLibrariesLoaded() {
   if (!navigator.onLine) throw new Error('offline');
   if (!pdfLibrariesLoadPromise) {
     pdfLibrariesLoadPromise = (async () => {
-      await loadExternalScript(JSPDF_CDN_URL);
-      await loadExternalScript(JSPDF_AUTOTABLE_CDN_URL);
+      await loadFromCdnWithFallback(JSPDF_CDN_URLS);
+      await loadFromCdnWithFallback(JSPDF_AUTOTABLE_CDN_URLS);
       if (!isPdfLibraryReady()) {
         throw new Error('PDF-Bibliotheken nicht verfügbar');
       }
