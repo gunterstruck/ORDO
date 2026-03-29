@@ -1719,15 +1719,16 @@ export class GeminiLiveSession {
       });
 
       // 3. Setup mit System-Prompt und Audio-Konfiguration
-      //    Laut Doku: Top-Level ist "config" (nicht "setup"),
-      //    responseModalities direkt in config (kein generationConfig-Wrapper)
+      //    Server erwartet "setup" als Top-Level-Key (nicht "config")
       this.ws.send(JSON.stringify({
-        config: {
+        setup: {
           model: `models/${LIVE_MODEL}`,
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Aoede' }
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: 'Aoede' }
+              }
             }
           },
           systemInstruction: {
