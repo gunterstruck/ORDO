@@ -464,15 +464,15 @@ export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
     }
 
     try {
-      let result = await _callProvider(providerId, provider, providerKey, systemPrompt, messages, options);
+      const result = await _callProvider(providerId, provider, providerKey, systemPrompt, messages, options);
       if (debugDetails.length > 0) {
         debugLog(`✓ Fallback erfolgreich: ${provider.name}`);
       }
-      // Ensure result is always an object (providers return plain strings when no tools are used)
-      if (typeof result === 'string') {
-        result = { text: result, functionCalls: [] };
+      // Only attach debug info to object results (when tools are used);
+      // string results (no tools) are returned as-is
+      if (typeof result === 'object' && result !== null) {
+        result._debugInfo = { provider: provider.name, fallbacksTrialled: debugDetails, timestamp: new Date().toISOString() };
       }
-      result._debugInfo = { provider: provider.name, fallbacksTrialled: debugDetails, timestamp: new Date().toISOString() };
       return result;
     } catch (err) {
       const detail = {
