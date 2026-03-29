@@ -10,6 +10,7 @@ import { setupCamera } from './camera.js';
 import { loadQuest, showCurrentStep, pauseQuest } from './quest.js';
 import { closeTopOverlay } from './overlay-manager.js';
 import { setupPhotoFAB } from './smart-photo.js';
+import { setupCompanion, updateCompanionContext } from './companion.js';
 
 // ── State ──────────────────────────────────────────────
 let currentView = 'chat';
@@ -199,6 +200,9 @@ function showView(name) {
   const navBtn = document.querySelector(`.nav-btn[data-view="${name}"]`);
   if (navBtn) navBtn.classList.add('active');
 
+  // Update contextual companion with current view
+  updateCompanionContext(name);
+
   if (name === 'chat') { initChat(); maybeShowChatSuggestions(); }
   if (name === 'brain') renderBrainView();
   if (name === 'settings') renderSettings();
@@ -256,6 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['loadQuest', loadQuest],
     ['setupGlobalKeyboardHandling', setupGlobalKeyboardHandling],
     ['setupPhotoFAB', setupPhotoFAB],
+    ['setupCompanion', setupCompanion],
   ];
   for (const [name, fn] of safeSetup) {
     try { fn(); } catch (err) { console.error(`[ORDO] ${name} fehlgeschlagen:`, err); }

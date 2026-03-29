@@ -636,6 +636,28 @@
   </div>
 </div>
 
+<!-- ── CONTEXTUAL AI COMPANION ───────────────────────── -->
+<div id="ordo-companion-container">
+  <button id="companion-circle" class="companion-circle-btn" aria-label="ORDO Begleiter öffnen">
+    <span class="companion-icon">🏠</span>
+  </button>
+
+  <div id="companion-modal" class="companion-modal" style="display:none">
+    <div class="companion-header">
+      <span class="companion-title">ORDO</span>
+      <div class="companion-header-actions">
+        <button id="companion-resize" class="companion-header-btn" aria-label="Größe ändern">⤢</button>
+        <button id="companion-minimize" class="companion-header-btn" aria-label="Minimieren">✕</button>
+      </div>
+    </div>
+    <div id="companion-messages" class="companion-chat-body"></div>
+    <div class="companion-input-area">
+      <input type="text" id="companion-input" placeholder="Frag mich was..." autocomplete="off">
+      <button id="companion-send" class="companion-send-btn" aria-label="Senden">↑</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>
