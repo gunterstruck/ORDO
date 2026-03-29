@@ -1718,16 +1718,16 @@ export class GeminiLiveSession {
         };
       });
 
-      // 3. Setup mit System-Prompt und Audio-Konfiguration (camelCase per API-Spec!)
+      // 3. Setup mit System-Prompt und Audio-Konfiguration
+      //    Laut Doku: Top-Level ist "config" (nicht "setup"),
+      //    responseModalities direkt in config (kein generationConfig-Wrapper)
       this.ws.send(JSON.stringify({
-        setup: {
+        config: {
           model: `models/${LIVE_MODEL}`,
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: 'Aoede' }
-              }
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Aoede' }
             }
           },
           systemInstruction: {
@@ -1943,10 +1943,10 @@ export class GeminiLiveSession {
       try {
         this.ws.send(JSON.stringify({
           realtimeInput: {
-            mediaChunks: [{
-              mimeType: 'audio/pcm;rate=16000',
-              data: base64
-            }]
+            audio: {
+              data: base64,
+              mimeType: 'audio/pcm;rate=16000'
+            }
           }
         }));
       } catch {
