@@ -299,9 +299,15 @@ async function autoGreet() {
 
 // ── Voice Input (Push-to-Talk, Fallback) ─────────────
 async function startCompanionVoice() {
+  // Wenn Live-Modus aktiv ist, kein Push-to-Talk (Mic ist belegt)
+  if (liveSession && liveSession.state !== 'disconnected') {
+    appendCompanionMessage('assistant', 'Live-Modus ist aktiv – sprich einfach los, ich höre bereits zu.');
+    return;
+  }
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    appendCompanionMessage('assistant', 'Spracherkennung wird auf diesem Gerät nicht unterstützt.');
+    appendCompanionMessage('assistant', 'Spracherkennung wird auf diesem Gerät nicht unterstützt. Nutze den Live-Modus (🎙️).');
     return;
   }
 
@@ -326,8 +332,15 @@ async function startCompanionVoice() {
       rec.onerror = (event) => {
         if (!settled) {
           settled = true;
-          if (event.error === 'no-speech') resolve(null);
-          else reject(event);
+          if (event.error === 'no-speech') {
+            resolve(null);
+          } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            reject(new Error('mic-blocked'));
+          } else if (event.error === 'network') {
+            reject(new Error('network'));
+          } else {
+            reject(new Error(event.error || 'unknown'));
+          }
         }
       };
       rec.onend = () => {
@@ -340,8 +353,14 @@ async function startCompanionVoice() {
     if (text) {
       await sendCompanionMessage(text);
     }
-  } catch {
-    // Speech recognition failed silently
+  } catch (err) {
+    if (err.message === 'mic-blocked') {
+      appendCompanionMessage('assistant', 'Mikrofon-Zugriff verweigert. Bitte erlaube den Zugriff in den Browser-Einstellungen.');
+    } else if (err.message === 'network') {
+      appendCompanionMessage('assistant', 'Spracherkennung nicht verfügbar (Netzwerk-Fehler). Nutze den Live-Modus (🎙️).');
+    } else {
+      appendCompanionMessage('assistant', 'Spracherkennung fehlgeschlagen. Versuch den Live-Modus (🎙️).');
+    }
   } finally {
     if (voiceBtn) {
       voiceBtn.classList.remove('companion-voice--listening');

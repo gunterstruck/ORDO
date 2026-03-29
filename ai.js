@@ -1636,7 +1636,7 @@ Antworte NUR mit JSON:
 
 // ── Gemini Multimodal Live API (WebSocket Audio Streaming) ──────
 
-const LIVE_MODEL = 'gemini-2.0-flash-exp';
+const LIVE_MODEL = 'gemini-2.0-flash-live-001';
 const LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
 /**
@@ -1739,13 +1739,19 @@ export class GeminiLiveSession {
       await new Promise((resolve, reject) => {
         let settled = false;
         const timer = setTimeout(() => {
-          if (!settled) { settled = true; this.ws?.removeEventListener('message', onMsg); reject(new Error('Setup-Timeout (10s)')); }
-        }, 10000);
+          if (!settled) { settled = true; this.ws?.removeEventListener('message', onMsg); reject(new Error('Setup-Timeout (10s) – keine Bestätigung vom Server')); }
+        }, 15000);
         const onMsg = (event) => {
           try {
             const data = JSON.parse(event.data);
+            debugLog(`[Live] Setup-Antwort: ${JSON.stringify(data).substring(0, 200)}`);
             if (data.setupComplete) {
               if (!settled) { settled = true; clearTimeout(timer); this.ws?.removeEventListener('message', onMsg); resolve(); }
+            }
+            // Server-Fehler abfangen (z.B. ungültiges Modell)
+            if (data.error) {
+              const errMsg = data.error.message || JSON.stringify(data.error);
+              if (!settled) { settled = true; clearTimeout(timer); this.ws?.removeEventListener('message', onMsg); reject(new Error(errMsg)); }
             }
           } catch { /* Fehlerhaftes JSON ignorieren */ }
         };
@@ -1755,13 +1761,17 @@ export class GeminiLiveSession {
       // 5. Nachrichten-Handler einrichten
       this.ws.onmessage = (event) => this._handleMessage(event);
       this.ws.onclose = (event) => {
+        debugLog(`[Live] WebSocket geschlossen: code=${event.code} reason=${event.reason || 'keine'}`);
         if (this.state !== 'disconnected') {
-          const reason = event.reason || `Code ${event.code}`;
-          this.onError?.(`Verbindung getrennt (${reason})`);
+          // Code 1000 = normaler Schluss, alles andere ist unerwartet
+          if (event.code !== 1000) {
+            this.onError?.(`Verbindung getrennt (Code ${event.code})`);
+          }
           this.disconnect();
         }
       };
-      this.ws.onerror = () => {
+      this.ws.onerror = (event) => {
+        debugLog(`[Live] WebSocket-Fehler: ${event?.message || 'unbekannt'}`);
         this.onError?.('WebSocket-Fehler');
         this.disconnect();
       };
@@ -1899,6 +1909,15 @@ export class GeminiLiveSession {
   _handleMessage(event) {
     let data;
     try { data = JSON.parse(event.data); } catch { return; }
+
+    // Server-Fehler (z.B. Rate-Limit, ungültiger Request)
+    if (data.error) {
+      const errMsg = data.error.message || JSON.stringify(data.error);
+      debugLog(`[Live] Server-Fehler: ${errMsg}`);
+      this.onError?.(errMsg);
+      this.disconnect();
+      return;
+    }
 
     const serverContent = data.serverContent;
     if (!serverContent) return;

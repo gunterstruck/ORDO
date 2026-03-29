@@ -149,12 +149,17 @@ async function startVoiceInput() {
       await sendChatMessage();
     }
   } catch (err) {
-    if (err?.error === 'not-allowed' || err?.name === 'not-allowed') {
-      showToast('Mikrofon-Zugriff wurde verweigert.', 'warning');
-    } else if (err?.error === 'no-speech') {
+    const errorType = err?.error || err?.name || err?.message || '';
+    if (errorType === 'not-allowed' || errorType === 'service-not-allowed') {
+      showToast('Mikrofon-Zugriff wurde verweigert. Bitte erlaube den Zugriff.', 'warning');
+    } else if (errorType === 'no-speech') {
       // No speech detected — not an error
+    } else if (errorType === 'network') {
+      showToast('Spracherkennung braucht eine Internetverbindung.', 'warning');
+    } else if (errorType === 'aborted') {
+      // User aborted — not an error
     } else {
-      showToast('Spracherkennung nicht verfügbar.', 'error');
+      showToast(`Spracherkennung fehlgeschlagen (${errorType || 'unbekannt'}).`, 'error');
     }
   } finally {
     btn.classList.remove('listening');
