@@ -1943,10 +1943,10 @@ export class GeminiLiveSession {
       try {
         this.ws.send(JSON.stringify({
           realtimeInput: {
-            mediaChunks: [{
-              mimeType: 'audio/pcm;rate=16000',
-              data: base64
-            }]
+            audio: {
+              data: base64,
+              mimeType: 'audio/pcm;rate=16000'
+            }
           }
         }));
       } catch {
