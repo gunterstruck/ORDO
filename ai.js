@@ -45,7 +45,7 @@ export { PROVIDERS };
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
   fast: 'gemini-2.5-flash',          // schnell, stabil – Chat & Text (kein preview!)
-  pro: 'gemini-2.5-pro-preview',     // präzise – Foto/Video-Analyse, räumliche Tiefe
+  pro: 'gemini-2.5-pro',             // präzise, stabil – Foto/Video-Analyse, räumliche Tiefe
 };
 
 /**
@@ -1736,26 +1736,59 @@ export class GeminiLiveSession {
       }));
 
       // 4. Auf Setup-Bestätigung warten (mit sauberem Timeout)
+      //    Fängt: setupComplete, data.error UND vorzeitiges WebSocket-Close ab.
       await new Promise((resolve, reject) => {
         let settled = false;
+
+        const cleanup = () => {
+          clearTimeout(timer);
+          this.ws?.removeEventListener('message', onMsg);
+          this.ws?.removeEventListener('close', onClose);
+        };
+
+        const settle = (fn, val) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          fn(val);
+        };
+
         const timer = setTimeout(() => {
-          if (!settled) { settled = true; this.ws?.removeEventListener('message', onMsg); reject(new Error('Setup-Timeout (10s) – keine Bestätigung vom Server')); }
+          settle(reject, new Error('Setup-Timeout (15s) – keine Bestätigung vom Server. Prüfe Modell und API-Key.'));
         }, 15000);
+
         const onMsg = (event) => {
+          // Jede Raw-Message loggen für Debugging
+          const raw = typeof event.data === 'string' ? event.data.substring(0, 500) : '[binary]';
+          debugLog(`[Live] Setup-Raw: ${raw}`);
+
           try {
             const data = JSON.parse(event.data);
-            debugLog(`[Live] Setup-Antwort: ${JSON.stringify(data).substring(0, 200)}`);
+
             if (data.setupComplete) {
-              if (!settled) { settled = true; clearTimeout(timer); this.ws?.removeEventListener('message', onMsg); resolve(); }
+              settle(resolve, undefined);
+              return;
             }
-            // Server-Fehler abfangen (z.B. ungültiges Modell)
+
             if (data.error) {
-              const errMsg = data.error.message || JSON.stringify(data.error);
-              if (!settled) { settled = true; clearTimeout(timer); this.ws?.removeEventListener('message', onMsg); reject(new Error(errMsg)); }
+              const errMsg = data.error.message || data.error.status || JSON.stringify(data.error);
+              settle(reject, new Error(`Server-Fehler: ${errMsg}`));
+              return;
             }
-          } catch { /* Fehlerhaftes JSON ignorieren */ }
+          } catch {
+            // Nicht-JSON → als Text-Fehler behandeln
+            settle(reject, new Error(`Unerwartete Server-Antwort: ${raw}`));
+          }
         };
+
+        const onClose = (event) => {
+          const reason = event.reason || `Code ${event.code}`;
+          debugLog(`[Live] WebSocket während Setup geschlossen: code=${event.code} reason=${event.reason || 'keine'}`);
+          settle(reject, new Error(`WebSocket geschlossen vor Setup-Bestätigung (${reason})`));
+        };
+
         this.ws.addEventListener('message', onMsg);
+        this.ws.addEventListener('close', onClose);
       });
 
       // 5. Nachrichten-Handler einrichten
