@@ -6,6 +6,8 @@ import { showView } from './app.js';
 import { calculateFreedomIndex } from './organizer.js';
 import { showWarrantyOverview } from './warranty-view.js';
 import { startSmartPhotoCapture } from './smart-photo.js';
+import { showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
+import { generateDonationListPDF } from './report.js';
 
 /**
  * Check if a voice/text command can be handled locally without API call.
@@ -55,6 +57,33 @@ export function checkLocalIntent(text) {
     return { action: 'takePhoto' };
   }
 
+  // Spendenliste PDF
+  if (/spendenliste|spenden.*(pdf|liste|export)/i.test(lower)) {
+    return { action: 'generateDonationPDF' };
+  }
+
+  // Verkaufs-Entwürfe
+  if (/verkauf|verkaufen|ebay|kleinanzeigen|vinted|verkaufsanzeige/i.test(lower)) {
+    return { action: 'showSalesView' };
+  }
+
+  // Raum-Check
+  if (/raum.?check|raum.*prüf|prüf.*(die|den|das)\s+\w+/i.test(lower)) {
+    // Try to find which room
+    const rooms = Brain.getRooms();
+    for (const [id, room] of Object.entries(rooms)) {
+      if (lower.includes(room.name.toLowerCase())) {
+        return { action: 'showRoomCheck', roomId: id, roomName: room.name };
+      }
+    }
+    return { action: 'showRoomCheck' };
+  }
+
+  // Haushalts-Check
+  if (/haushalts.?check|gesamt.*check|alles.*prüf|wie steht.*haushalt/i.test(lower)) {
+    return { action: 'showHouseholdCheck' };
+  }
+
   return null;
 }
 
@@ -92,6 +121,27 @@ export function executeLocalIntent(intent) {
     case 'takePhoto':
       startSmartPhotoCapture();
       return null; // No chat response needed
+
+    case 'generateDonationPDF':
+      generateDonationListPDF();
+      return 'Spendenliste wird erstellt...';
+
+    case 'showSalesView':
+      showSalesView();
+      return 'Erstelle Verkaufs-Entwürfe...';
+
+    case 'showRoomCheck':
+      if (intent.roomId) {
+        showRoomCheck(intent.roomId);
+        return `Raum-Check für ${intent.roomName} wird gestartet.`;
+      }
+      // No specific room → show household check instead
+      showHouseholdCheck();
+      return 'Hier ist der Haushalts-Check.';
+
+    case 'showHouseholdCheck':
+      showHouseholdCheck();
+      return 'Hier ist der Haushalts-Check.';
 
     default:
       return null;

@@ -5545,3 +5545,117 @@ select.settings-input { appearance: none; }
 #camera-overlay:not([style*="display:none"]) ~ #ordo-companion-container {
   display: none;
 }
+
+/* ── Verkaufs-Entwürfe ── */
+.sales-draft {
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: white;
+  margin-bottom: 10px;
+}
+.sales-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.sales-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.sales-price {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 10px;
+}
+.sales-actions {
+  display: flex;
+  gap: 8px;
+}
+.sales-actions button {
+  flex: 1;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-color);
+  background: white;
+  cursor: pointer;
+}
+.sales-actions .copy-btn {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* ── Raum-Check ── */
+.room-check-overlay {
+  padding: 20px;
+}
+.room-check-score {
+  text-align: center;
+  margin-bottom: 16px;
+}
+.room-check-section {
+  margin: 16px 0;
+}
+.room-check-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.room-check-item {
+  font-size: 13px;
+  padding: 6px 0;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+.room-check-item:last-child {
+  border-bottom: none;
+}
+
+/* ── Füllstand-Leiste ── */
+.capacity-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+.capacity-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.capacity-indicator.ok { background: #2ecc71; }
+.capacity-indicator.full { background: #f39c12; }
+.capacity-indicator.overfilled { background: #c0392b; }
+.capacity-indicator.empty { background: #bdc3c7; }
+
+/* ── Haushalts-Check ── */
+.household-room-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 14px;
+}
+.household-room-score {
+  font-weight: 600;
+  min-width: 40px;
+  text-align: right;
+}
+.household-pending {
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  margin: 12px 0;
+  font-size: 13px;
+}

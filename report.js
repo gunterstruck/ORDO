@@ -5,6 +5,7 @@ import Brain from './brain.js';
 import { batchEstimateValues } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog } from './app.js';
+import { getArchivedByReason } from './organizer.js';
 
 const JSPDF_CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js',
@@ -830,4 +831,158 @@ function checkPageBreakGlobal(doc, y, needed) {
     return 20;
   }
   return y;
+}
+
+// ── Spendenliste PDF ───────────────────────────────────
+
+function getConditionLabel(item) {
+  if (!item.archivedAt) return 'unbekannt';
+  const ageMonths = (Date.now() - new Date(item.archivedAt).getTime()) / (1000 * 60 * 60 * 24 * 30);
+  if (ageMonths < 6) return 'gut';
+  if (ageMonths < 24) return 'gebraucht';
+  return 'stark gebraucht';
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Generiert eine Spendenliste als PDF.
+ * Nutzt jsPDF + AutoTable (bereits eingebunden).
+ */
+export async function generateDonationListPDF() {
+  const { donated } = getArchivedByReason();
+
+  if (donated.length === 0) {
+    showToast('Keine Spenden-Items vorhanden');
+    return;
+  }
+
+  try {
+    await ensurePdfLibrariesLoaded();
+  } catch (err) {
+    showToast('PDF-Bibliotheken konnten nicht geladen werden', 'error');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  // ─── DECKBLATT ───
+
+  doc.setFontSize(22);
+  doc.text('Spendenliste', 105, 30, { align: 'center' });
+
+  doc.setFontSize(12);
+  doc.setTextColor(100);
+  doc.text(`Erstellt am ${new Date().toLocaleDateString('de-DE')}`, 105, 40, { align: 'center' });
+  doc.text(`${donated.length} Gegenstände zum Spenden`, 105, 48, { align: 'center' });
+
+  const totalValue = donated.reduce((sum, item) => sum + (item.value || 0), 0);
+  if (totalValue > 0) {
+    doc.setFontSize(14);
+    doc.setTextColor(0);
+    doc.text(`Geschätzter Gesamtwert: ~${totalValue.toFixed(0)} €`, 105, 60, { align: 'center' });
+  }
+
+  doc.setFontSize(10);
+  doc.setTextColor(130);
+  doc.text('Erstellt mit ORDO – Dein Haushaltsassistent', 105, 70, { align: 'center' });
+
+  // ─── TABELLE ───
+
+  const tableData = donated.map((item, i) => [
+    i + 1,
+    item.name,
+    item.value ? `~${item.value.toFixed(0)} €` : '—',
+    getConditionLabel(item),
+    item.roomName,
+    item.archivedAt
+      ? new Date(item.archivedAt).toLocaleDateString('de-DE')
+      : '—',
+  ]);
+
+  doc.autoTable({
+    startY: 80,
+    head: [['#', 'Gegenstand', 'Wert', 'Zustand', 'Herkunft', 'Datum']],
+    body: tableData,
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: [232, 124, 62] },
+    columnStyles: {
+      0: { cellWidth: 10 },
+      1: { cellWidth: 50 },
+      2: { cellWidth: 25 },
+      3: { cellWidth: 25 },
+      4: { cellWidth: 40 },
+      5: { cellWidth: 25 },
+    },
+  });
+
+  // ─── FOTOS (optional, eine Seite pro 4 Items) ───
+
+  let photoCount = 0;
+  for (const item of donated) {
+    try {
+      const blob = await Brain.getPhoto(item.photoKey);
+      if (!blob) continue;
+
+      if (photoCount % 4 === 0) doc.addPage();
+
+      const dataUrl = await blobToDataUrl(blob);
+      if (!dataUrl) continue;
+
+      const compressed = await compressImage(dataUrl, 400, 400, 0.7);
+      if (!compressed) continue;
+
+      const col = photoCount % 2;
+      const row = Math.floor((photoCount % 4) / 2);
+      const x = 15 + col * 95;
+      const y = 15 + row * 120;
+
+      doc.addImage(compressed, 'JPEG', x, y, 80, 80);
+      doc.setFontSize(9);
+      doc.setTextColor(0);
+      doc.text(item.name, x, y + 85);
+      if (item.value) doc.text(`~${item.value.toFixed(0)} €`, x, y + 90);
+
+      photoCount++;
+    } catch {
+      // Foto nicht verfügbar → überspringen
+    }
+  }
+
+  // ─── HINWEIS-SEITE ───
+
+  doc.addPage();
+  doc.setFontSize(14);
+  doc.setTextColor(0);
+  doc.text('Hinweise zur Spende', 20, 30);
+
+  doc.setFontSize(10);
+  doc.setTextColor(60);
+  const hints = [
+    'Diese Liste kann bei der Abgabe als Nachweis dienen.',
+    'Für eine steuerliche Spendenbescheinigung wenden Sie sich an die Annahmestelle.',
+    'Bitte spenden Sie nur saubere, funktionsfähige Gegenstände.',
+    '',
+    'Empfohlene Annahmestellen:',
+    '• Sozialkaufhaus / Oxfam / DRK-Kleiderkammer',
+    '• Caritas / Diakonie',
+    '• Lokale Tafeln (für Haushaltswaren)',
+    '• Frauenhäuser (bitte vorher anfragen)',
+    '',
+    `Erstellt mit ORDO am ${new Date().toLocaleDateString('de-DE')}`,
+  ];
+  hints.forEach((line, i) => doc.text(line, 20, 45 + i * 7));
+
+  // ─── DOWNLOAD ───
+
+  doc.save(`ORDO_Spendenliste_${new Date().toISOString().slice(0, 10)}.pdf`);
+  showToast('Spendenliste als PDF gespeichert');
 }
