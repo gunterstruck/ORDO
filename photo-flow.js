@@ -143,7 +143,10 @@ function setupPhoto() {
     customMicRec.continuous = false;
     customMicRec.interimResults = false;
     customMicRec.onresult = e => {
-      document.getElementById('photo-custom-name').value = e.results[0][0].transcript;
+      const transcript = e.results[0][0].transcript;
+      document.getElementById('photo-custom-name').value = transcript;
+      const display = document.getElementById('photo-custom-name-display');
+      if (display) { display.textContent = `📍 ${transcript}`; display.style.display = 'block'; }
     };
     customMicRec.onend = () => { customMicRec = null; customMicBtn.classList.remove('recording'); };
     customMicRec.onerror = () => { customMicRec = null; customMicBtn.classList.remove('recording'); };
@@ -157,7 +160,7 @@ function setupPhoto() {
   chatToggle?.addEventListener('click', () => {
     const visible = chatArea.style.display !== 'none';
     chatArea.style.display = visible ? 'none' : 'block';
-    if (!visible) document.getElementById('photo-custom-chat-input')?.focus();
+    // Voice-first: no text input to focus
   });
 
   const chatSendBtn = document.getElementById('photo-custom-chat-send');
@@ -207,6 +210,8 @@ Antworte mit diesem JSON am Ende deiner Nachricht:
       if (jsonMatch?.[1]) {
         const ortName = jsonMatch[1];
         document.getElementById('photo-custom-name').value = ortName;
+        const nameDisplay = document.getElementById('photo-custom-name-display');
+        if (nameDisplay) { nameDisplay.textContent = `📍 ${ortName}`; nameDisplay.style.display = 'block'; }
         const acceptBtn = document.createElement('button');
         acceptBtn.className = 'onboarding-btn-primary';
         acceptBtn.style.cssText = 'padding:4px 12px;font-size:13px;margin:4px 0 0;width:100%';
@@ -228,8 +233,39 @@ Antworte mit diesem JSON am Ende deiner Nachricht:
   }
 
   chatSendBtn?.addEventListener('click', sendOrtChat);
-  chatInput?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); sendOrtChat(); }
+
+  // Voice button for photo custom chat
+  const chatVoiceBtn = document.getElementById('photo-custom-chat-voice');
+  chatVoiceBtn?.addEventListener('click', async () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    chatVoiceBtn.classList.add('companion-voice--listening');
+    chatVoiceBtn.textContent = '🔴';
+
+    try {
+      const text = await new Promise((resolve, reject) => {
+        const rec = new SpeechRecognition();
+        rec.lang = 'de-DE';
+        rec.interimResults = false;
+        rec.maxAlternatives = 1;
+        rec.continuous = false;
+        let settled = false;
+        rec.onresult = (event) => { if (!settled) { settled = true; resolve(event.results[0][0].transcript); } };
+        rec.onerror = (event) => { if (!settled) { settled = true; resolve(event.error === 'no-speech' ? null : null); } };
+        rec.onend = () => { if (!settled) { settled = true; resolve(null); } };
+        rec.start();
+        setTimeout(() => rec.stop(), 10000);
+      });
+
+      if (text && chatInput) {
+        chatInput.value = text;
+        sendOrtChat();
+      }
+    } catch { /* ignore */ } finally {
+      chatVoiceBtn.classList.remove('companion-voice--listening');
+      chatVoiceBtn.textContent = '🎤';
+    }
   });
 }
 
