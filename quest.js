@@ -167,11 +167,13 @@ function showRoomNamePicker(photoBlob) {
       // Mini-chat section
       const chatSection = document.createElement('div');
       chatSection.style.cssText = 'margin-top:12px;border-top:1px solid #eee;padding-top:10px';
+      const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
       chatSection.innerHTML = `
         <div style="font-size:13px;color:#888;margin-bottom:6px">💬 Oder beschreib den Raum:</div>
         <div id="room-chat-log" style="max-height:120px;overflow-y:auto;margin-bottom:8px;font-size:13px"></div>
-        <div style="display:flex;gap:6px">
-          <input id="room-chat-input" type="text" class="ordo-modal-input" placeholder="z.B. &quot;Das ist wo wir kochen&quot;" style="flex:1;margin:0">
+        <div style="display:flex;gap:6px;align-items:center">
+          ${hasSpeech ? '<button id="room-chat-mic" class="picking-panel-mic" style="width:40px;height:40px;font-size:18px" aria-label="Diktieren">🎤</button>' : ''}
+          <input id="room-chat-input" type="text" class="ordo-modal-input" placeholder="${hasSpeech ? 'Tippen oder diktieren...' : 'z.B. &quot;Das ist wo wir kochen&quot;'}" style="flex:1;margin:0">
           <button id="room-chat-send" class="onboarding-btn-primary" style="padding:6px 14px;font-size:14px;margin:0;white-space:nowrap">Fragen</button>
         </div>
       `;
@@ -272,6 +274,39 @@ Antworte mit diesem JSON am Ende deiner Nachricht:
       chatSend?.addEventListener('click', sendChatForRoom);
       chatInput?.addEventListener('keydown', e => {
         if (e.key === 'Enter') { e.preventDefault(); sendChatForRoom(); }
+      });
+
+      // Voice dictation
+      const micBtn = document.getElementById('room-chat-mic');
+      let micRecognition = null;
+      micBtn?.addEventListener('click', () => {
+        if (micRecognition) {
+          micRecognition.stop();
+          micRecognition = null;
+          micBtn.classList.remove('recording');
+          return;
+        }
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return;
+        micRecognition = new SpeechRecognition();
+        micRecognition.lang = 'de-DE';
+        micRecognition.continuous = false;
+        micRecognition.interimResults = false;
+        micRecognition.onresult = e => {
+          const transcript = e.results[0][0].transcript;
+          if (chatInput) chatInput.value = transcript;
+          sendChatForRoom();
+        };
+        micRecognition.onend = () => {
+          micRecognition = null;
+          micBtn.classList.remove('recording');
+        };
+        micRecognition.onerror = () => {
+          micRecognition = null;
+          micBtn.classList.remove('recording');
+        };
+        micRecognition.start();
+        micBtn.classList.add('recording');
       });
 
       result.then(resolve);
