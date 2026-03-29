@@ -5149,3 +5149,226 @@ select.settings-input { appearance: none; }
   margin: 16px 0;
   color: var(--success, #4CAF50);
 }
+
+/* ── Contextual AI Companion ─────────────────────── */
+
+#ordo-companion-container {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+}
+
+/* ── Floating Circle Button ── */
+.companion-circle-btn {
+  position: fixed;
+  bottom: 88px;
+  right: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  transition: transform 0.2s, box-shadow 0.2s;
+  z-index: 201;
+}
+
+.companion-circle-btn:active {
+  transform: scale(0.92);
+}
+
+.companion-circle-btn.companion-circle--active {
+  background: var(--accent-dark);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+
+.companion-icon {
+  line-height: 1;
+}
+
+/* ── Modal Panel ── */
+.companion-modal {
+  position: fixed;
+  bottom: 148px;
+  right: 16px;
+  width: calc(100vw - 32px);
+  max-width: 360px;
+  height: 320px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  z-index: 200;
+  animation: companionSlideUp 0.2s ease-out;
+}
+
+.companion-modal--large {
+  height: 60vh;
+  max-height: 520px;
+}
+
+@keyframes companionSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Header ── */
+.companion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.companion-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  letter-spacing: 0.5px;
+}
+
+.companion-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.companion-header-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: var(--surface);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.companion-header-btn:active {
+  opacity: 0.7;
+}
+
+/* ── Chat Body ── */
+.companion-chat-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+/* ── Messages ── */
+.companion-msg {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.companion-msg--user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.companion-msg--assistant {
+  align-self: flex-start;
+  background: var(--surface);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+
+/* ── Loading dots ── */
+.companion-msg--loading {
+  background: var(--surface);
+  padding: 8px 16px;
+}
+
+.companion-dots span {
+  animation: companionDotPulse 1.4s infinite;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.companion-dots span:nth-child(2) { animation-delay: 0.2s; }
+.companion-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes companionDotPulse {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
+}
+
+/* ── Input Area ── */
+.companion-input-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.companion-input-area input {
+  flex: 1;
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  min-height: 36px;
+}
+
+.companion-input-area input:focus {
+  border-color: var(--accent);
+}
+
+.companion-send-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.companion-send-btn:active {
+  opacity: 0.8;
+}
+
+/* ── Hide companion during onboarding and camera ── */
+.view[id="view-onboarding"].active ~ #ordo-companion-container,
+#camera-overlay:not([style*="display:none"]) ~ #ordo-companion-container {
+  display: none;
+}
