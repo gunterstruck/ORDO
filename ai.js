@@ -97,6 +97,12 @@ function getThinkingConfig(taskType) {
 function buildGenerationConfig(options = {}) {
   const config = { maxOutputTokens: 8192 };
   const taskType = options.taskType || 'chat';
+
+  // Chat: niedrigere temperature für schnellere, konsistentere Antworten
+  if (taskType === 'chat') {
+    config.temperature = 0.7;
+  }
+
   const thinking = getThinkingConfig(taskType);
   if (thinking) {
     config.thinkingConfig = thinking;
@@ -550,13 +556,14 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       const apiUrl = `${API_BASE}/${currentModel}:generateContent?key=${apiKey}`;
       const requestBody = {
-        system_instruction: { parts: [{ text: systemPrompt }] },
+        systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: geminiContents,
         generationConfig: genConfig
       };
 
       if (options.tools) {
         requestBody.tools = [{ functionDeclarations: options.tools }];
+        requestBody.toolConfig = { functionCallingConfig: { mode: 'AUTO' } };
       }
 
       let response;
