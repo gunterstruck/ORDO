@@ -558,7 +558,7 @@ html, body {
 
 #photo-camera-btn, #photo-gallery-btn {
   flex: 1;
-  padding: 20px 12px;
+  padding: 10px 12px;
   border: 2px dashed var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -570,21 +570,21 @@ html, body {
   color: var(--text);
 }
 
-#photo-camera-btn { font-size: 40px; padding-bottom: 8px; }
-#photo-camera-btn::after { content: '\AKamera'; white-space: pre; font-size: 14px; color: var(--text-muted); display: block; }
-#photo-gallery-btn { font-size: 32px; padding-bottom: 8px; }
-#photo-gallery-btn::after { content: '\AGalerie'; white-space: pre; font-size: 14px; color: var(--text-muted); display: block; }
+#photo-camera-btn { font-size: 28px; padding-bottom: 4px; }
+#photo-camera-btn::after { content: '\AKamera'; white-space: pre; font-size: 13px; color: var(--text-muted); display: block; }
+#photo-gallery-btn { font-size: 24px; padding-bottom: 4px; }
+#photo-gallery-btn::after { content: '\AGalerie'; white-space: pre; font-size: 13px; color: var(--text-muted); display: block; }
 
 #photo-camera-btn:active, #photo-gallery-btn:active { border-color: var(--accent); background: #fef3ec; }
 
 #photo-video-btn, #photo-video-upload-btn {
   flex: 1;
-  padding: 14px 12px;
+  padding: 8px 12px;
   border: 2px dashed var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   cursor: pointer;
-  font-size: 15px;
+  font-size: 14px;
   font-family: inherit;
   text-align: center;
   transition: all 0.15s;

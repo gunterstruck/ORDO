@@ -125,6 +125,112 @@ function setupPhoto() {
     if (e.target.files[0]) handleVideoFile(e.target.files[0]);
     e.target.value = '';
   });
+
+  // ── Ort: Mic dictation ──────────────────────────────
+  const customMicBtn = document.getElementById('photo-custom-mic');
+  let customMicRec = null;
+  customMicBtn?.addEventListener('click', () => {
+    if (customMicRec) {
+      customMicRec.stop();
+      customMicRec = null;
+      customMicBtn.classList.remove('recording');
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { showToast('Spracherkennung nicht verfügbar.', 'error'); return; }
+    customMicRec = new SpeechRecognition();
+    customMicRec.lang = 'de-DE';
+    customMicRec.continuous = false;
+    customMicRec.interimResults = false;
+    customMicRec.onresult = e => {
+      document.getElementById('photo-custom-name').value = e.results[0][0].transcript;
+    };
+    customMicRec.onend = () => { customMicRec = null; customMicBtn.classList.remove('recording'); };
+    customMicRec.onerror = () => { customMicRec = null; customMicBtn.classList.remove('recording'); };
+    customMicRec.start();
+    customMicBtn.classList.add('recording');
+  });
+
+  // ── Ort: Chat toggle + send ─────────────────────────
+  const chatToggle = document.getElementById('photo-custom-chat');
+  const chatArea = document.getElementById('photo-custom-chat-area');
+  chatToggle?.addEventListener('click', () => {
+    const visible = chatArea.style.display !== 'none';
+    chatArea.style.display = visible ? 'none' : 'block';
+    if (!visible) document.getElementById('photo-custom-chat-input')?.focus();
+  });
+
+  const chatSendBtn = document.getElementById('photo-custom-chat-send');
+  const chatInput = document.getElementById('photo-custom-chat-input');
+  const chatLog = document.getElementById('photo-custom-chat-log');
+  let ortChatHistory = [];
+
+  async function sendOrtChat() {
+    const text = chatInput?.value?.trim();
+    if (!text) return;
+    chatInput.value = '';
+    chatSendBtn.disabled = true;
+    chatSendBtn.textContent = '...';
+
+    const userBubble = document.createElement('div');
+    userBubble.style.cssText = 'padding:4px 8px;border-radius:8px;background:#f0f0f0;margin-bottom:4px;font-size:13px';
+    userBubble.textContent = text;
+    chatLog.appendChild(userBubble);
+    chatLog.scrollTop = chatLog.scrollHeight;
+
+    ortChatHistory.push({ role: 'user', content: text });
+
+    try {
+      const apiKey = Brain.getApiKey();
+      if (!apiKey) throw new Error('Kein API-Key');
+      const roomId = document.getElementById('photo-room-select').value;
+      const roomName = roomId ? (Brain.getRoom(roomId)?.name || roomId) : '';
+      const systemPrompt = `Du bist ein Assistent der hilft, Orte in der Wohnung zu benennen.
+Der Nutzer beschreibt wo etwas steht oder liegt.${roomName ? ` Aktueller Raum: ${roomName}.` : ''}
+Erkenne den Ort und gib einen kurzen, klaren Namen.
+Antworte kurz und freundlich.
+Antworte mit diesem JSON am Ende deiner Nachricht:
+{"ort_name": "Erkannter Ort"}`;
+
+      const raw = await callGemini(apiKey, systemPrompt, ortChatHistory, { taskType: 'chat' });
+      const responseText = typeof raw === 'string' ? raw : (raw.text || '');
+      ortChatHistory.push({ role: 'assistant', content: responseText });
+
+      const jsonMatch = responseText.match(/\{\s*"ort_name"\s*:\s*"([^"]+)"\s*\}/);
+      const displayText = responseText.replace(/\{[\s\S]*?\}/g, '').trim();
+
+      const botBubble = document.createElement('div');
+      botBubble.style.cssText = 'padding:4px 8px;border-radius:8px;background:#fff3e6;margin-bottom:4px;font-size:13px';
+      botBubble.textContent = displayText || responseText;
+      chatLog.appendChild(botBubble);
+
+      if (jsonMatch?.[1]) {
+        const ortName = jsonMatch[1];
+        document.getElementById('photo-custom-name').value = ortName;
+        const acceptBtn = document.createElement('button');
+        acceptBtn.className = 'onboarding-btn-primary';
+        acceptBtn.style.cssText = 'padding:4px 12px;font-size:13px;margin:4px 0 0;width:100%';
+        acceptBtn.textContent = `✓ "${ortName}" übernehmen`;
+        acceptBtn.addEventListener('click', () => { chatArea.style.display = 'none'; });
+        chatLog.appendChild(acceptBtn);
+      }
+      chatLog.scrollTop = chatLog.scrollHeight;
+    } catch (err) {
+      debugLog(`Ort-Chat Fehler: ${err.message}`);
+      const errBubble = document.createElement('div');
+      errBubble.style.cssText = 'padding:4px 8px;color:#c0392b;font-size:12px';
+      errBubble.textContent = 'Fehler – versuch es nochmal oder tippe direkt.';
+      chatLog.appendChild(errBubble);
+    } finally {
+      chatSendBtn.disabled = false;
+      chatSendBtn.textContent = 'Fragen';
+    }
+  }
+
+  chatSendBtn?.addEventListener('click', sendOrtChat);
+  chatInput?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); sendOrtChat(); }
+  });
 }
 
 function renderRoomDropdown(selectId) {

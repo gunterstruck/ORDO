@@ -178,13 +178,25 @@
     <div id="photo-nfc-hint" style="display:none" class="photo-nfc-hint"></div>
 
     <p class="photo-section-title">Ort (optional)</p>
-    <input
-      type="text"
-      id="photo-custom-name"
-      class="settings-input"
-      placeholder='z.B. "Schrank links neben Tür"'
-      aria-label="Name des Ortes"
-    >
+    <div style="display:flex;gap:6px;align-items:center">
+      <button id="photo-custom-mic" class="picking-panel-mic" aria-label="Diktieren">🎤</button>
+      <input
+        type="text"
+        id="photo-custom-name"
+        class="settings-input"
+        placeholder="Tippen, diktieren oder chatten..."
+        aria-label="Name des Ortes"
+        style="flex:1;margin:0"
+      >
+      <button id="photo-custom-chat" class="picking-panel-mic" aria-label="Chat" style="font-size:16px">💬</button>
+    </div>
+    <div id="photo-custom-chat-area" style="display:none;margin-top:6px">
+      <div id="photo-custom-chat-log" style="max-height:100px;overflow-y:auto;margin-bottom:6px;font-size:13px"></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="photo-custom-chat-input" type="text" class="settings-input" placeholder="z.B. &quot;Der grosse Schrank links&quot;" style="flex:1;margin:0">
+        <button id="photo-custom-chat-send" class="onboarding-btn-primary" style="padding:6px 12px;font-size:13px;margin:0;white-space:nowrap">Fragen</button>
+      </div>
+    </div>
 
     <p class="photo-section-title">Foto aufnehmen</p>
     <div class="photo-btn-group">
