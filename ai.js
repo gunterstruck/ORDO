@@ -1703,6 +1703,7 @@ export class GeminiLiveSession {
       // 2. WebSocket öffnen (mit sauberem Timeout)
       const url = `${LIVE_WS_URL}?key=${apiKey}`;
       this.ws = new WebSocket(url);
+      this.ws.binaryType = 'arraybuffer'; // Gemini sendet JSON als Binary-Frames
 
       await new Promise((resolve, reject) => {
         let settled = false;
@@ -1758,12 +1759,14 @@ export class GeminiLiveSession {
         }, 15000);
 
         const onMsg = (event) => {
-          // Jede Raw-Message loggen für Debugging
-          const raw = typeof event.data === 'string' ? event.data.substring(0, 500) : '[binary]';
-          debugLog(`[Live] Setup-Raw: ${raw}`);
+          // Binary (ArrayBuffer) oder String → immer zu String konvertieren
+          const text = typeof event.data === 'string'
+            ? event.data
+            : new TextDecoder().decode(event.data);
+          debugLog(`[Live] Setup-Raw: ${text.substring(0, 500)}`);
 
           try {
-            const data = JSON.parse(event.data);
+            const data = JSON.parse(text);
 
             if (data.setupComplete) {
               settle(resolve, undefined);
@@ -1776,8 +1779,7 @@ export class GeminiLiveSession {
               return;
             }
           } catch {
-            // Nicht-JSON → als Text-Fehler behandeln
-            settle(reject, new Error(`Unerwartete Server-Antwort: ${raw}`));
+            settle(reject, new Error(`Unerwartete Server-Antwort: ${text.substring(0, 300)}`));
           }
         };
 
@@ -1941,7 +1943,12 @@ export class GeminiLiveSession {
 
   _handleMessage(event) {
     let data;
-    try { data = JSON.parse(event.data); } catch { return; }
+    try {
+      const text = typeof event.data === 'string'
+        ? event.data
+        : new TextDecoder().decode(event.data);
+      data = JSON.parse(text);
+    } catch { return; }
 
     // Server-Fehler (z.B. Rate-Limit, ungültiger Request)
     if (data.error) {
