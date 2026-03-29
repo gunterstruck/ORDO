@@ -44,8 +44,8 @@ export { PROVIDERS };
 
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
-  fast: 'gemini-3-flash-preview',    // schnell, günstig – Chat & Text
-  pro: 'gemini-3.1-pro-preview',     // präzise – Foto/Video-Analyse, räumliche Tiefe
+  fast: 'gemini-2.5-flash',          // schnell, stabil – Chat & Text (kein preview!)
+  pro: 'gemini-2.5-pro-preview',     // präzise – Foto/Video-Analyse, räumliche Tiefe
 };
 
 /**
@@ -1636,7 +1636,7 @@ Antworte NUR mit JSON:
 
 // ── Gemini Multimodal Live API (WebSocket Audio Streaming) ──────
 
-const LIVE_MODEL = 'gemini-live-2.5-flash-native-audio';
+const LIVE_MODEL = 'gemini-2.0-flash-live-001';
 const LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
 /**
@@ -1717,19 +1717,19 @@ export class GeminiLiveSession {
         };
       });
 
-      // 3. Setup mit System-Prompt und Audio-Konfiguration
+      // 3. Setup mit System-Prompt und Audio-Konfiguration (camelCase per API-Spec!)
       this.ws.send(JSON.stringify({
         setup: {
           model: `models/${LIVE_MODEL}`,
-          generation_config: {
-            response_modalities: ['AUDIO'],
-            speech_config: {
-              voice_config: {
-                prebuilt_voice_config: { voice_name: 'Aoede' }
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: 'Aoede' }
               }
             }
           },
-          system_instruction: {
+          systemInstruction: {
             parts: [{ text: systemPrompt }]
           }
         }
