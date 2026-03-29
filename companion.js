@@ -31,15 +31,29 @@ const VIEW_LABELS = {
 };
 
 // ── System Prompt Builder ─────────────────────────────
+
+/**
+ * Builds a compact household summary (rooms + container names only, no items).
+ * Used for chat views to reduce token overhead.
+ */
+function buildCompactHouseholdContext() {
+  const rooms = Brain.getRooms();
+  if (Object.keys(rooms).length === 0) return 'Noch keine Haushaltsdaten vorhanden.';
+
+  let ctx = '';
+  for (const [rId, room] of Object.entries(rooms)) {
+    const containers = Object.entries(room.containers || {});
+    const containerNames = containers.map(([, c]) => c.name).join(', ');
+    ctx += `\n${room.emoji} ${room.name} [${rId}]`;
+    if (containerNames) ctx += `: ${containerNames}`;
+  }
+  return ctx.trim();
+}
+
 function buildCompanionSystemPrompt() {
   const personality = getPersonalityPrompt();
-  const context = Brain.buildContext();
   const score = calculateFreedomIndex();
   const viewLabel = VIEW_LABELS[currentViewContext] || currentViewContext;
-
-  const quickWins = getQuickWins(2)
-    .map(w => `- ${w.description}`)
-    .join('\n') || '- Keine';
 
   const rooms = Brain.getRooms();
   const roomCount = Object.keys(rooms).length;
@@ -50,6 +64,11 @@ function buildCompanionSystemPrompt() {
   const householdStatus = roomCount === 0
     ? 'leer (noch keine Räume erfasst)'
     : `${roomCount} Räume, ca. ${itemCount} Gegenstände`;
+
+  // For chat/settings/photo: send only compact summary (room + container names).
+  // For brain/nfc-context: send full context (items needed for actions).
+  const needsFullContext = currentViewContext === 'brain' || currentViewContext === 'nfc-context';
+  const context = needsFullContext ? Brain.buildContext() : buildCompactHouseholdContext();
 
   let viewHint = '';
   switch (currentViewContext) {
@@ -70,6 +89,15 @@ function buildCompanionSystemPrompt() {
       break;
   }
 
+  // Only include quick wins for brain view where they are relevant
+  let quickWinsBlock = '';
+  if (currentViewContext === 'brain') {
+    const quickWins = getQuickWins(2)
+      .map(w => `- ${w.description}`)
+      .join('\n') || '- Keine';
+    quickWinsBlock = `\nTOP QUICK WINS:\n${quickWins}\n`;
+  }
+
   return `Du bist ORDO, der intelligente Begleiter innerhalb dieser PWA.
 Deine Aufgabe ist es, den Nutzer kontextbezogen zu unterstützen.
 
@@ -88,11 +116,8 @@ VERHALTENSREGELN:
 
 SPEZIFISCHE HILFE FÜR AKTUELLE SEITE (${viewLabel}):
 ${viewHint}
-
-TOP QUICK WINS:
-${quickWins}
-
-Hier ist was du über diesen Haushalt weißt:
+${quickWinsBlock}
+HAUSHALT:
 ${context}
 
 AKTIONEN – nutze Function Calls wenn nötig:
