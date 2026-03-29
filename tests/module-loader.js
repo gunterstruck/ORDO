@@ -24,6 +24,8 @@ function stripModuleSyntax(code) {
   code = code.replace(/^export\s+let\s/gm, 'let ');
   // Convert: export var → var
   code = code.replace(/^export\s+var\s/gm, 'var ');
+  // Convert: export class → class
+  code = code.replace(/^export\s+class\s/gm, 'class ');
 
   // Remove: export default Brain; or export default ...;
   code = code.replace(/^export\s+default\s+\w+;?\s*$/gm, '');
@@ -43,6 +45,7 @@ function loadAllModules(rootDir) {
     'brain.js',
     'overlay-manager.js',
     'modal.js',
+    'companion.js',
     'app.js',
     'ai.js',
     'organizer.js',
