@@ -110,8 +110,7 @@ export function setupCompanion() {
   const modal = document.getElementById('companion-modal');
   const minimize = document.getElementById('companion-minimize');
   const resize = document.getElementById('companion-resize');
-  const send = document.getElementById('companion-send');
-  const input = document.getElementById('companion-input');
+  const voiceBtn = document.getElementById('companion-voice');
 
   if (!circle || !modal) return;
 
@@ -129,14 +128,10 @@ export function setupCompanion() {
     modal.classList.toggle('companion-modal--large');
   });
 
-  // Send message
-  send.addEventListener('click', () => sendCompanionMessage());
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendCompanionMessage();
-    }
-  });
+  // Voice input
+  if (voiceBtn) {
+    voiceBtn.addEventListener('click', startCompanionVoice);
+  }
 
   // Draggable circle
   setupDrag(circle);
@@ -231,11 +226,6 @@ function openCompanion() {
     hasGreetedForView[currentViewContext] = true;
     autoGreet();
   }
-
-  // Focus input
-  setTimeout(() => {
-    document.getElementById('companion-input')?.focus();
-  }, 100);
 }
 
 function closeCompanion() {
@@ -274,10 +264,61 @@ async function autoGreet() {
   }
 }
 
+// ── Voice Input ───────────────────────────────────────
+async function startCompanionVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    appendCompanionMessage('assistant', 'Spracherkennung wird auf diesem Gerät nicht unterstützt.');
+    return;
+  }
+
+  const voiceBtn = document.getElementById('companion-voice');
+  if (voiceBtn) {
+    voiceBtn.classList.add('companion-voice--listening');
+    voiceBtn.textContent = '🔴';
+  }
+
+  try {
+    const text = await new Promise((resolve, reject) => {
+      const rec = new SpeechRecognition();
+      rec.lang = 'de-DE';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.continuous = false;
+      let settled = false;
+
+      rec.onresult = (event) => {
+        if (!settled) { settled = true; resolve(event.results[0][0].transcript); }
+      };
+      rec.onerror = (event) => {
+        if (!settled) {
+          settled = true;
+          if (event.error === 'no-speech') resolve(null);
+          else reject(event);
+        }
+      };
+      rec.onend = () => {
+        if (!settled) { settled = true; resolve(null); }
+      };
+      rec.start();
+      setTimeout(() => rec.stop(), 10000);
+    });
+
+    if (text) {
+      await sendCompanionMessage(text);
+    }
+  } catch {
+    // Speech recognition failed silently
+  } finally {
+    if (voiceBtn) {
+      voiceBtn.classList.remove('companion-voice--listening');
+      voiceBtn.textContent = '🎤';
+    }
+  }
+}
+
 // ── Send Message ──────────────────────────────────────
-async function sendCompanionMessage() {
-  const input = document.getElementById('companion-input');
-  const text = input.value.trim();
+async function sendCompanionMessage(text) {
   if (!text) return;
 
   const apiKey = Brain.getApiKey();
@@ -286,7 +327,6 @@ async function sendCompanionMessage() {
     return;
   }
 
-  input.value = '';
   appendCompanionMessage('user', text);
   companionHistory.push({ role: 'user', content: text });
 

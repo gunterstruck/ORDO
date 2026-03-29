@@ -145,9 +145,9 @@
         </button>
       </div>
 
-      <!-- Text-Fallback (eingeklappt) -->
-      <div class="chat-text-fallback" id="chat-text-fallback">
-        <div class="text-fallback-hint" id="text-fallback-hint">
+      <!-- Text-Fallback (hidden, voice-first) -->
+      <div class="chat-text-fallback" id="chat-text-fallback" style="display:none">
+        <div class="text-fallback-hint" id="text-fallback-hint" style="display:none">
           Oder tippe eine Frage...
         </div>
         <div class="text-fallback-input" id="text-fallback-input" style="display:none">
@@ -178,23 +178,18 @@
     <div id="photo-nfc-hint" style="display:none" class="photo-nfc-hint"></div>
 
     <p class="photo-section-title">Ort (optional)</p>
-    <div style="display:flex;gap:6px;align-items:center">
-      <button id="photo-custom-mic" class="picking-panel-mic" aria-label="Diktieren">🎤</button>
-      <input
-        type="text"
-        id="photo-custom-name"
-        class="settings-input"
-        placeholder="Tippen, diktieren oder chatten..."
-        aria-label="Name des Ortes"
-        style="flex:1;margin:0"
-      >
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="photo-custom-mic" class="picking-panel-mic picking-panel-mic--primary" aria-label="Ort diktieren">🎤 Ort diktieren</button>
       <button id="photo-custom-chat" class="picking-panel-mic" aria-label="Chat" style="font-size:16px">💬</button>
+      <input type="hidden" id="photo-custom-name">
     </div>
+    <div id="photo-custom-name-display" class="photo-custom-name-display" style="display:none"></div>
     <div id="photo-custom-chat-area" style="display:none;margin-top:6px">
       <div id="photo-custom-chat-log" style="max-height:100px;overflow-y:auto;margin-bottom:6px;font-size:13px"></div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input id="photo-custom-chat-input" type="text" class="settings-input" placeholder="z.B. &quot;Der grosse Schrank links&quot;" style="flex:1;margin:0">
-        <button id="photo-custom-chat-send" class="onboarding-btn-primary" style="padding:6px 12px;font-size:13px;margin:0;white-space:nowrap">Fragen</button>
+      <div style="display:flex;gap:6px;align-items:center;justify-content:center">
+        <button id="photo-custom-chat-voice" class="companion-voice-btn" aria-label="Sprich den Ort" style="width:44px;height:44px;font-size:18px">🎤</button>
+        <input id="photo-custom-chat-input" type="hidden">
+        <button id="photo-custom-chat-send" style="display:none">Fragen</button>
       </div>
     </div>
 
@@ -579,9 +574,9 @@
   <div id="picking-summary" class="picking-summary"></div>
   <div id="picking-panel" class="picking-panel" style="display:none">
     <div id="picking-panel-label" class="picking-panel-label"></div>
-    <input type="text" id="picking-panel-input" class="picking-panel-input" placeholder="Name eingeben…" aria-label="Gegenstandsname">
+    <input type="hidden" id="picking-panel-input" class="picking-panel-input">
     <div class="picking-panel-actions">
-      <button id="picking-panel-mic" class="picking-panel-mic" aria-label="Diktieren">🎤</button>
+      <button id="picking-panel-mic" class="picking-panel-mic picking-panel-mic--primary" aria-label="Diktieren">🎤 Diktieren</button>
       <button id="picking-panel-confirm" class="picking-panel-confirm">Stimmt ✓</button>
       <button id="picking-panel-skip" class="picking-panel-skip">Überspringen</button>
     </div>
@@ -652,8 +647,7 @@
     </div>
     <div id="companion-messages" class="companion-chat-body"></div>
     <div class="companion-input-area">
-      <input type="text" id="companion-input" placeholder="Frag mich was..." autocomplete="off">
-      <button id="companion-send" class="companion-send-btn" aria-label="Senden">↑</button>
+      <button id="companion-voice" class="companion-voice-btn" aria-label="Sprich mit ORDO">🎤</button>
     </div>
   </div>
 </div>
