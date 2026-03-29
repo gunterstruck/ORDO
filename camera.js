@@ -106,6 +106,15 @@ async function startCamera() {
     overlay.style.display = 'flex';
     const nav = document.getElementById('nav');
     if (nav) nav.style.display = 'none';
+
+    // Fullscreen-Modus anfragen (versteckt Browser-Chrome)
+    try {
+      if (overlay.requestFullscreen) {
+        await overlay.requestFullscreen();
+      } else if (overlay.webkitRequestFullscreen) {
+        await overlay.webkitRequestFullscreen();
+      }
+    } catch { /* Fullscreen nicht verfügbar – CSS-Fallback greift */ }
   } catch (err) {
     // Camera access denied or not available → fallback to file input
     stopStream();
@@ -234,6 +243,15 @@ function stopRecording(discard) {
 function closeCamera(result) {
   stopRecording(true);
   stopStream();
+
+  // Fullscreen verlassen
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  } catch { /* ignore */ }
+
   const overlay = document.getElementById('camera-overlay');
   if (overlay) overlay.style.display = 'none';
   const nav = document.getElementById('nav');
