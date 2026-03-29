@@ -6,8 +6,8 @@ import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { renderBrainView } from './brain-view.js';
 import { handlePhotoFile, handleVideoFile } from './photo-flow.js';
 import { showView, escapeHTML } from './app.js';
-import { requestOverlay, releaseOverlay } from './overlay-manager.js';
-import { captureVideo } from './camera.js';
+import { requestOverlay, releaseOverlay, isOverlayActive } from './overlay-manager.js';
+import { capturePhoto, captureVideo } from './camera.js';
 import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide } from './organizer.js';
 import { getPersonality } from './chat.js';
 
@@ -55,11 +55,14 @@ export function startBlueprint() {
 function renderBlueprintCollector() {
   const overlay = document.getElementById('quest-overlay');
   if (!overlay || !blueprintState) return;
-  if (!requestOverlay('blueprint-review', 50, () => {
-    overlay.style.display = 'none';
-    releaseOverlay('blueprint-review');
-    blueprintState = null;
-  })) return;
+  // Only request overlay on first render; skip on re-renders (overlay already registered)
+  if (!isOverlayActive('blueprint-review')) {
+    if (!requestOverlay('blueprint-review', 50, () => {
+      overlay.style.display = 'none';
+      releaseOverlay('blueprint-review');
+      blueprintState = null;
+    })) return;
+  }
   overlay.style.display = 'flex';
 
   const thumbs = blueprintState.photos.map((p, idx) => `
@@ -79,18 +82,13 @@ function renderBlueprintCollector() {
         <button id="blueprint-finish" class="onboarding-btn-secondary" ${blueprintState.photos.length === 0 ? 'disabled' : ''}>Das waren alle Räume → Weiter</button>
         <button id="blueprint-cancel" class="onboarding-btn-skip">Abbrechen</button>
       </div>
-      <input id="blueprint-file-input" type="file" accept="image/*" capture="environment" style="display:none">
       <input id="blueprint-video-input" type="file" accept="video/*" style="display:none">
     </div>
   `;
 
-  overlay.querySelector('#blueprint-add-photo')?.addEventListener('click', () => {
-    overlay.querySelector('#blueprint-file-input')?.click();
-  });
-  overlay.querySelector('#blueprint-file-input')?.addEventListener('change', async e => {
-    const file = e.target.files?.[0];
+  overlay.querySelector('#blueprint-add-photo')?.addEventListener('click', async () => {
+    const file = await capturePhoto();
     if (file) await addBlueprintPhoto(file);
-    e.target.value = '';
   });
   overlay.querySelector('#blueprint-add-video')?.addEventListener('click', async () => {
     const file = await captureVideo(300); // max 5 min
@@ -125,12 +123,50 @@ function renderBlueprintCollector() {
   });
 }
 
+const ROOM_SUGGESTIONS = [
+  'Wohnzimmer', 'Schlafzimmer', 'Küche', 'Bad',
+  'Flur', 'Kinderzimmer', 'Arbeitszimmer', 'Abstellraum',
+  'Keller', 'Balkon', 'Garage', 'Gästezimmer',
+];
+
+function showRoomNamePicker() {
+  return new Promise(resolve => {
+    const alreadyUsed = new Set((blueprintState?.photos || []).map(p => p.userLabel));
+    const suggestions = ROOM_SUGGESTIONS.filter(r => !alreadyUsed.has(r));
+
+    const result = showInputModal({
+      title: 'Raum benennen (optional)',
+      description: suggestions.length > 0 ? 'Wähle oder tippe einen Namen:' : '',
+      fields: [{ placeholder: 'z.B. Küche, Wohnzimmer...' }]
+    });
+
+    // After modal is visible, inject quick-select buttons
+    setTimeout(() => {
+      const fieldsEl = document.getElementById('ordo-modal-fields');
+      if (!fieldsEl || suggestions.length === 0) { result.then(resolve); return; }
+      const input = fieldsEl.querySelector('input');
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px';
+      for (const name of suggestions) {
+        const btn = document.createElement('button');
+        btn.textContent = name;
+        btn.className = 'onboarding-btn-secondary';
+        btn.style.cssText = 'padding:6px 12px;font-size:14px;margin:0';
+        btn.addEventListener('click', () => {
+          if (input) input.value = name;
+          document.querySelector('.ordo-modal-btn--primary')?.click();
+        });
+        row.appendChild(btn);
+      }
+      fieldsEl.appendChild(row);
+      result.then(resolve);
+    }, 60);
+  });
+}
+
 export async function addBlueprintPhoto(roomPhotoBlob) {
   if (!blueprintState) return;
-  const result = await showInputModal({
-    title: 'Raum benennen (optional)',
-    fields: [{ placeholder: 'z.B. Küche, Wohnzimmer...' }]
-  });
+  const result = await showRoomNamePicker();
   const userLabel = result?.[0]?.trim() || '';
   blueprintState.photos.push({ blob: roomPhotoBlob, userLabel });
   renderBlueprintCollector();
