@@ -1637,7 +1637,7 @@ Antworte NUR mit JSON:
 // ── Gemini Multimodal Live API (WebSocket Audio Streaming) ──────
 
 const LIVE_MODEL = 'gemini-live-2.5-flash-native-audio';
-const LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
+const LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent';
 
 /**
  * GeminiLiveSession – bidirektionale Audio-Session mit Gemini Live API.
