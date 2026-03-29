@@ -5,7 +5,8 @@ import Brain from './brain.js';
 import { callGemini, ORDO_FUNCTIONS, functionCallToAction, executeOrdoAction, normalizeOrdoAction, buildMessages, loadingManager } from './ai.js';
 import { getPersonalityPrompt } from './chat.js';
 import { calculateFreedomIndex, getQuickWins } from './organizer.js';
-import { getCurrentView, getNfcContext } from './app.js';
+import { getCurrentView, getNfcContext, showView } from './app.js';
+import { renderBrainView } from './brain-view.js';
 
 // ── State ─────────────────────────────────────────────
 let companionHistory = [];
@@ -349,11 +350,21 @@ async function sendCompanionMessage(text) {
     const functionCalls = response.functionCalls || [];
 
     // Execute function calls
+    let actionsExecuted = 0;
     for (const call of functionCalls) {
       const action = functionCallToAction(call);
       if (!action) continue;
       const normalized = normalizeOrdoAction(action);
-      if (normalized) executeOrdoAction(normalized);
+      if (normalized) {
+        executeOrdoAction(normalized);
+        actionsExecuted++;
+      }
+    }
+
+    // Refresh active view after actions so changes are immediately visible
+    if (actionsExecuted > 0) {
+      const view = getCurrentView();
+      if (view === 'brain') renderBrainView();
     }
 
     if (responseText) {
