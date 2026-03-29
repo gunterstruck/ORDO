@@ -1673,6 +1673,7 @@ export class GeminiLiveSession {
     // Audio playback queue
     this._playbackQueue = [];
     this._isPlaying = false;
+    this._currentSource = null;
 
     // VAD for idle detection
     this._vadAnalyser = null;
@@ -1685,19 +1686,35 @@ export class GeminiLiveSession {
     this._setState('connecting');
 
     try {
-      // 1. Mikrofon-Zugriff
-      this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
-      });
+      // 1. Mikrofon-Zugriff (mit differenzierter Fehlerbehandlung)
+      try {
+        this.micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+        });
+      } catch (micErr) {
+        if (micErr.name === 'NotAllowedError') {
+          throw new Error('Mikrofon-Zugriff wurde verweigert. Bitte erlaube den Zugriff in den Browser-Einstellungen.');
+        } else if (micErr.name === 'NotFoundError') {
+          throw new Error('Kein Mikrofon gefunden.');
+        }
+        throw new Error(`Mikrofon-Fehler: ${micErr.message}`);
+      }
 
-      // 2. WebSocket öffnen
+      // 2. WebSocket öffnen (mit sauberem Timeout)
       const url = `${LIVE_WS_URL}?key=${apiKey}`;
       this.ws = new WebSocket(url);
 
       await new Promise((resolve, reject) => {
-        this.ws.onopen = resolve;
-        this.ws.onerror = () => reject(new Error('WebSocket-Verbindung fehlgeschlagen'));
-        setTimeout(() => reject(new Error('Verbindungs-Timeout')), 10000);
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) { settled = true; reject(new Error('Verbindungs-Timeout (10s)')); }
+        }, 10000);
+        this.ws.onopen = () => {
+          if (!settled) { settled = true; clearTimeout(timer); resolve(); }
+        };
+        this.ws.onerror = () => {
+          if (!settled) { settled = true; clearTimeout(timer); reject(new Error('WebSocket-Verbindung fehlgeschlagen')); }
+        };
       });
 
       // 3. Setup mit System-Prompt und Audio-Konfiguration
@@ -1718,24 +1735,30 @@ export class GeminiLiveSession {
         }
       }));
 
-      // 4. Auf Setup-Bestätigung warten
+      // 4. Auf Setup-Bestätigung warten (mit sauberem Timeout)
       await new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) { settled = true; this.ws?.removeEventListener('message', onMsg); reject(new Error('Setup-Timeout (10s)')); }
+        }, 10000);
         const onMsg = (event) => {
-          const data = JSON.parse(event.data);
-          if (data.setupComplete) {
-            this.ws.removeEventListener('message', onMsg);
-            resolve();
-          }
+          try {
+            const data = JSON.parse(event.data);
+            if (data.setupComplete) {
+              if (!settled) { settled = true; clearTimeout(timer); this.ws?.removeEventListener('message', onMsg); resolve(); }
+            }
+          } catch { /* Fehlerhaftes JSON ignorieren */ }
         };
         this.ws.addEventListener('message', onMsg);
-        setTimeout(() => reject(new Error('Setup-Timeout')), 10000);
       });
 
       // 5. Nachrichten-Handler einrichten
       this.ws.onmessage = (event) => this._handleMessage(event);
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         if (this.state !== 'disconnected') {
-          this._setState('disconnected');
+          const reason = event.reason || `Code ${event.code}`;
+          this.onError?.(`Verbindung getrennt (${reason})`);
+          this.disconnect();
         }
       };
       this.ws.onerror = () => {
@@ -1746,8 +1769,11 @@ export class GeminiLiveSession {
       // 6. Audio-Capture starten
       this._startAudioCapture();
 
-      // 7. Playback-Context erstellen
+      // 7. Playback-Context erstellen und sicherstellen dass er läuft
       this.playbackContext = new AudioContext({ sampleRate: 24000 });
+      if (this.playbackContext.state === 'suspended') {
+        await this.playbackContext.resume();
+      }
 
       this._setState('listening');
 
@@ -1799,9 +1825,8 @@ export class GeminiLiveSession {
       this.ws = null;
     }
 
-    // Playback-Queue leeren
-    this._playbackQueue = [];
-    this._isPlaying = false;
+    // Playback stoppen und Queue leeren
+    this._stopPlayback();
   }
 
   _setState(state) {
@@ -1812,8 +1837,12 @@ export class GeminiLiveSession {
 
   // ── Audio Capture (Mic → WebSocket) ──────────────────
 
-  _startAudioCapture() {
+  async _startAudioCapture() {
     this.audioContext = new AudioContext({ sampleRate: 16000 });
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+
     const source = this.audioContext.createMediaStreamSource(this.micStream);
 
     // VAD-Analyser auf Mikrofon-Input
@@ -1833,9 +1862,15 @@ export class GeminiLiveSession {
     }, 200);
 
     // ScriptProcessor für PCM-Capture (4096 Samples bei 16kHz = 256ms Chunks)
+    // Hinweis: ScriptProcessor ist deprecated, aber universell unterstützt.
+    // AudioWorklet benötigt eine separate Datei und ist für diesen Use-Case Overkill.
     this.micProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
     source.connect(this.micProcessor);
-    this.micProcessor.connect(this.audioContext.destination);
+    // Connect to destination (nötig damit onaudioprocess feuert), aber leise
+    const gain = this.audioContext.createGain();
+    gain.gain.value = 0; // Mic-Audio nicht über Lautsprecher ausgeben
+    this.micProcessor.connect(gain);
+    gain.connect(this.audioContext.destination);
 
     this.micProcessor.onaudioprocess = (e) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
@@ -1844,14 +1879,18 @@ export class GeminiLiveSession {
       const pcm16 = this._float32ToPcm16(float32);
       const base64 = this._arrayBufferToBase64(pcm16.buffer);
 
-      this.ws.send(JSON.stringify({
-        realtime_input: {
-          media_chunks: [{
-            mime_type: 'audio/pcm;rate=16000',
-            data: base64
-          }]
-        }
-      }));
+      try {
+        this.ws.send(JSON.stringify({
+          realtime_input: {
+            media_chunks: [{
+              mime_type: 'audio/pcm;rate=16000',
+              data: base64
+            }]
+          }
+        }));
+      } catch {
+        // WebSocket bereits geschlossen – ignorieren
+      }
     };
   }
 
@@ -1866,8 +1905,7 @@ export class GeminiLiveSession {
 
     // Unterbrechung – Server signalisiert, dass Nutzer reingesprochen hat
     if (serverContent.interrupted) {
-      this._playbackQueue = [];
-      this._isPlaying = false;
+      this._stopPlayback();
       this._setState('listening');
       this.onActivityDetected?.();
       return;
@@ -1910,14 +1948,18 @@ export class GeminiLiveSession {
   }
 
   _playNextChunk() {
-    if (!this.playbackContext || this._playbackQueue.length === 0) {
+    if (!this.playbackContext || this.playbackContext.state === 'closed' || this._playbackQueue.length === 0) {
       this._isPlaying = false;
+      this._currentSource = null;
       return;
     }
 
     this._isPlaying = true;
     const pcmBytes = this._playbackQueue.shift();
-    const int16 = new Int16Array(pcmBytes);
+
+    // ArrayBuffer muss korrekt aligned sein für Int16Array
+    const aligned = new Uint8Array(pcmBytes);
+    const int16 = new Int16Array(aligned.buffer, aligned.byteOffset, Math.floor(aligned.byteLength / 2));
     const float32 = new Float32Array(int16.length);
 
     for (let i = 0; i < int16.length; i++) {
@@ -1930,8 +1972,21 @@ export class GeminiLiveSession {
     const src = this.playbackContext.createBufferSource();
     src.buffer = buffer;
     src.connect(this.playbackContext.destination);
-    src.onended = () => this._playNextChunk();
+    this._currentSource = src;
+    src.onended = () => {
+      if (this._currentSource === src) this._currentSource = null;
+      this._playNextChunk();
+    };
     src.start();
+  }
+
+  _stopPlayback() {
+    this._playbackQueue = [];
+    if (this._currentSource) {
+      try { this._currentSource.stop(); } catch { /* already stopped */ }
+      this._currentSource = null;
+    }
+    this._isPlaying = false;
   }
 
   _onPlaybackComplete(callback) {
