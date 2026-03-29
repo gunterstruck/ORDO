@@ -1758,12 +1758,25 @@ export class GeminiLiveSession {
           settle(reject, new Error('Setup-Timeout (15s) – keine Bestätigung vom Server. Prüfe Modell und API-Key.'));
         }, 15000);
 
-        const onMsg = (event) => {
-          // Binary (ArrayBuffer) oder String → immer zu String konvertieren
-          const text = typeof event.data === 'string'
-            ? event.data
-            : new TextDecoder().decode(event.data);
-          debugLog(`[Live] Setup-Raw: ${text.substring(0, 500)}`);
+        const onMsg = async (event) => {
+          // Datentyp erkennen und zu String konvertieren (String, ArrayBuffer oder Blob)
+          let text;
+          const dtype = typeof event.data;
+          try {
+            if (dtype === 'string') {
+              text = event.data;
+            } else if (event.data instanceof ArrayBuffer) {
+              text = new TextDecoder().decode(event.data);
+            } else if (event.data instanceof Blob) {
+              text = await event.data.text();
+            } else {
+              text = String(event.data);
+            }
+          } catch (decodeErr) {
+            settle(reject, new Error(`Kann Server-Nachricht nicht dekodieren (${dtype}): ${decodeErr.message}`));
+            return;
+          }
+          debugLog(`[Live] Setup-Raw (${dtype}, ${event.data?.byteLength ?? event.data?.size ?? '?'} bytes): ${text.substring(0, 500)}`);
 
           try {
             const data = JSON.parse(text);
@@ -1778,8 +1791,11 @@ export class GeminiLiveSession {
               settle(reject, new Error(`Server-Fehler: ${errMsg}`));
               return;
             }
+
+            // Unbekannte JSON-Struktur – loggen aber weiter warten
+            debugLog(`[Live] Setup: Unbekannte Nachricht: ${JSON.stringify(data).substring(0, 300)}`);
           } catch {
-            settle(reject, new Error(`Unerwartete Server-Antwort: ${text.substring(0, 300)}`));
+            settle(reject, new Error(`Unerwartete Server-Antwort (kein JSON): ${text.substring(0, 300)}`));
           }
         };
 
@@ -1941,12 +1957,19 @@ export class GeminiLiveSession {
 
   // ── Message Handler (WebSocket → Audio Playback) ─────
 
-  _handleMessage(event) {
+  async _handleMessage(event) {
     let data;
     try {
-      const text = typeof event.data === 'string'
-        ? event.data
-        : new TextDecoder().decode(event.data);
+      let text;
+      if (typeof event.data === 'string') {
+        text = event.data;
+      } else if (event.data instanceof ArrayBuffer) {
+        text = new TextDecoder().decode(event.data);
+      } else if (event.data instanceof Blob) {
+        text = await event.data.text();
+      } else {
+        text = String(event.data);
+      }
       data = JSON.parse(text);
     } catch { return; }
 
