@@ -1,11 +1,11 @@
 // quest.js – Blueprint & Inventar-Quest
 
 import Brain from './brain.js';
-import { analyzeBlueprint as analyzeBlueprintWithAI, loadingManager } from './ai.js';
+import { analyzeBlueprint as analyzeBlueprintWithAI, loadingManager, callGemini } from './ai.js';
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
 import { renderBrainView } from './brain-view.js';
 import { handlePhotoFile, handleVideoFile } from './photo-flow.js';
-import { showView, escapeHTML } from './app.js';
+import { showView, escapeHTML, debugLog } from './app.js';
 import { requestOverlay, releaseOverlay, isOverlayActive } from './overlay-manager.js';
 import { capturePhoto, captureVideo } from './camera.js';
 import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide } from './organizer.js';
@@ -129,44 +129,171 @@ const ROOM_SUGGESTIONS = [
   'Keller', 'Balkon', 'Garage', 'Gästezimmer',
 ];
 
-function showRoomNamePicker() {
+function showRoomNamePicker(photoBlob) {
   return new Promise(resolve => {
     const alreadyUsed = new Set((blueprintState?.photos || []).map(p => p.userLabel));
     const suggestions = ROOM_SUGGESTIONS.filter(r => !alreadyUsed.has(r));
 
     const result = showInputModal({
       title: 'Raum benennen (optional)',
-      description: suggestions.length > 0 ? 'Wähle oder tippe einen Namen:' : '',
+      description: 'Wähle, tippe, oder beschreib den Raum:',
       fields: [{ placeholder: 'z.B. Küche, Wohnzimmer...' }]
     });
 
-    // After modal is visible, inject quick-select buttons
+    // After modal is visible, inject quick-select buttons + chat
     setTimeout(() => {
       const fieldsEl = document.getElementById('ordo-modal-fields');
-      if (!fieldsEl || suggestions.length === 0) { result.then(resolve); return; }
+      if (!fieldsEl) { result.then(resolve); return; }
       const input = fieldsEl.querySelector('input');
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px';
-      for (const name of suggestions) {
-        const btn = document.createElement('button');
-        btn.textContent = name;
-        btn.className = 'onboarding-btn-secondary';
-        btn.style.cssText = 'padding:6px 12px;font-size:14px;margin:0';
-        btn.addEventListener('click', () => {
-          if (input) input.value = name;
-          document.querySelector('.ordo-modal-btn--primary')?.click();
-        });
-        row.appendChild(btn);
+
+      // Quick-select room buttons
+      if (suggestions.length > 0) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px';
+        for (const name of suggestions) {
+          const btn = document.createElement('button');
+          btn.textContent = name;
+          btn.className = 'onboarding-btn-secondary';
+          btn.style.cssText = 'padding:6px 12px;font-size:14px;margin:0';
+          btn.addEventListener('click', () => {
+            if (input) input.value = name;
+            document.querySelector('.ordo-modal-btn--primary')?.click();
+          });
+          row.appendChild(btn);
+        }
+        fieldsEl.appendChild(row);
       }
-      fieldsEl.appendChild(row);
+
+      // Mini-chat section
+      const chatSection = document.createElement('div');
+      chatSection.style.cssText = 'margin-top:12px;border-top:1px solid #eee;padding-top:10px';
+      chatSection.innerHTML = `
+        <div style="font-size:13px;color:#888;margin-bottom:6px">💬 Oder beschreib den Raum:</div>
+        <div id="room-chat-log" style="max-height:120px;overflow-y:auto;margin-bottom:8px;font-size:13px"></div>
+        <div style="display:flex;gap:6px">
+          <input id="room-chat-input" type="text" class="ordo-modal-input" placeholder="z.B. &quot;Das ist wo wir kochen&quot;" style="flex:1;margin:0">
+          <button id="room-chat-send" class="onboarding-btn-primary" style="padding:6px 14px;font-size:14px;margin:0;white-space:nowrap">Fragen</button>
+        </div>
+      `;
+      fieldsEl.appendChild(chatSection);
+
+      const chatInput = document.getElementById('room-chat-input');
+      const chatSend = document.getElementById('room-chat-send');
+      const chatLog = document.getElementById('room-chat-log');
+      let chatHistory = [];
+
+      async function sendChatForRoom() {
+        const text = chatInput?.value?.trim();
+        if (!text) return;
+        chatInput.value = '';
+        chatSend.disabled = true;
+        chatSend.textContent = '...';
+
+        // Show user message
+        const userBubble = document.createElement('div');
+        userBubble.style.cssText = 'padding:4px 8px;border-radius:8px;background:#f0f0f0;margin-bottom:4px';
+        userBubble.textContent = text;
+        chatLog.appendChild(userBubble);
+        chatLog.scrollTop = chatLog.scrollHeight;
+
+        chatHistory.push({ role: 'user', content: text });
+
+        try {
+          const apiKey = Brain.getApiKey();
+          if (!apiKey) throw new Error('Kein API-Key');
+
+          const usedList = [...alreadyUsed].join(', ');
+          const systemPrompt = `Du bist ein freundlicher Assistent der hilft, Räume zu benennen.
+Der Nutzer beschreibt einen Raum oder sagt was drin ist. Erkenne welcher Raum es ist.
+${usedList ? `Bereits erfasste Räume (nicht nochmal vorschlagen): ${usedList}` : ''}
+Antworte kurz und freundlich. Nenne den erkannten Raumnamen klar.
+Antworte mit diesem JSON am Ende deiner Nachricht:
+{"raum_name": "Erkannter Name"}`;
+
+          // Build messages including photo context if available
+          const messages = [];
+          if (photoBlob && chatHistory.length === 1) {
+            const base64 = await blobToBase64(photoBlob);
+            messages.push({
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: photoBlob.type || 'image/jpeg', data: base64 } },
+                { type: 'text', text }
+              ]
+            });
+          } else {
+            for (const m of chatHistory) {
+              messages.push({ role: m.role, content: m.content });
+            }
+          }
+
+          const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'chat' });
+          const responseText = typeof raw === 'string' ? raw : (raw.text || '');
+
+          chatHistory.push({ role: 'assistant', content: responseText });
+
+          // Extract room name from JSON in response
+          const jsonMatch = responseText.match(/\{\s*"raum_name"\s*:\s*"([^"]+)"\s*\}/);
+          const displayText = responseText.replace(/\{[\s\S]*?\}/g, '').trim();
+
+          // Show bot response
+          const botBubble = document.createElement('div');
+          botBubble.style.cssText = 'padding:4px 8px;border-radius:8px;background:#fff3e6;margin-bottom:4px';
+          botBubble.textContent = displayText || responseText;
+          chatLog.appendChild(botBubble);
+
+          if (jsonMatch?.[1]) {
+            const roomName = jsonMatch[1];
+            if (input) input.value = roomName;
+            // Show accept button
+            const acceptBtn = document.createElement('button');
+            acceptBtn.className = 'onboarding-btn-primary';
+            acceptBtn.style.cssText = 'padding:6px 14px;font-size:14px;margin:4px 0 0;width:100%';
+            acceptBtn.textContent = `✓ "${roomName}" übernehmen`;
+            acceptBtn.addEventListener('click', () => {
+              document.querySelector('.ordo-modal-btn--primary')?.click();
+            });
+            chatLog.appendChild(acceptBtn);
+          }
+
+          chatLog.scrollTop = chatLog.scrollHeight;
+        } catch (err) {
+          debugLog(`Room-Chat Fehler: ${err.message}`);
+          const errBubble = document.createElement('div');
+          errBubble.style.cssText = 'padding:4px 8px;color:#c0392b;font-size:12px';
+          errBubble.textContent = 'Fehler – versuch es nochmal oder tippe den Namen direkt ein.';
+          chatLog.appendChild(errBubble);
+        } finally {
+          chatSend.disabled = false;
+          chatSend.textContent = 'Fragen';
+        }
+      }
+
+      chatSend?.addEventListener('click', sendChatForRoom);
+      chatInput?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); sendChatForRoom(); }
+      });
+
       result.then(resolve);
     }, 60);
   });
 }
 
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      resolve(dataUrl.split(',')[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 export async function addBlueprintPhoto(roomPhotoBlob) {
   if (!blueprintState) return;
-  const result = await showRoomNamePicker();
+  const result = await showRoomNamePicker(roomPhotoBlob);
   const userLabel = result?.[0]?.trim() || '';
   blueprintState.photos.push({ blob: roomPhotoBlob, userLabel });
   renderBlueprintCollector();
