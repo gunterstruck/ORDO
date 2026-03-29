@@ -1633,3 +1633,344 @@ Antworte NUR mit JSON:
     throw new Error('Kein JSON in Antwort');
   }
 }
+
+// ── Gemini Multimodal Live API (WebSocket Audio Streaming) ──────
+
+const LIVE_MODEL = 'gemini-2.0-flash-exp';
+const LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
+
+/**
+ * GeminiLiveSession – bidirektionale Audio-Session mit Gemini Live API.
+ *
+ * Flow:
+ * 1. connect(apiKey, systemPrompt) → WebSocket öffnen, Setup senden
+ * 2. Mikrofon-Audio wird auf 16kHz PCM16 resampelt und als realtime_input gesendet
+ * 3. Server antwortet mit Audio-Chunks (PCM16 24kHz) via serverContent
+ * 4. Audio-Chunks werden dekodiert und über AudioContext abgespielt
+ * 5. Unterbrechungen werden nativ von der API behandelt (interrupted=true)
+ *
+ * Events (Callbacks):
+ *   onStateChange(state)       – 'connecting' | 'connected' | 'listening' | 'responding' | 'disconnected'
+ *   onTranscript(text, role)   – Text-Transkript vom Server (falls vorhanden)
+ *   onError(message)           – Fehlermeldung
+ *   onActivityDetected()       – Audio-Aktivität erkannt (für Idle-Timer)
+ */
+export class GeminiLiveSession {
+  constructor() {
+    this.ws = null;
+    this.micStream = null;
+    this.audioContext = null;
+    this.playbackContext = null;
+    this.micProcessor = null;
+    this.state = 'disconnected';
+
+    // Callbacks
+    this.onStateChange = null;
+    this.onTranscript = null;
+    this.onError = null;
+    this.onActivityDetected = null;
+
+    // Audio playback queue
+    this._playbackQueue = [];
+    this._isPlaying = false;
+
+    // VAD for idle detection
+    this._vadAnalyser = null;
+    this._vadInterval = null;
+  }
+
+  async connect(apiKey, systemPrompt) {
+    if (this.ws) this.disconnect();
+
+    this._setState('connecting');
+
+    try {
+      // 1. Mikrofon-Zugriff
+      this.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+      });
+
+      // 2. WebSocket öffnen
+      const url = `${LIVE_WS_URL}?key=${apiKey}`;
+      this.ws = new WebSocket(url);
+
+      await new Promise((resolve, reject) => {
+        this.ws.onopen = resolve;
+        this.ws.onerror = () => reject(new Error('WebSocket-Verbindung fehlgeschlagen'));
+        setTimeout(() => reject(new Error('Verbindungs-Timeout')), 10000);
+      });
+
+      // 3. Setup mit System-Prompt und Audio-Konfiguration
+      this.ws.send(JSON.stringify({
+        setup: {
+          model: `models/${LIVE_MODEL}`,
+          generation_config: {
+            response_modalities: ['AUDIO'],
+            speech_config: {
+              voice_config: {
+                prebuilt_voice_config: { voice_name: 'Aoede' }
+              }
+            }
+          },
+          system_instruction: {
+            parts: [{ text: systemPrompt }]
+          }
+        }
+      }));
+
+      // 4. Auf Setup-Bestätigung warten
+      await new Promise((resolve, reject) => {
+        const onMsg = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.setupComplete) {
+            this.ws.removeEventListener('message', onMsg);
+            resolve();
+          }
+        };
+        this.ws.addEventListener('message', onMsg);
+        setTimeout(() => reject(new Error('Setup-Timeout')), 10000);
+      });
+
+      // 5. Nachrichten-Handler einrichten
+      this.ws.onmessage = (event) => this._handleMessage(event);
+      this.ws.onclose = () => {
+        if (this.state !== 'disconnected') {
+          this._setState('disconnected');
+        }
+      };
+      this.ws.onerror = () => {
+        this.onError?.('WebSocket-Fehler');
+        this.disconnect();
+      };
+
+      // 6. Audio-Capture starten
+      this._startAudioCapture();
+
+      // 7. Playback-Context erstellen
+      this.playbackContext = new AudioContext({ sampleRate: 24000 });
+
+      this._setState('listening');
+
+    } catch (err) {
+      this.onError?.(err.message || 'Verbindung fehlgeschlagen');
+      this.disconnect();
+    }
+  }
+
+  disconnect() {
+    this._setState('disconnected');
+
+    // Mikrofon stoppen
+    if (this.micStream) {
+      this.micStream.getTracks().forEach(t => t.stop());
+      this.micStream = null;
+    }
+
+    // Audio-Processor trennen
+    if (this.micProcessor) {
+      this.micProcessor.disconnect();
+      this.micProcessor = null;
+    }
+
+    // Audio-Contexts schließen
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      this.audioContext.close().catch(() => {});
+      this.audioContext = null;
+    }
+    if (this.playbackContext && this.playbackContext.state !== 'closed') {
+      this.playbackContext.close().catch(() => {});
+      this.playbackContext = null;
+    }
+
+    // VAD stoppen
+    if (this._vadInterval) {
+      clearInterval(this._vadInterval);
+      this._vadInterval = null;
+    }
+
+    // WebSocket schließen
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      if (this.ws.readyState <= WebSocket.OPEN) {
+        this.ws.close();
+      }
+      this.ws = null;
+    }
+
+    // Playback-Queue leeren
+    this._playbackQueue = [];
+    this._isPlaying = false;
+  }
+
+  _setState(state) {
+    if (this.state === state) return;
+    this.state = state;
+    this.onStateChange?.(state);
+  }
+
+  // ── Audio Capture (Mic → WebSocket) ──────────────────
+
+  _startAudioCapture() {
+    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    const source = this.audioContext.createMediaStreamSource(this.micStream);
+
+    // VAD-Analyser auf Mikrofon-Input
+    this._vadAnalyser = this.audioContext.createAnalyser();
+    this._vadAnalyser.fftSize = 512;
+    source.connect(this._vadAnalyser);
+
+    // VAD-Polling starten
+    const vadBuffer = new Uint8Array(this._vadAnalyser.frequencyBinCount);
+    this._vadInterval = setInterval(() => {
+      if (!this._vadAnalyser) return;
+      this._vadAnalyser.getByteFrequencyData(vadBuffer);
+      const avg = vadBuffer.reduce((s, v) => s + v, 0) / vadBuffer.length;
+      if (avg > 15) {
+        this.onActivityDetected?.();
+      }
+    }, 200);
+
+    // ScriptProcessor für PCM-Capture (4096 Samples bei 16kHz = 256ms Chunks)
+    this.micProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    source.connect(this.micProcessor);
+    this.micProcessor.connect(this.audioContext.destination);
+
+    this.micProcessor.onaudioprocess = (e) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+      const float32 = e.inputBuffer.getChannelData(0);
+      const pcm16 = this._float32ToPcm16(float32);
+      const base64 = this._arrayBufferToBase64(pcm16.buffer);
+
+      this.ws.send(JSON.stringify({
+        realtime_input: {
+          media_chunks: [{
+            mime_type: 'audio/pcm;rate=16000',
+            data: base64
+          }]
+        }
+      }));
+    };
+  }
+
+  // ── Message Handler (WebSocket → Audio Playback) ─────
+
+  _handleMessage(event) {
+    let data;
+    try { data = JSON.parse(event.data); } catch { return; }
+
+    const serverContent = data.serverContent;
+    if (!serverContent) return;
+
+    // Unterbrechung – Server signalisiert, dass Nutzer reingesprochen hat
+    if (serverContent.interrupted) {
+      this._playbackQueue = [];
+      this._isPlaying = false;
+      this._setState('listening');
+      this.onActivityDetected?.();
+      return;
+    }
+
+    // Parts verarbeiten
+    const parts = serverContent.modelTurn?.parts;
+    if (parts) {
+      this._setState('responding');
+      this.onActivityDetected?.();
+
+      for (const part of parts) {
+        // Audio-Chunk
+        if (part.inlineData?.mimeType?.startsWith('audio/')) {
+          const pcmBytes = this._base64ToArrayBuffer(part.inlineData.data);
+          this._enqueueAudio(pcmBytes);
+        }
+        // Text (Transkript)
+        if (part.text) {
+          this.onTranscript?.(part.text, 'assistant');
+        }
+      }
+    }
+
+    // Turn abgeschlossen
+    if (serverContent.turnComplete) {
+      this._onPlaybackComplete(() => {
+        if (this.state !== 'disconnected') {
+          this._setState('listening');
+        }
+      });
+    }
+  }
+
+  // ── Audio Playback (PCM16 24kHz → AudioContext) ──────
+
+  _enqueueAudio(pcm16Buffer) {
+    this._playbackQueue.push(pcm16Buffer);
+    if (!this._isPlaying) this._playNextChunk();
+  }
+
+  _playNextChunk() {
+    if (!this.playbackContext || this._playbackQueue.length === 0) {
+      this._isPlaying = false;
+      return;
+    }
+
+    this._isPlaying = true;
+    const pcmBytes = this._playbackQueue.shift();
+    const int16 = new Int16Array(pcmBytes);
+    const float32 = new Float32Array(int16.length);
+
+    for (let i = 0; i < int16.length; i++) {
+      float32[i] = int16[i] / 32768;
+    }
+
+    const buffer = this.playbackContext.createBuffer(1, float32.length, 24000);
+    buffer.getChannelData(0).set(float32);
+
+    const src = this.playbackContext.createBufferSource();
+    src.buffer = buffer;
+    src.connect(this.playbackContext.destination);
+    src.onended = () => this._playNextChunk();
+    src.start();
+  }
+
+  _onPlaybackComplete(callback) {
+    const check = () => {
+      if (!this._isPlaying && this._playbackQueue.length === 0) {
+        callback();
+      } else {
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  }
+
+  // ── Hilfsfunktionen ──────────────────────────────────
+
+  _float32ToPcm16(float32) {
+    const pcm16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return pcm16;
+  }
+
+  _arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  _base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+}

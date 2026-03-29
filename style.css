@@ -5191,6 +5191,16 @@ select.settings-input { appearance: none; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 }
 
+.companion-circle-btn.companion-circle--live-listening {
+  background: var(--success);
+  animation: companionPulse 1.5s infinite;
+}
+
+.companion-circle-btn.companion-circle--live-responding {
+  background: var(--accent);
+  animation: companionPulse 0.8s infinite;
+}
+
 .companion-icon {
   line-height: 1;
 }
@@ -5357,6 +5367,104 @@ select.settings-input { appearance: none; }
 @keyframes companionPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(232,168,124,0.5); }
   50% { box-shadow: 0 0 0 12px rgba(232,168,124,0); }
+}
+
+/* ── Live Mode Button ── */
+.companion-live-btn {
+  height: 48px;
+  border-radius: 24px;
+  border: 2px solid var(--accent);
+  background: var(--bg);
+  color: var(--accent-dark);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.companion-live-btn:active {
+  transform: scale(0.95);
+}
+
+.companion-live-icon {
+  font-size: 18px;
+}
+
+.companion-live-btn.companion-live--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  animation: companionPulse 1.2s infinite;
+}
+
+/* ── Live Status Bar ── */
+.companion-live-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.companion-live-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.companion-live-status[data-state="listening"] .companion-live-indicator {
+  background: var(--success);
+  animation: livePulse 1.5s infinite;
+}
+
+.companion-live-status[data-state="responding"] .companion-live-indicator {
+  background: var(--accent);
+  animation: livePulse 0.8s infinite;
+}
+
+.companion-live-status[data-state="connecting"] .companion-live-indicator {
+  background: var(--text-muted);
+  animation: livePulse 0.5s infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.companion-live-stop-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: var(--error);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.companion-live-stop-btn:active {
+  opacity: 0.7;
+}
+
+/* Hide voice button during live mode */
+.companion-input-area.companion-input--live-active .companion-voice-btn {
+  display: none;
 }
 
 /* ── Picking Panel Mic Primary ── */

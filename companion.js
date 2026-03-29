@@ -1,8 +1,9 @@
 // companion.js – Kontextueller KI-Begleiter (Floating Companion)
 // Omnipräsenter Assistent, der den aktuellen View-Kontext versteht.
+// Unterstützt Push-to-Talk (Voice) und Live-Modus (Gemini Multimodal Live API).
 
 import Brain from './brain.js';
-import { callGemini, ORDO_FUNCTIONS, functionCallToAction, executeOrdoAction, normalizeOrdoAction, buildMessages, loadingManager } from './ai.js';
+import { callGemini, ORDO_FUNCTIONS, functionCallToAction, executeOrdoAction, normalizeOrdoAction, buildMessages, GeminiLiveSession } from './ai.js';
 import { getPersonalityPrompt } from './chat.js';
 import { calculateFreedomIndex, getQuickWins } from './organizer.js';
 import { getCurrentView, getNfcContext, showView } from './app.js';
@@ -15,6 +16,11 @@ let isOpen = false;
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 let hasGreetedForView = {};
+
+// Live Mode state
+let liveSession = null;
+let idleTimer = null;
+const IDLE_TIMEOUT = 240_000; // 4 Minuten
 
 const VIEW_LABELS = {
   chat: 'Suche & Chat',
@@ -100,6 +106,18 @@ WICHTIG:
 - Verwende slugifizierte IDs (ä→ae, ö→oe, ü→ue, ß→ss, Leerzeichen→_).`;
 }
 
+function buildLiveSystemPrompt() {
+  const base = buildCompanionSystemPrompt();
+  return `${base}
+
+LIVE-MODUS REGELN:
+- Du sprichst mit dem Nutzer in Echtzeit über Audio.
+- Halte Antworten SEHR kurz (1 Satz wenn möglich).
+- Sprich natürlich und flüssig, wie in einem echten Gespräch.
+- Der Nutzer kann dir jederzeit ins Wort fallen – reagiere darauf natürlich.
+- Sprich Deutsch.`;
+}
+
 // ── Context Update (called from app.js on view change) ──
 export function updateCompanionContext(viewName) {
   currentViewContext = viewName;
@@ -112,6 +130,8 @@ export function setupCompanion() {
   const minimize = document.getElementById('companion-minimize');
   const resize = document.getElementById('companion-resize');
   const voiceBtn = document.getElementById('companion-voice');
+  const liveBtn = document.getElementById('companion-live');
+  const liveStopBtn = document.getElementById('companion-live-stop');
 
   if (!circle || !modal) return;
 
@@ -129,9 +149,19 @@ export function setupCompanion() {
     modal.classList.toggle('companion-modal--large');
   });
 
-  // Voice input
+  // Voice input (Push-to-Talk)
   if (voiceBtn) {
     voiceBtn.addEventListener('click', startCompanionVoice);
+  }
+
+  // Live Mode toggle
+  if (liveBtn) {
+    liveBtn.addEventListener('click', toggleLiveMode);
+  }
+
+  // Live Mode stop
+  if (liveStopBtn) {
+    liveStopBtn.addEventListener('click', stopLiveMode);
   }
 
   // Draggable circle
@@ -237,6 +267,8 @@ function closeCompanion() {
   modal.style.display = 'none';
   isOpen = false;
   circle.classList.remove('companion-circle--active');
+
+  // Live Mode bleibt aktiv auch bei geschlossenem Modal
 }
 
 export function isCompanionOpen() { return isOpen; }
@@ -265,7 +297,7 @@ async function autoGreet() {
   }
 }
 
-// ── Voice Input ───────────────────────────────────────
+// ── Voice Input (Push-to-Talk, Fallback) ─────────────
 async function startCompanionVoice() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -318,7 +350,7 @@ async function startCompanionVoice() {
   }
 }
 
-// ── Send Message ──────────────────────────────────────
+// ── Send Message (Text-basiert, für Push-to-Talk) ────
 async function sendCompanionMessage(text) {
   if (!text) return;
 
@@ -374,6 +406,158 @@ async function sendCompanionMessage(text) {
   } catch (err) {
     removeLoadingMessage();
     appendCompanionMessage('assistant', 'Fehler bei der Anfrage. Versuch es nochmal.');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// ── LIVE MODE (Gemini Multimodal Live API) ───────────
+// ══════════════════════════════════════════════════════
+
+function toggleLiveMode() {
+  if (liveSession && liveSession.state !== 'disconnected') {
+    stopLiveMode();
+  } else {
+    startLiveMode();
+  }
+}
+
+async function startLiveMode() {
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    appendCompanionMessage('assistant', 'API Key fehlt. Bitte in den Einstellungen eintragen.');
+    return;
+  }
+
+  // UI: Aktivierungszustand
+  const liveBtn = document.getElementById('companion-live');
+  const inputArea = document.querySelector('.companion-input-area');
+  const statusBar = document.getElementById('companion-live-status');
+
+  liveBtn?.classList.add('companion-live--active');
+  inputArea?.classList.add('companion-input--live-active');
+  if (statusBar) {
+    statusBar.style.display = 'flex';
+    statusBar.dataset.state = 'connecting';
+  }
+  updateLiveStatusText('Verbinde...');
+
+  // Session erstellen
+  liveSession = new GeminiLiveSession();
+
+  // Callbacks verdrahten
+  liveSession.onStateChange = (state) => {
+    if (statusBar) statusBar.dataset.state = state;
+
+    switch (state) {
+      case 'connecting':
+        updateLiveStatusText('Verbinde...');
+        break;
+      case 'listening':
+        updateLiveStatusText('Hört zu...');
+        updateCompanionCircle('listening');
+        break;
+      case 'responding':
+        updateLiveStatusText('Antwortet...');
+        updateCompanionCircle('responding');
+        break;
+      case 'disconnected':
+        cleanupLiveUI();
+        break;
+    }
+  };
+
+  liveSession.onTranscript = (text, role) => {
+    if (text.trim()) {
+      appendCompanionMessage(role, text);
+      companionHistory.push({ role, content: text });
+    }
+  };
+
+  liveSession.onError = (msg) => {
+    appendCompanionMessage('assistant', `Live-Fehler: ${msg}`);
+    cleanupLiveUI();
+  };
+
+  liveSession.onActivityDetected = () => {
+    resetIdleTimer();
+  };
+
+  // System-Prompt mit Live-Regeln
+  const systemPrompt = buildLiveSystemPrompt();
+
+  // Verbinden
+  await liveSession.connect(apiKey, systemPrompt);
+
+  // Idle-Timer starten
+  resetIdleTimer();
+
+  // Bestätigung im Chat
+  if (liveSession.state !== 'disconnected') {
+    appendCompanionMessage('assistant', '🎙️ Live-Modus aktiv. Sprich einfach los – ich höre zu.');
+  }
+}
+
+function stopLiveMode() {
+  if (liveSession) {
+    liveSession.disconnect();
+    liveSession = null;
+  }
+  clearIdleTimer();
+  cleanupLiveUI();
+  appendCompanionMessage('assistant', 'Live-Modus beendet.');
+}
+
+function cleanupLiveUI() {
+  const liveBtn = document.getElementById('companion-live');
+  const inputArea = document.querySelector('.companion-input-area');
+  const statusBar = document.getElementById('companion-live-status');
+  const circle = document.getElementById('companion-circle');
+
+  liveBtn?.classList.remove('companion-live--active');
+  inputArea?.classList.remove('companion-input--live-active');
+  if (statusBar) {
+    statusBar.style.display = 'none';
+    statusBar.dataset.state = '';
+  }
+  // Circle zurücksetzen
+  circle?.classList.remove('companion-circle--live-listening', 'companion-circle--live-responding');
+}
+
+function updateLiveStatusText(text) {
+  const el = document.getElementById('companion-live-status-text');
+  if (el) el.textContent = text;
+}
+
+function updateCompanionCircle(state) {
+  const circle = document.getElementById('companion-circle');
+  if (!circle) return;
+
+  circle.classList.remove('companion-circle--live-listening', 'companion-circle--live-responding');
+  if (state === 'listening') {
+    circle.classList.add('companion-circle--live-listening');
+  } else if (state === 'responding') {
+    circle.classList.add('companion-circle--live-responding');
+  }
+}
+
+// ── 4-Minuten Inaktivitäts-Timer ─────────────────────
+
+function resetIdleTimer() {
+  clearIdleTimer();
+  idleTimer = setTimeout(() => {
+    if (liveSession && liveSession.state !== 'disconnected') {
+      liveSession.disconnect();
+      liveSession = null;
+      cleanupLiveUI();
+      appendCompanionMessage('assistant', 'Live-Modus wegen Inaktivität pausiert. Tippe auf 🎙️ um fortzufahren.');
+    }
+  }, IDLE_TIMEOUT);
+}
+
+function clearIdleTimer() {
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
   }
 }
 
