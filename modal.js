@@ -1,7 +1,9 @@
 // modal.js – Modal-System (Input/Confirm/Toast)
+// Voice-First: Eingabefelder nutzen Spracheingabe als primäre Methode.
 // Kein eigener State, rein funktional (Promise-basiert)
 
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
+import { createVoiceField } from './voice-input.js';
 
 export function showToast(message, type = 'success', duration = 3000) {
   const container = document.getElementById('toast-container');
@@ -15,7 +17,9 @@ export function showToast(message, type = 'success', duration = 3000) {
   }, duration);
 }
 
-// showInputModal({ title, description?, fields: [{ label, placeholder, defaultValue?, type? }] }) → Promise<string[]|null>
+// showInputModal({ title, description?, fields: [{ label, placeholder, defaultValue?, type?, options? }] }) → Promise<string[]|null>
+// Voice-First: Text fields become voice-first fields with mic trigger + suggestion + confirm/reject.
+// Select fields and password fields remain unchanged.
 export function showInputModal({ title, description, fields }) {
   return new Promise(resolve => {
     if (!requestOverlay('modal-input', 100, () => {
@@ -36,7 +40,8 @@ export function showInputModal({ title, description, fields }) {
     fieldsEl.innerHTML = '';
     actionsEl.innerHTML = '';
 
-    const inputs = [];
+    const voiceFields = [];
+
     fields.forEach(f => {
       if (f.label) {
         const label = document.createElement('label');
@@ -44,27 +49,34 @@ export function showInputModal({ title, description, fields }) {
         label.textContent = f.label;
         fieldsEl.appendChild(label);
       }
-      if (f.type === 'select' && f.options) {
-        const select = document.createElement('select');
-        select.className = 'ordo-modal-select';
-        f.options.forEach(opt => {
-          const o = document.createElement('option');
-          o.value = opt.value;
-          o.textContent = opt.label;
-          if (opt.value === f.defaultValue) o.selected = true;
-          select.appendChild(o);
-        });
-        fieldsEl.appendChild(select);
-        inputs.push(select);
-      } else {
+
+      // Password fields stay as regular inputs (API keys, etc.)
+      if (f.type === 'password') {
         const input = document.createElement('input');
         input.className = 'ordo-modal-input';
-        input.type = f.type || 'text';
+        input.type = 'password';
         input.placeholder = f.placeholder || '';
         input.value = f.defaultValue || '';
         fieldsEl.appendChild(input);
-        inputs.push(input);
+        voiceFields.push({
+          getValue: () => input.value,
+          el: input,
+          isNative: true,
+        });
+        return;
       }
+
+      // Select fields and voice-first text fields
+      const vf = createVoiceField({
+        placeholder: f.placeholder || 'Antippen zum Sprechen…',
+        defaultValue: f.defaultValue || '',
+        type: f.type,
+        options: f.options,
+        prompt: 'Ich höre zu…',
+      });
+
+      fieldsEl.appendChild(vf.el);
+      voiceFields.push(vf);
     });
 
     const cancelBtn = document.createElement('button');
@@ -81,6 +93,7 @@ export function showInputModal({ title, description, fields }) {
     function close(result) {
       modal.style.display = 'none';
       modal.removeEventListener('click', onBackdrop);
+      voiceFields.forEach(vf => vf.destroy?.());
       releaseOverlay('modal-input');
       resolve(result);
     }
@@ -91,18 +104,18 @@ export function showInputModal({ title, description, fields }) {
 
     cancelBtn.addEventListener('click', () => close(null));
     okBtn.addEventListener('click', () => {
-      const values = inputs.map(i => i.value);
+      const values = voiceFields.map(vf => vf.getValue());
       close(values);
     });
     modal.addEventListener('click', onBackdrop);
 
-    // Enter key submits
-    inputs.forEach(input => {
-      if (input.tagName === 'INPUT') {
-        input.addEventListener('keydown', e => {
+    // Enter key submits for native inputs
+    voiceFields.forEach(vf => {
+      if (vf.isNative && vf.el?.tagName === 'INPUT') {
+        vf.el.addEventListener('keydown', e => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            const values = inputs.map(i => i.value);
+            const values = voiceFields.map(v => v.getValue());
             close(values);
           }
         });
@@ -110,7 +123,18 @@ export function showInputModal({ title, description, fields }) {
     });
 
     modal.style.display = 'flex';
-    setTimeout(() => inputs[0]?.focus(), 50);
+
+    // Auto-trigger voice on the first voice-capable field
+    setTimeout(() => {
+      const firstVoice = voiceFields.find(vf => vf.focus && !vf.isNative);
+      if (firstVoice) {
+        firstVoice.focus();
+      } else {
+        // Fallback: focus first native input
+        const firstNative = voiceFields.find(vf => vf.isNative);
+        if (firstNative?.el) firstNative.el.focus();
+      }
+    }, 100);
   });
 }
 

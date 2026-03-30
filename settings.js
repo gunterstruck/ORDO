@@ -7,6 +7,7 @@ import { renderBrainView } from './brain-view.js';
 import { showReportDialog, generateDonationListPDF } from './report.js';
 import { showSalesView } from './quest.js';
 import { getPersonality, setPersonality } from './chat.js';
+import { wrapInputWithVoice } from './voice-input.js';
 
 let settingsInitialized = false;
 
@@ -135,6 +136,11 @@ export function setupSettings() {
   document.getElementById('nfc-write-btn').addEventListener('click', writeNfcTag);
   document.getElementById('nfc-room-select').addEventListener('change', updateNfcPreview);
   document.getElementById('nfc-container-name').addEventListener('input', updateNfcPreview);
+
+  // Voice-First: Wrap NFC text inputs with voice input
+  wrapInputWithVoice(document.getElementById('nfc-new-room-name'), { prompt: 'Sage den Raumnamen…' });
+  wrapInputWithVoice(document.getElementById('nfc-new-room-emoji'), { prompt: 'Sage ein Emoji…' });
+  wrapInputWithVoice(document.getElementById('nfc-container-name'), { prompt: 'Sage den Behälternamen…' });
 
   // Settings advanced toggle
   document.getElementById('settings-advanced-toggle').addEventListener('click', () => {
