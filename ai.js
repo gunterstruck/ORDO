@@ -1565,6 +1565,55 @@ Wenn das Foto kein Kassenbon ist, antworte mit:
   }
 }
 
+// ── Expiry Date Detection ────────────────────────────
+/**
+ * Liest ein Verfallsdatum von einem Foto einer Verpackung.
+ * @param {string} apiKey
+ * @param {string} imageBase64
+ * @returns {Promise<{ date: string, type: string, confidence: string, raw_text: string }|null>}
+ */
+export async function detectExpiryDate(apiKey, imageBase64) {
+  const prompt = `Lies das Verfallsdatum / Mindesthaltbarkeitsdatum von diesem Foto einer Verpackung.
+
+Suche nach:
+- "MHD" oder "mindestens haltbar bis" (Lebensmittel)
+- "Verwendbar bis" oder "EXP" (Medikamente)
+- PAO-Symbol (offener Tiegel) mit Monatszahl (Kosmetik)
+- "Best before" / "Use by" (englische Produkte)
+
+Antworte NUR mit JSON:
+{
+  "date": "2026-09-15",
+  "type": "lebensmittel",
+  "confidence": "hoch",
+  "raw_text": "MHD: 15.09.2026"
+}
+
+Typen: "lebensmittel", "medikament", "kosmetik", "sonstiges"
+Datumsformat: YYYY-MM-DD (oder YYYY-MM wenn kein Tag erkennbar)
+
+Wenn du kein Verfallsdatum findest:
+{ "date": null, "confidence": "nicht_gefunden" }`;
+
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
+      { type: 'text', text: prompt }
+    ]
+  }];
+
+  try {
+    const response = await callGemini(apiKey, 'Du bist ein Verfallsdaten-Scanner. Antworte nur mit JSON.', messages, { taskType: 'analyzeReceipt', hasImage: true });
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+    return parsed.date ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Organizer: Container Check ───────────────────────
 /**
  * Analysiert einen Container mit Foto + Haushaltsdaten.

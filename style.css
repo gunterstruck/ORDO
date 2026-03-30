@@ -4191,6 +4191,123 @@ select.settings-input { appearance: none; }
   width: 100%;
 }
 
+/* ── Expiry / Verfallsdaten ─────────────────────── */
+.expiry-section {
+  margin: 12px 0;
+}
+.expiry-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.expiry-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.expiry-item:last-child {
+  border-bottom: none;
+}
+.expiry-item:active {
+  background: var(--surface);
+  border-radius: 8px;
+}
+.expiry-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.expiry-info {
+  flex: 1;
+  min-width: 0;
+}
+.expiry-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+.expiry-location {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.expiry-status {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.expiry-status.expired { color: #c0392b; font-weight: 500; }
+.expiry-status.critical { color: #c0392b; }
+.expiry-status.warning { color: #f39c12; }
+.expiry-status.upcoming { color: var(--text-muted); }
+.expiry-status.ok { color: #2ecc71; }
+.expiry-action-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: center;
+  white-space: nowrap;
+}
+.expiry-action-btn:active {
+  background: var(--surface);
+}
+.expiry-action-btn.danger {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+.expiry-action-btn.danger:active {
+  background: rgba(192, 57, 43, 0.08);
+}
+.expiry-banner {
+  padding: 10px 14px;
+  background: rgba(192, 57, 43, 0.08);
+  border-radius: 10px;
+  border-left: 3px solid #c0392b;
+  margin-bottom: 12px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+.expiry-banner:active {
+  background: rgba(192, 57, 43, 0.15);
+}
+.expiry-detail-section {
+  padding: 12px 0;
+}
+.expiry-detail-date {
+  font-size: 15px;
+  font-weight: 500;
+}
+.expiry-detail-source {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .expiry-action-btn {
+    background: var(--surface);
+    color: var(--text);
+  }
+  .expiry-action-btn.danger {
+    color: #e74c3c;
+    border-color: #e74c3c;
+  }
+  .expiry-banner {
+    background: rgba(231, 76, 60, 0.12);
+  }
+}
+
 /* ── Warranty Button in Brain Header ─────────────── */
 .brain-warranty-btn {
   background: none;

@@ -1745,6 +1745,240 @@ describe('Spatial Data Methods', () => {
   });
 });
 
+// ══════════════════════════════════════════════════════════
+// EXPIRY / VERFALLSDATEN
+// ══════════════════════════════════════════════════════════
+
+describe('setItemExpiry', () => {
+  it('should set expiry on an existing item', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'spiegelschrank', 'Spiegelschrank');
+    Brain.addItem('bad', 'spiegelschrank', 'Ibuprofen 400mg');
+    const result = Brain.setItemExpiry('bad', 'spiegelschrank', 'Ibuprofen 400mg', {
+      date: '2026-09-15',
+      type: 'medikament',
+      source: 'photo_ai',
+    });
+    assert(result === true, 'setItemExpiry should return true');
+    const c = Brain.getContainer('bad', 'spiegelschrank');
+    const item = c.items.find(i => i.name === 'Ibuprofen 400mg');
+    assertEqual(item.expiry.date, '2026-09-15');
+    assertEqual(item.expiry.type, 'medikament');
+    assertEqual(item.expiry.source, 'photo_ai');
+    assert(item.expiry.detected_at, 'should have detected_at');
+  });
+
+  it('should return false for non-existent item', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'spiegelschrank', 'Spiegelschrank');
+    const result = Brain.setItemExpiry('bad', 'spiegelschrank', 'Nichtexistent', {
+      date: '2026-09-15',
+      type: 'medikament',
+    });
+    assert(result === false, 'should return false for missing item');
+  });
+
+  it('should not set expiry on archived items', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'spiegelschrank', 'Spiegelschrank');
+    Brain.addItem('bad', 'spiegelschrank', 'Altes Medikament');
+    Brain.archiveItem('bad', 'spiegelschrank', 'Altes Medikament');
+    const result = Brain.setItemExpiry('bad', 'spiegelschrank', 'Altes Medikament', {
+      date: '2026-01-01',
+      type: 'medikament',
+    });
+    assert(result === false, 'should not set expiry on archived item');
+  });
+
+  it('should merge existing expiry data', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'spiegelschrank', 'Spiegelschrank');
+    Brain.addItem('bad', 'spiegelschrank', 'Sonnencreme');
+    Brain.setItemExpiry('bad', 'spiegelschrank', 'Sonnencreme', {
+      date: '2026-06-01',
+      type: 'kosmetik',
+      source: 'photo_ai',
+    });
+    Brain.setItemExpiry('bad', 'spiegelschrank', 'Sonnencreme', {
+      date: '2026-08-15',
+      source: 'manual',
+    });
+    const c = Brain.getContainer('bad', 'spiegelschrank');
+    const item = c.items.find(i => i.name === 'Sonnencreme');
+    assertEqual(item.expiry.date, '2026-08-15');
+    assertEqual(item.expiry.type, 'kosmetik'); // preserved from first call
+    assertEqual(item.expiry.source, 'manual');
+  });
+});
+
+describe('getItemsWithExpiry', () => {
+  it('should return items sorted by urgency', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Vorratsschrank');
+    Brain.addItem('kueche', 'schrank', 'Mehl');
+    Brain.addItem('kueche', 'schrank', 'Olivenöl');
+    Brain.addItem('kueche', 'schrank', 'Abgelaufenes Müsli');
+    Brain.setItemExpiry('kueche', 'schrank', 'Mehl', { date: '2027-03-01', type: 'lebensmittel' });
+    Brain.setItemExpiry('kueche', 'schrank', 'Olivenöl', { date: '2026-12-01', type: 'lebensmittel' });
+    Brain.setItemExpiry('kueche', 'schrank', 'Abgelaufenes Müsli', { date: '2025-01-01', type: 'lebensmittel' });
+
+    const results = Brain.getItemsWithExpiry();
+    assertEqual(results.length, 3);
+    assertEqual(results[0].item.name, 'Abgelaufenes Müsli'); // most urgent (expired)
+    assert(results[0].isExpired, 'Müsli should be expired');
+    assert(!results[2].isExpired, 'Mehl should not be expired');
+  });
+
+  it('should return empty array if no items have expiry', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank');
+    Brain.addItem('kueche', 'schrank', 'Teller');
+    const results = Brain.getItemsWithExpiry();
+    assertEqual(results.length, 0);
+  });
+
+  it('should skip archived items', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'schrank', 'Schrank');
+    Brain.addItem('bad', 'schrank', 'Aspirin');
+    Brain.setItemExpiry('bad', 'schrank', 'Aspirin', { date: '2026-06-01', type: 'medikament' });
+    Brain.archiveItem('bad', 'schrank', 'Aspirin');
+    const results = Brain.getItemsWithExpiry();
+    assertEqual(results.length, 0);
+  });
+});
+
+describe('getExpiringItems', () => {
+  it('should filter to items within given days', () => {
+    resetBrain();
+    Brain.addRoom('kueche', 'Küche', '🍳');
+    Brain.addContainer('kueche', 'schrank', 'Schrank');
+    Brain.addItem('kueche', 'schrank', 'Bald abgelaufen');
+    Brain.addItem('kueche', 'schrank', 'Noch OK');
+
+    // Set one item to expire in 10 days, another in 6 months
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 10);
+    const later = new Date();
+    later.setDate(later.getDate() + 180);
+
+    Brain.setItemExpiry('kueche', 'schrank', 'Bald abgelaufen', {
+      date: soon.toISOString().slice(0, 10),
+      type: 'lebensmittel',
+    });
+    Brain.setItemExpiry('kueche', 'schrank', 'Noch OK', {
+      date: later.toISOString().slice(0, 10),
+      type: 'lebensmittel',
+    });
+
+    const within30 = Brain.getExpiringItems(30);
+    assertEqual(within30.length, 1);
+    assertEqual(within30[0].item.name, 'Bald abgelaufen');
+
+    const within365 = Brain.getExpiringItems(365);
+    assertEqual(within365.length, 2);
+  });
+});
+
+// ── parseGermanDate Tests ──────────────────────────────
+
+describe('parseGermanDate (inline test)', () => {
+  // Inline the function for Node testing since it's an ES module export
+  function parseGermanDate(text) {
+    const months = {
+      januar: '01', februar: '02', 'märz': '03', april: '04',
+      mai: '05', juni: '06', juli: '07', august: '08',
+      september: '09', oktober: '10', november: '11', dezember: '12',
+    };
+    const lower = text.toLowerCase().trim();
+    const fullMatch = lower.match(/(\d{1,2})\.?\s*([a-zäöü]+)\s+(\d{4})/);
+    if (fullMatch) {
+      const day = fullMatch[1].padStart(2, '0');
+      const month = months[fullMatch[2]];
+      if (month) return `${fullMatch[3]}-${month}-${day}`;
+    }
+    const monthYear = lower.match(/([a-zäöü]+)\s+(\d{4})/);
+    if (monthYear) {
+      const month = months[monthYear[1]];
+      if (month) return `${monthYear[2]}-${month}-01`;
+    }
+    const numericMatch = lower.match(/(\d{1,2})[\/.](\d{4})/);
+    if (numericMatch) {
+      const month = numericMatch[1].padStart(2, '0');
+      return `${numericMatch[2]}-${month}-01`;
+    }
+    return null;
+  }
+
+  it('should parse "15. September 2026"', () => {
+    assertEqual(parseGermanDate('15. September 2026'), '2026-09-15');
+  });
+
+  it('should parse "September 2026"', () => {
+    assertEqual(parseGermanDate('September 2026'), '2026-09-01');
+  });
+
+  it('should parse "09/2026"', () => {
+    assertEqual(parseGermanDate('09/2026'), '2026-09-01');
+  });
+
+  it('should parse "09.2026"', () => {
+    assertEqual(parseGermanDate('09.2026'), '2026-09-01');
+  });
+
+  it('should parse "3. März 2027"', () => {
+    assertEqual(parseGermanDate('3. März 2027'), '2027-03-03');
+  });
+
+  it('should return null for unrecognized input', () => {
+    assertEqual(parseGermanDate('irgendwas'), null);
+  });
+});
+
+// ── getExpiryStatus Tests ──────────────────────────────
+
+describe('getExpiryStatus (inline test)', () => {
+  function getExpiryStatus(daysUntil) {
+    if (daysUntil < 0) return { cls: 'expired', label: `Abgelaufen seit ${Math.abs(daysUntil)} Tagen`, icon: '🔴' };
+    if (daysUntil <= 7) return { cls: 'critical', label: `Noch ${daysUntil} Tage`, icon: '🔴' };
+    if (daysUntil <= 30) return { cls: 'warning', label: `Noch ${daysUntil} Tage`, icon: '🟡' };
+    if (daysUntil <= 90) return { cls: 'upcoming', label: `Noch ${Math.round(daysUntil / 30)} Monate`, icon: '🟢' };
+    return { cls: 'ok', label: `Noch ${Math.round(daysUntil / 30)} Monate`, icon: '🟢' };
+  }
+
+  it('should return expired for negative days', () => {
+    const s = getExpiryStatus(-10);
+    assertEqual(s.cls, 'expired');
+    assertEqual(s.icon, '🔴');
+  });
+
+  it('should return critical for 0-7 days', () => {
+    assertEqual(getExpiryStatus(5).cls, 'critical');
+    assertEqual(getExpiryStatus(0).cls, 'critical');
+  });
+
+  it('should return warning for 8-30 days', () => {
+    assertEqual(getExpiryStatus(15).cls, 'warning');
+    assertEqual(getExpiryStatus(15).icon, '🟡');
+  });
+
+  it('should return upcoming for 31-90 days', () => {
+    assertEqual(getExpiryStatus(60).cls, 'upcoming');
+  });
+
+  it('should return ok for >90 days', () => {
+    assertEqual(getExpiryStatus(120).cls, 'ok');
+    assertEqual(getExpiryStatus(120).icon, '🟢');
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

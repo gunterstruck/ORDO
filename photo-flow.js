@@ -1358,7 +1358,13 @@ Regeln:
 - Sei ehrlich: Wenn etwas verdeckt sein könnte, sage das in der "vermutung"
 - Mengen aktualisieren wenn sich die Anzahl geändert hat
 - Jede Variante (Farbe, Muster, Größe) ist ein separater Eintrag
-- Bei mehreren Fotos: Kombiniere alle Erkenntnisse`;
+- Bei mehreren Fotos: Kombiniere alle Erkenntnisse
+
+VERFALLSDATEN:
+Wenn du auf dem Foto Verfallsdaten erkennst (MHD/Mindesthaltbarkeitsdatum auf Lebensmitteln, Ablaufdatum auf Medikamenten, PAO-Symbol auf Kosmetik), gib sie pro Gegenstand als "expiry" Feld zurück:
+"expiry": { "date": "2026-09-15", "type": "lebensmittel" }
+Typen: "lebensmittel", "medikament", "kosmetik", "sonstiges"
+Datumsformat: YYYY-MM-DD oder YYYY-MM. Wenn kein Verfallsdatum sichtbar ist, lasse das Feld weg.`;
     } else {
       systemPrompt = `Analysiere ${photoCount > 1 ? 'alle ' + photoCount + ' Fotos zusammen' : 'dieses Foto'}.
 WICHTIG: Zähle identische oder ähnliche Gegenstände und gib die Menge an. Sei spezifisch bei Farbe, Muster und Größe.
@@ -1375,7 +1381,13 @@ Regeln:
 - NICHT "Handtücher" (zu allgemein) → sondern "Handtuch, dunkelblau" mit Menge 3
 - Bei mehreren Fotos: Kombiniere alle Erkenntnisse, vermeide Duplikate
 - Schätze Mengen wenn nicht exakt zählbar
-- hinweis nur setzen wenn wirklich hilfreich (z.B. "Dinge liegen übereinander – einzeln fotografieren hilft")`;
+- hinweis nur setzen wenn wirklich hilfreich (z.B. "Dinge liegen übereinander – einzeln fotografieren hilft")
+
+VERFALLSDATEN:
+Wenn du auf dem Foto Verfallsdaten erkennst (MHD/Mindesthaltbarkeitsdatum auf Lebensmitteln, Ablaufdatum auf Medikamenten, PAO-Symbol auf Kosmetik), gib sie pro Gegenstand als "expiry" Feld zurück:
+{"name": "Ibuprofen 400mg", "menge": 1, "expiry": { "date": "2026-09-15", "type": "medikament" }}
+Typen: "lebensmittel", "medikament", "kosmetik", "sonstiges"
+Datumsformat: YYYY-MM-DD oder YYYY-MM. Wenn kein Verfallsdatum sichtbar ist, lasse das Feld weg.`;
     }
 
     if (getNfcContext()?.tag) {
@@ -1408,7 +1420,8 @@ Regeln:
         name: typeof item === 'string' ? item : (item.name || ''),
         menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
         checked: true,
-        section: 'bestaetigt'
+        section: 'bestaetigt',
+        ...(item.expiry?.date ? { expiry: item.expiry } : {})
       })).filter(item => item.name.trim());
 
       const nichtGesehen = (analysis.nicht_gesehen || []).map((item, i) => ({
@@ -1424,7 +1437,8 @@ Regeln:
         name: typeof item === 'string' ? item : (item.name || ''),
         menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
         checked: true,
-        section: 'neu_erkannt'
+        section: 'neu_erkannt',
+        ...(item.expiry?.date ? { expiry: item.expiry } : {})
       })).filter(item => item.name.trim());
 
       items = [...bestaetigt, ...neuErkannt]; // for backwards compat with confirmReview
@@ -1434,7 +1448,8 @@ Regeln:
         id: `item_${i}`,
         name: typeof item === 'string' ? item : (item.name || ''),
         menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
-        checked: true
+        checked: true,
+        ...(item.expiry?.date ? { expiry: item.expiry } : {})
       })).filter(item => item.name.trim());
     }
 
@@ -1771,6 +1786,14 @@ function confirmReview() {
       const data = Brain.getData();
       Brain.save(data);
     }
+    // Save expiry data for confirmed items
+    deltaData.bestaetigt.filter(i => i.checked && i.expiry?.date).forEach(i => {
+      Brain.setItemExpiry(roomId, containerId, i.name, {
+        date: i.expiry.date,
+        type: i.expiry.type || 'sonstiges',
+        source: 'photo_ai',
+      });
+    });
 
     // 2. Newly detected items: add as new
     const newItems = deltaData.neuErkannt
@@ -1779,6 +1802,16 @@ function confirmReview() {
     if (newItems.length > 0) {
       Brain.addItemsFromReview(roomId, containerId, newItems);
       totalChanges += newItems.length;
+      // Save expiry data for newly added items
+      newItems.forEach(i => {
+        if (i.expiry?.date) {
+          Brain.setItemExpiry(roomId, containerId, i.name.trim(), {
+            date: i.expiry.date,
+            type: i.expiry.type || 'sonstiges',
+            source: 'photo_ai',
+          });
+        }
+      });
     }
 
     // 3. Not seen items: archive or leave
@@ -1825,6 +1858,16 @@ function confirmReview() {
     }
 
     const count = Brain.addItemsFromReview(roomId, containerId, items);
+    // Save expiry data for items with detected expiry dates
+    items.forEach(i => {
+      if (i.expiry?.date && i.checked) {
+        Brain.setItemExpiry(roomId, containerId, i.name.trim(), {
+          date: i.expiry.date,
+          type: i.expiry.type || 'sonstiges',
+          source: 'photo_ai',
+        });
+      }
+    });
     const containerDisplayName = Brain.getContainer(roomId, containerId)?.name || containerName || containerId;
 
     closeReviewPopup();
