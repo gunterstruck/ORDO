@@ -3,7 +3,7 @@
 import Brain from './brain.js';
 import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, getErrorWithDebug, buildMessages, resolveContainerFromPath, loadingManager } from './ai.js';
 import { showToast } from './modal.js';
-import { debugLog, showView, getNfcContext, ensureRoom } from './app.js';
+import { debugLog, showView, getNfcContext, ensureRoom, escapeHTML } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
 import { resizeImageForChat, renderRoomDropdown } from './photo-flow.js';
 import { capturePhoto, captureVideo } from './camera.js';
@@ -638,9 +638,8 @@ function showErrorWithDebug(message, details) {
   messages.scrollTop = messages.scrollHeight;
 }
 
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+// escapeHtml entfernt – escapeHTML aus app.js verwenden (single source of truth)
+const escapeHtml = escapeHTML;
 
 // ── PHOTO PROOF BUTTONS ────────────────────────────────
 async function renderFoundPhotoButtons(msgDiv, foundItems) {

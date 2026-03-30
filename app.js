@@ -75,9 +75,8 @@ function ensureRoom(roomId) {
   }
 }
 
-function isoNow() {
-  return new Date().toISOString();
-}
+// isoNow() entfernt – brain.js hat die kanonische Version (ohne Millisekunden).
+// Kein Modul importiert isoNow aus app.js.
 
 function debugLog(msg) {
   const ts = new Date().toLocaleTimeString('de-DE');
@@ -331,4 +330,4 @@ function setupGlobalKeyboardHandling() {
 }
 
 // ── Exports für andere Module ──────────────────────────
-export { currentView, nfcContext, ROOM_PRESETS, ROOM_TYPES, normalizeRoomType, getRoomEmoji, getRoomLabel, escapeHTML, debugLog, isoNow, ensureRoom, showView, getNfcContext, setNfcContext, getCurrentView };
+export { currentView, nfcContext, ROOM_PRESETS, ROOM_TYPES, normalizeRoomType, getRoomEmoji, getRoomLabel, escapeHTML, debugLog, ensureRoom, showView, getNfcContext, setNfcContext, getCurrentView };

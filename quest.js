@@ -8,7 +8,7 @@ import { handlePhotoFile, handleVideoFile } from './photo-flow.js';
 import { showView, escapeHTML, debugLog } from './app.js';
 import { requestOverlay, releaseOverlay, isOverlayActive } from './overlay-manager.js';
 import { capturePhoto, captureVideo } from './camera.js';
-import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide, roomCheck, householdCheck, getArchivedByReason, getSellableItems, findStorageRoom, normalizeRoomType, getQuickWins } from './organizer.js';
+import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide, roomCheck, householdCheck, getArchivedByReason, getSellableItems, findStorageRoom, getQuickWins } from './organizer.js';
 import { getPersonality } from './chat.js';
 
 // Analysis messages now handled by LoadingManager in ai.js
@@ -906,6 +906,15 @@ export function getQuestState() {
  */
 export function startCleanupQuest(minutes) {
   ensureQuestElements();
+
+  // Warnung wenn bereits eine Quest aktiv ist
+  const existing = Brain.getQuest();
+  if (existing?.active) {
+    const label = existing.type === 'cleanup' ? 'Aufräum-Quest' : 'Inventar-Quest';
+    const confirmed = window.confirm(`Es läuft bereits eine ${label}. Willst du sie abbrechen und eine neue starten?`);
+    if (!confirmed) return;
+  }
+
   const maxSteps = minutes <= 5 ? 5 : minutes <= 15 ? 10 : 20;
   const plan = buildCleanupPlan(maxSteps, minutes);
 

@@ -471,6 +471,7 @@ const Brain = {
       if (newEmoji) data.rooms[roomId].emoji = newEmoji;
       data.rooms[roomId].last_updated = Date.now();
       this.save(data);
+      this._emit('roomRenamed', { roomId, newName, newEmoji });
     }
   },
 
@@ -732,6 +733,7 @@ const Brain = {
       c.name = newName;
       c.last_updated = Date.now();
       this.save(data);
+      this._emit('containerRenamed', { roomId, containerId, newName });
     }
   },
 
@@ -1323,6 +1325,7 @@ const Brain = {
       delete item.archived_at;
       c.last_updated = Date.now();
       this.save(data);
+      this._emit('itemRestored', { roomId, containerId, itemName });
     }
   },
 
@@ -1934,7 +1937,9 @@ const Brain = {
     if (!item || typeof item !== 'object') return false;
     // Delete receipt photo if exists
     if (item.purchase?.receipt_photo_key) {
-      this.deletePhoto(item.purchase.receipt_photo_key).catch(() => {});
+      this.deletePhoto(item.purchase.receipt_photo_key).catch(err => {
+        console.warn('Quittungsfoto löschen fehlgeschlagen:', err);
+      });
     }
     delete item.purchase;
     c.last_updated = Date.now();
@@ -1957,7 +1962,9 @@ const Brain = {
     if (!item.purchase) item.purchase = {};
     // Delete old receipt photo if exists
     if (item.purchase.receipt_photo_key) {
-      this.deletePhoto(item.purchase.receipt_photo_key).catch(() => {});
+      this.deletePhoto(item.purchase.receipt_photo_key).catch(err => {
+        console.warn('Altes Quittungsfoto löschen fehlgeschlagen:', err);
+      });
     }
     item.purchase.receipt_photo_key = key;
     c.last_updated = Date.now();
