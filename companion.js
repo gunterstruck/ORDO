@@ -5,7 +5,7 @@
 import Brain from './brain.js';
 import { callGemini, ORDO_FUNCTIONS, functionCallToAction, executeOrdoAction, normalizeOrdoAction, buildMessages, GeminiLiveSession } from './ai.js';
 import { getPersonalityPrompt } from './chat.js';
-import { calculateFreedomIndex, getQuickWins } from './organizer.js';
+import { calculateFreedomIndex, getQuickWins, getSeasonalRecommendations, detectLifeEvents } from './organizer.js';
 import { getCurrentView, getNfcContext, showView } from './app.js';
 import { renderBrainView } from './brain-view.js';
 
@@ -98,6 +98,20 @@ function buildCompanionSystemPrompt() {
     quickWinsBlock = `\nTOP QUICK WINS:\n${quickWins}\n`;
   }
 
+  // Seasonal + life event context
+  let seasonalBlock = '';
+  try {
+    const seasonal = getSeasonalRecommendations();
+    if (seasonal && (seasonal.storeAway.length > 0 || seasonal.bringOut.length > 0)) {
+      const count = seasonal.storeAway.length + seasonal.bringOut.length;
+      seasonalBlock += `\nSAISON: ${seasonal.season.emoji} ${seasonal.season.label} – ${count} saisonale Empfehlung${count > 1 ? 'en' : ''} verfügbar.\n`;
+    }
+    const lifeEvents = detectLifeEvents();
+    if (lifeEvents.length > 0) {
+      seasonalBlock += `LEBENSEREIGNIS: ${lifeEvents[0].emoji} ${lifeEvents[0].message}\n`;
+    }
+  } catch { /* seasonal module may not be ready */ }
+
   return `Du bist ORDO, der intelligente Begleiter innerhalb dieser PWA.
 Deine Aufgabe ist es, den Nutzer kontextbezogen zu unterstützen.
 
@@ -116,7 +130,7 @@ VERHALTENSREGELN:
 
 SPEZIFISCHE HILFE FÜR AKTUELLE SEITE (${viewLabel}):
 ${viewHint}
-${quickWinsBlock}
+${quickWinsBlock}${seasonalBlock}
 HAUSHALT:
 ${context}
 

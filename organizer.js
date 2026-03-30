@@ -730,6 +730,350 @@ export function householdCheck() {
   };
 }
 
+// ── Saisonale Intelligenz ─────────────────────────────
+
+const SEASONAL_RULES = {
+  spring: {
+    months: [3, 4, 5],
+    label: 'Frühjahrsputz',
+    emoji: '🌸',
+    storeAway: [
+      { keywords: /winterjacke|wintermantel|skianzug|schneehose|daunenjacke|parka/i, target: 'keller', reason: 'Bis Oktober einlagern' },
+      { keywords: /schneeschaufel|streusalz|eiskratzer/i, target: 'keller', reason: 'Erst im November wieder nötig' },
+      { keywords: /wärmflasche|heizlüfter|heizdecke/i, target: 'abstellraum', reason: 'Bis zum Herbst einpacken' },
+      { keywords: /mütze|handschuh|schal|ohrenschützer/i, target: 'keller', reason: 'Winteraccessoires einlagern' },
+      { keywords: /winterstiefel|schneestiefel|moonboot/i, target: 'keller', reason: 'Platz für Sommerschuhe' },
+    ],
+    bringOut: [
+      { keywords: /sonnencreme|sonnenbrille|sonnenhut/i, reason: 'Bald wieder nötig!' },
+      { keywords: /gartenmöbel|grill|sonnenschirm/i, reason: 'Raus auf den Balkon/Terrasse' },
+      { keywords: /sandalen|flip.?flop|leichte.?schuhe/i, reason: 'Sommerschuhe nach vorne' },
+    ],
+    tip: 'Frühjahrsputz-Tipp: Alles was du im Winter nicht ein einziges Mal getragen hast → Spendenliste.',
+  },
+  summer: {
+    months: [6, 7, 8],
+    label: 'Sommer-Check',
+    emoji: '☀️',
+    storeAway: [
+      { keywords: /regenjacke|regenschirm|gummistiefel/i, target: 'abstellraum', reason: 'Trockenzeit' },
+    ],
+    bringOut: [
+      { keywords: /ventilator|klimagerät/i, reason: 'Wird bald heiß!' },
+      { keywords: /badehose|badeanzug|bikini|strandtuch/i, reason: 'Badesaison!' },
+    ],
+    tip: 'Sommer-Tipp: Perfekte Zeit um den Keller aufzuräumen — bei gutem Wetter kann man alles rausstellen.',
+  },
+  autumn: {
+    months: [9, 10, 11],
+    label: 'Herbst-Vorbereitung',
+    emoji: '🍂',
+    storeAway: [
+      { keywords: /gartenmöbel|sonnenschirm|grill.?abdeckung/i, target: 'keller', reason: 'Vor Regen schützen' },
+      { keywords: /sommerkleidung|shorts|tank.?top|leinen/i, target: 'schlafzimmer', reason: 'Platz für Winterkleidung' },
+      { keywords: /sandalen|flip.?flop|leichte.?schuhe/i, target: 'keller', reason: 'Platz für Winterschuhe' },
+    ],
+    bringOut: [
+      { keywords: /winterjacke|wintermantel|daunenjacke|parka/i, reason: 'Bald wird es kalt' },
+      { keywords: /mütze|handschuh|schal/i, reason: 'Winteraccessoires griffbereit legen' },
+      { keywords: /winterstiefel|schneestiefel/i, reason: 'Winterschuhe nach vorne' },
+      { keywords: /wärmflasche|heizlüfter/i, reason: 'Wird bald gebraucht' },
+    ],
+    tip: 'Herbst-Tipp: Sommerkleidung die du nie getragen hast → direkt auf die Spendenliste.',
+  },
+  winter: {
+    months: [12, 1, 2],
+    label: 'Winter & Jahreswechsel',
+    emoji: '❄️',
+    storeAway: [],
+    bringOut: [
+      { keywords: /weihnachtsdeko|christbaum|lichterkette|adventskranz/i, reason: 'Weihnachtszeit!' },
+    ],
+    tip: 'Nach Weihnachten: Deko einpacken, Geschenke die du nicht brauchst → Spendenliste.',
+    postChristmas: {
+      months: [1, 2],
+      storeAway: [
+        { keywords: /weihnachtsdeko|christbaum|lichterkette|adventskranz|krippe/i, target: 'keller', reason: 'Bis nächstes Jahr einpacken' },
+      ],
+      tip: 'Neues Jahr, neuer Start: Was vom letzten Jahr noch unausgepackt im Schrank steht → brauchst du wahrscheinlich nicht.',
+    },
+  },
+};
+
+export function getCurrentSeason() {
+  const month = new Date().getMonth() + 1;
+  for (const [key, season] of Object.entries(SEASONAL_RULES)) {
+    if (season.months.includes(month)) return { key, ...season };
+  }
+  return null;
+}
+
+function forEachActiveItem(containers, roomId, roomName, callback) {
+  for (const [cId, container] of Object.entries(containers || {})) {
+    for (const item of (container.items || [])) {
+      const obj = typeof item === 'string' ? { name: item, status: 'aktiv' } : item;
+      if (obj.status === 'archiviert') continue;
+      callback(obj, cId, container.name);
+    }
+    if (container.containers) {
+      forEachActiveItem(container.containers, roomId, roomName, callback);
+    }
+  }
+}
+
+export function getSeasonalRecommendations() {
+  const season = getCurrentSeason();
+  if (!season) return null;
+
+  const data = Brain.getData();
+  const results = {
+    season: { label: season.label, emoji: season.emoji, key: season.key },
+    storeAway: [],
+    bringOut: [],
+    tip: season.tip,
+  };
+
+  for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    const roomType = normalizeRoomType(room.name);
+    const isStorage = ['keller', 'abstellraum', 'dachboden', 'garage'].includes(roomType);
+
+    forEachActiveItem(room.containers, roomId, room.name, (item, containerId, containerName) => {
+      const name = item.name || '';
+
+      if (!isStorage) {
+        for (const rule of season.storeAway) {
+          if (rule.keywords.test(name)) {
+            results.storeAway.push({
+              itemName: name,
+              roomId, roomName: room.name,
+              containerId, containerName,
+              targetRoomType: rule.target,
+              reason: rule.reason,
+            });
+          }
+        }
+      }
+
+      if (isStorage) {
+        for (const rule of season.bringOut) {
+          if (rule.keywords.test(name)) {
+            results.bringOut.push({
+              itemName: name,
+              roomId, roomName: room.name,
+              containerId, containerName,
+              reason: rule.reason,
+            });
+          }
+        }
+      }
+    });
+  }
+
+  // Post-Christmas (Januar/Februar)
+  const month = new Date().getMonth() + 1;
+  if (season.postChristmas && season.postChristmas.months.includes(month)) {
+    for (const [roomId, room] of Object.entries(data.rooms || {})) {
+      const roomType = normalizeRoomType(room.name);
+      if (['keller', 'abstellraum', 'dachboden'].includes(roomType)) continue;
+
+      forEachActiveItem(room.containers, roomId, room.name, (item, cId, cName) => {
+        for (const rule of season.postChristmas.storeAway) {
+          if (rule.keywords.test(item.name || '')) {
+            results.storeAway.push({
+              itemName: item.name,
+              roomId, roomName: room.name,
+              containerId: cId, containerName: cName,
+              targetRoomType: rule.target,
+              reason: rule.reason,
+            });
+          }
+        }
+      });
+    }
+    results.tip = season.postChristmas.tip;
+  }
+
+  return results;
+}
+
+// ── Lebensereignis-Erkennung ──────────────────────────
+
+export function detectLifeEvents() {
+  const data = Brain.getData();
+  const events = [];
+  const now = Date.now();
+  const twoWeeks = 14 * 24 * 60 * 60 * 1000;
+
+  // Count recently added rooms (last_updated within 14 days and close to creation)
+  const recentRooms = Object.entries(data.rooms || {}).filter(([, room]) => {
+    const updated = room.last_updated || 0;
+    return (now - updated) < twoWeeks;
+  });
+
+  // Count recently archived items
+  let recentArchives = 0;
+  for (const room of Object.values(data.rooms || {})) {
+    forEachArchivedItem(room.containers, (item) => {
+      if (item.archived_at && (now - new Date(item.archived_at).getTime()) < twoWeeks) {
+        recentArchives++;
+      }
+    });
+  }
+
+  // UMZUG: many new rooms + many archived items
+  if (recentRooms.length >= 3 && recentArchives >= 5) {
+    events.push({
+      event: 'umzug',
+      confidence: 'hoch',
+      emoji: '📦',
+      message: 'Sieht nach Umzug aus! Viele neue Räume und aussortierte Dinge.',
+      suggestion: 'Soll ich einen Spendenbericht für die aussortierten Sachen erstellen?',
+      action: 'generateDonationPDF',
+    });
+  }
+
+  // BABY: baby-related items or Kinderzimmer
+  const babyKeywords = /baby|wickel|kinderbett|stillkissen|schnuller|windel|fläschchen|strampler|kinderwagen|babyfon/i;
+  let babyItemCount = 0;
+  for (const room of Object.values(data.rooms || {})) {
+    forEachActiveItem(room.containers, '', '', (item) => {
+      if (babyKeywords.test(item.name || '')) babyItemCount++;
+    });
+  }
+  const hasKinderzimmer = Object.values(data.rooms || {}).some(r =>
+    normalizeRoomType(r.name) === 'kinderzimmer'
+  );
+
+  if (babyItemCount >= 3 || (hasKinderzimmer && babyItemCount >= 1)) {
+    events.push({
+      event: 'nachwuchs',
+      confidence: babyItemCount >= 5 ? 'hoch' : 'mittel',
+      emoji: '👶',
+      message: 'Nachwuchs unterwegs? Ich sehe Baby-Sachen im Haushalt.',
+      suggestion: 'Soll ich helfen Platz zu schaffen? Ich kann vorschlagen was woanders hin kann.',
+      action: 'startCleanup',
+    });
+  }
+
+  // ENTRÜMPELUNG: many archived items total
+  const archived = getArchivedByReason();
+  const archivedCount = archived.donated.length + archived.discarded.length + archived.sold.length;
+
+  if (archivedCount >= 15) {
+    events.push({
+      event: 'entruempelung',
+      confidence: 'mittel',
+      emoji: '🧹',
+      message: `Du hast ${archivedCount} Dinge aussortiert. Große Entrümpelung!`,
+      suggestion: 'Soll ich eine Zusammenfassung erstellen was alles rausgegangen ist?',
+      action: 'showArchiveSummary',
+    });
+  }
+
+  // NEUER RAUM: single recently added room
+  if (recentRooms.length === 1) {
+    const newRoomName = recentRooms[0][1].name || '';
+    events.push({
+      event: 'neuer_raum',
+      confidence: 'hoch',
+      emoji: '🏠',
+      message: `Neuer Raum: ${newRoomName}!`,
+      suggestion: 'Soll ich Vorschläge machen was dort hingehört?',
+      action: 'suggestForRoom',
+    });
+  }
+
+  return events;
+}
+
+function forEachArchivedItem(containers, callback) {
+  for (const container of Object.values(containers || {})) {
+    for (const item of (container.items || [])) {
+      if (typeof item !== 'string' && item.status === 'archiviert') {
+        callback(item);
+      }
+    }
+    if (container.containers) forEachArchivedItem(container.containers, callback);
+  }
+}
+
+// ── Verbesserungs-Report ──────────────────────────────
+
+export function getImprovementReport() {
+  const history = JSON.parse(
+    localStorage.getItem(SCORE_HISTORY_KEY) || '[]'
+  );
+
+  const current = calculateFreedomIndex();
+  const now = Date.now();
+  const weekAgo = findClosestEntry(history, now - 7 * 24 * 60 * 60 * 1000);
+  const monthAgo = findClosestEntry(history, now - 30 * 24 * 60 * 60 * 1000);
+  const threeMonthsAgo = findClosestEntry(history, now - 90 * 24 * 60 * 60 * 1000);
+
+  let trend = 'stabil';
+  if (weekAgo && current.percent > weekAgo.percent + 3) trend = 'aufwärts';
+  if (weekAgo && current.percent < weekAgo.percent - 3) trend = 'abwärts';
+
+  const milestones = [];
+
+  if (threeMonthsAgo && current.percent - threeMonthsAgo.percent >= 10) {
+    milestones.push({
+      label: `+${current.percent - threeMonthsAgo.percent}% in 3 Monaten`,
+      emoji: '🚀',
+    });
+  }
+
+  const archived = getArchivedByReason();
+  const totalRemoved = archived.donated.length + archived.discarded.length + archived.sold.length;
+  if (totalRemoved >= 10) {
+    milestones.push({ label: `${totalRemoved} Dinge aussortiert`, emoji: '🎯' });
+  }
+  if (archived.donated.length >= 5) {
+    milestones.push({ label: `${archived.donated.length} Dinge gespendet`, emoji: '🎁' });
+  }
+  if (archived.sold.length >= 1) {
+    milestones.push({ label: `${archived.sold.length} Dinge verkauft`, emoji: '💰' });
+  }
+
+  // Count total decisions from archived + moved items
+  let totalDecisions = 0;
+  for (const room of Object.values(Brain.getData().rooms || {})) {
+    forEachArchivedItem(room.containers, () => { totalDecisions++; });
+  }
+  if (totalDecisions >= 20) {
+    milestones.push({ label: `${totalDecisions} Entscheidungen getroffen`, emoji: '🧠' });
+  }
+
+  return {
+    current: current.percent,
+    weekAgo: weekAgo?.percent || null,
+    monthAgo: monthAgo?.percent || null,
+    threeMonthsAgo: threeMonthsAgo?.percent || null,
+    trend,
+    milestones,
+    totalRemoved,
+    totalDecisions,
+  };
+}
+
+function findClosestEntry(history, targetTime) {
+  if (history.length === 0) return null;
+
+  let closest = null;
+  let minDiff = Infinity;
+
+  for (const entry of history) {
+    const diff = Math.abs(new Date(entry.date).getTime() - targetTime);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = entry;
+    }
+  }
+
+  if (minDiff > 14 * 24 * 60 * 60 * 1000) return null;
+  return closest;
+}
+
 // ── Aufräum-Quest Plan ─────────────────────────────────
 
 function mapWinTypeToAction(winType) {
