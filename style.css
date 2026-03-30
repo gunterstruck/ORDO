@@ -5659,3 +5659,133 @@ select.settings-input { appearance: none; }
   margin: 12px 0;
   font-size: 13px;
 }
+
+/* ── Saisonale Karte ─────────────────────────────────── */
+.seasonal-card {
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  margin-top: 12px;
+}
+.seasonal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  font-weight: 500;
+  font-size: 14px;
+}
+.seasonal-dismiss {
+  border: none;
+  background: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  color: var(--text-secondary);
+}
+.seasonal-body {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.seasonal-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px 12px;
+}
+.seasonal-action-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  border: 1px solid var(--primary, #E87C3E);
+  background: var(--primary, #E87C3E);
+  color: white;
+  cursor: pointer;
+}
+.seasonal-action-btn.secondary {
+  background: white;
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+.seasonal-detail-item {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+/* ── Lebensereignis-Banner ───────────────────────────── */
+.life-event-banner {
+  border-radius: 12px;
+  border: 2px solid var(--primary, #E87C3E);
+  padding: 14px;
+  margin-top: 12px;
+  background: rgba(232, 124, 62, 0.05);
+}
+.life-event-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.life-event-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+/* ── Verbesserungs-Report ────────────────────────────── */
+.improvement-compact {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  margin-top: 12px;
+}
+.improvement-headline {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.improvement-delta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.improvement-delta.positive { color: #2ecc71; }
+.improvement-delta.negative { color: #c0392b; }
+.improvement-delta.neutral { color: var(--text-secondary); }
+.improvement-milestones {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.score-history-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.score-history-label {
+  min-width: 100px;
+  color: var(--text-secondary);
+}
+.score-history-fill {
+  height: 16px;
+  border-radius: 4px;
+  background: var(--primary, #E87C3E);
+  transition: width 0.8s ease;
+}
+.score-history-value {
+  min-width: 35px;
+  text-align: right;
+  font-weight: 500;
+}
+.improvement-quote {
+  font-style: italic;
+  color: var(--text-secondary);
+  padding: 12px;
+  border-left: 3px solid var(--primary, #E87C3E);
+  margin: 16px 0;
+  font-size: 14px;
+}

@@ -8,6 +8,7 @@ import { showWarrantyOverview } from './warranty-view.js';
 import { startSmartPhotoCapture } from './smart-photo.js';
 import { showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
 import { generateDonationListPDF } from './report.js';
+import { showSeasonalDetails, showImprovementReport } from './brain-view.js';
 
 /**
  * Check if a voice/text command can be handled locally without API call.
@@ -84,6 +85,16 @@ export function checkLocalIntent(text) {
     return { action: 'showHouseholdCheck' };
   }
 
+  // Verbesserungs-Report / Fortschritt
+  if (/verbessert|fortschritt|entwicklung|vergleich|vor.*monat|besser geworden/i.test(lower)) {
+    return { action: 'showImprovementReport' };
+  }
+
+  // Saisonale Empfehlungen
+  if (/saison|frühling|frühjahr|herbst|winter|sommer|jahreszeit|einlagern|rausholen|frühjahrsputz/i.test(lower)) {
+    return { action: 'showSeasonalDetails' };
+  }
+
   return null;
 }
 
@@ -142,6 +153,14 @@ export function executeLocalIntent(intent) {
     case 'showHouseholdCheck':
       showHouseholdCheck();
       return 'Hier ist der Haushalts-Check.';
+
+    case 'showImprovementReport':
+      showImprovementReport();
+      return 'Hier ist dein Fortschritts-Report.';
+
+    case 'showSeasonalDetails':
+      showSeasonalDetails();
+      return 'Hier sind die saisonalen Empfehlungen.';
 
     default:
       return null;

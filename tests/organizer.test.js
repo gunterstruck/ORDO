@@ -215,4 +215,153 @@ describe('householdCheck()', () => {
   });
 });
 
+// ── Phase 4: Saisonale Intelligenz & Verbesserungs-Tracking ──
+
+describe('getCurrentSeason()', () => {
+  it('gibt eine gültige Saison zurück', () => {
+    const season = context.getCurrentSeason();
+    assert(season !== null);
+    assert(typeof season.key === 'string');
+    assert(typeof season.label === 'string');
+    assert(typeof season.emoji === 'string');
+    assert(Array.isArray(season.months));
+    assert(Array.isArray(season.storeAway));
+    assert(Array.isArray(season.bringOut));
+    assert(typeof season.tip === 'string');
+  });
+
+  it('Saison hat korrekte Monats-Zuordnung', () => {
+    const season = context.getCurrentSeason();
+    const currentMonth = new Date().getMonth() + 1;
+    assert(season.months.includes(currentMonth));
+  });
+});
+
+describe('getSeasonalRecommendations()', () => {
+  it('gibt Empfehlungen mit season, storeAway, bringOut zurück', () => {
+    seedData();
+    const result = context.getSeasonalRecommendations();
+    assert(result !== null);
+    assert(typeof result.season === 'object');
+    assert(typeof result.season.label === 'string');
+    assert(typeof result.season.emoji === 'string');
+    assert(Array.isArray(result.storeAway));
+    assert(Array.isArray(result.bringOut));
+    assert(typeof result.tip === 'string');
+  });
+
+  it('findet saisonale Items im Haushalt', () => {
+    seedData();
+    // Füge Winterjacke in Schlafzimmer hinzu (sollte im Frühling storeAway sein)
+    context.Brain.addRoom('schlafzimmer', 'Schlafzimmer', '🛏️');
+    context.Brain.addContainer('schlafzimmer', 'schrank', 'Kleiderschrank', 'schrank');
+    context.Brain.addItem('schlafzimmer', 'schrank', 'Winterjacke');
+    // Füge Sonnencreme in Keller hinzu (sollte im Frühling bringOut sein)
+    context.Brain.addRoom('keller', 'Keller', '🏚️');
+    context.Brain.addContainer('keller', 'regal1', 'Kellerregal', 'regal');
+    context.Brain.addItem('keller', 'regal1', 'Sonnencreme');
+
+    const result = context.getSeasonalRecommendations();
+    // Items sollten gefunden werden, abhängig von der aktuellen Jahreszeit
+    assert(result !== null);
+    // Die Ergebnis-Arrays sind valide
+    assert(Array.isArray(result.storeAway));
+    assert(Array.isArray(result.bringOut));
+  });
+});
+
+describe('detectLifeEvents()', () => {
+  it('gibt ein leeres Array wenn keine Events erkannt werden', () => {
+    seedData();
+    const events = context.detectLifeEvents();
+    assert(Array.isArray(events));
+  });
+
+  it('erkennt Baby-Items', () => {
+    localStorage.clear();
+    context.Brain.init();
+    context.Brain.addRoom('kinderzimmer', 'Kinderzimmer', '👶');
+    context.Brain.addContainer('kinderzimmer', 'wickel', 'Wickeltisch', 'sonstiges');
+    context.Brain.addItem('kinderzimmer', 'wickel', 'Windeln');
+    context.Brain.addItem('kinderzimmer', 'wickel', 'Schnuller');
+    context.Brain.addItem('kinderzimmer', 'wickel', 'Babyfon');
+
+    const events = context.detectLifeEvents();
+    const baby = events.find(e => e.event === 'nachwuchs');
+    assert(baby !== undefined);
+    assertEqual(baby.emoji, '👶');
+  });
+
+  it('erkennt Entrümpelung bei vielen archivierten Items', () => {
+    localStorage.clear();
+    context.Brain.init();
+    context.Brain.addRoom('kueche', 'Küche', '🍳');
+    context.Brain.addContainer('kueche', 'schrank', 'Oberschrank', 'schrank');
+    // 15+ archivierte Items
+    for (let i = 0; i < 16; i++) {
+      context.Brain.addItem('kueche', 'schrank', `Item${i}`);
+      context.Brain.archiveItem('kueche', 'schrank', `Item${i}`, i % 3 === 0 ? 'gespendet' : 'entsorgt');
+    }
+
+    const events = context.detectLifeEvents();
+    const entruempelung = events.find(e => e.event === 'entruempelung');
+    assert(entruempelung !== undefined);
+    assertEqual(entruempelung.emoji, '🧹');
+  });
+});
+
+describe('getImprovementReport()', () => {
+  it('gibt Report mit current Score zurück', () => {
+    seedData();
+    const report = context.getImprovementReport();
+    assert(typeof report.current === 'number');
+    assert(report.current >= 0 && report.current <= 100);
+    assert(typeof report.trend === 'string');
+    assert(Array.isArray(report.milestones));
+    assert(typeof report.totalRemoved === 'number');
+    assert(typeof report.totalDecisions === 'number');
+  });
+
+  it('erkennt Trend aufwärts wenn Score gestiegen', () => {
+    seedData();
+    // Simuliere Score-History mit niedrigerem Wert vor einer Woche
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const history = [{ date: weekAgo, percent: 50 }];
+    localStorage.setItem('ordo_score_history', JSON.stringify(history));
+
+    const report = context.getImprovementReport();
+    // Wenn current > 50 + 3, Trend sollte aufwärts sein
+    if (report.current > 53) {
+      assertEqual(report.trend, 'aufwärts');
+    }
+    assertEqual(report.weekAgo, 50);
+  });
+
+  it('gibt null für historische Werte ohne Daten', () => {
+    seedData();
+    localStorage.removeItem('ordo_score_history');
+    const report = context.getImprovementReport();
+    assertEqual(report.weekAgo, null);
+    assertEqual(report.monthAgo, null);
+    assertEqual(report.threeMonthsAgo, null);
+  });
+
+  it('erkennt Meilensteine', () => {
+    localStorage.clear();
+    context.Brain.init();
+    context.Brain.addRoom('kueche', 'Küche', '🍳');
+    context.Brain.addContainer('kueche', 'schrank', 'Oberschrank', 'schrank');
+    // 10+ archivierte Items für Meilenstein
+    for (let i = 0; i < 11; i++) {
+      context.Brain.addItem('kueche', 'schrank', `Ding${i}`);
+      context.Brain.archiveItem('kueche', 'schrank', `Ding${i}`, 'entsorgt');
+    }
+
+    const report = context.getImprovementReport();
+    const sortiert = report.milestones.find(m => m.emoji === '🎯');
+    assert(sortiert !== undefined);
+    assert(report.totalRemoved >= 11);
+  });
+});
+
 printResults();

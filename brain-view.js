@@ -12,7 +12,7 @@ import { showCurrentStep, startBlueprint, startCleanupQuest, showRoomCheck, show
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 import { showItemDetailPanel } from './item-detail.js';
 import { showWarrantyOverview, checkWarrantyBanner } from './warranty-view.js';
-import { calculateFreedomIndex, getQuickWins, getQuickDecision, getTasksForTimeSlot, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend } from './organizer.js';
+import { calculateFreedomIndex, getQuickWins, getQuickDecision, getTasksForTimeSlot, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend, getCurrentSeason, getSeasonalRecommendations, detectLifeEvents, getImprovementReport, getArchivedByReason } from './organizer.js';
 
 // ── Room Colors (type-based pastels) ──────────────────
 const ROOM_COLORS = {
@@ -314,7 +314,388 @@ function buildOrganizerDashboard() {
 
   wrap.appendChild(btnRow);
 
+  // Seasonal card
+  const seasonalCard = buildSeasonalCard();
+  if (seasonalCard) wrap.appendChild(seasonalCard);
+
+  // Life event banner
+  const lifeEventBanner = buildLifeEventBanner();
+  if (lifeEventBanner) wrap.appendChild(lifeEventBanner);
+
+  // Improvement compact
+  const improvementCard = buildImprovementCompact();
+  if (improvementCard) wrap.appendChild(improvementCard);
+
   return wrap;
+}
+
+function buildSeasonalCard() {
+  const seasonal = getSeasonalRecommendations();
+  if (!seasonal) return null;
+  if (seasonal.storeAway.length === 0 && seasonal.bringOut.length === 0) return null;
+
+  const dismissKey = `ordo_seasonal_dismissed_${seasonal.season.key}`;
+  const dismissed = localStorage.getItem(dismissKey);
+  if (dismissed) {
+    const daysSince = (Date.now() - new Date(dismissed).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince < 7) return null;
+  }
+
+  const topItem = seasonal.storeAway[0] || seasonal.bringOut[0];
+  const action = seasonal.storeAway.length > 0 ? 'einlagern' : 'rausholen';
+  const count = seasonal.storeAway.length + seasonal.bringOut.length;
+
+  const card = document.createElement('div');
+  card.className = 'seasonal-card';
+  card.dataset.season = seasonal.season.key;
+
+  const header = document.createElement('div');
+  header.className = 'seasonal-header';
+  const headerLabel = document.createElement('span');
+  headerLabel.textContent = `${seasonal.season.emoji} ${seasonal.season.label}`;
+  header.appendChild(headerLabel);
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.className = 'seasonal-dismiss';
+  dismissBtn.textContent = '✕';
+  dismissBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    localStorage.setItem(dismissKey, new Date().toISOString());
+    card.remove();
+  });
+  header.appendChild(dismissBtn);
+
+  const body = document.createElement('div');
+  body.className = 'seasonal-body';
+  body.textContent = count > 1
+    ? `${count} Dinge könnten ${action === 'einlagern' ? 'eingelagert' : 'rausgeholt'} werden.`
+    : `${escapeHTML(topItem.itemName)} → ${escapeHTML(topItem.reason)}`;
+
+  const actions = document.createElement('div');
+  actions.className = 'seasonal-actions';
+
+  const detailBtn = document.createElement('button');
+  detailBtn.className = 'seasonal-action-btn';
+  detailBtn.textContent = 'Details';
+  detailBtn.addEventListener('click', () => showSeasonalDetails());
+  actions.appendChild(detailBtn);
+
+  const laterBtn = document.createElement('button');
+  laterBtn.className = 'seasonal-action-btn secondary';
+  laterBtn.textContent = 'Später';
+  laterBtn.addEventListener('click', () => {
+    localStorage.setItem(dismissKey, new Date().toISOString());
+    card.remove();
+  });
+  actions.appendChild(laterBtn);
+
+  card.appendChild(header);
+  card.appendChild(body);
+  card.appendChild(actions);
+
+  return card;
+}
+
+function showSeasonalDetails() {
+  const seasonal = getSeasonalRecommendations();
+  if (!seasonal) return;
+
+  const overlayId = requestOverlay('seasonal-details');
+  if (!overlayId) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'quest-overlay';
+  overlay.id = overlayId;
+
+  let html = `<div class="quest-header">
+    <span>${seasonal.season.emoji} ${escapeHTML(seasonal.season.label)}</span>
+    <button class="quest-close" data-action="close-seasonal">✕</button>
+  </div><div class="quest-body" style="padding:14px;">`;
+
+  if (seasonal.storeAway.length > 0) {
+    html += `<div style="font-weight:600;margin-bottom:8px;">📦 EINLAGERN (${seasonal.storeAway.length})</div>`;
+    for (const item of seasonal.storeAway) {
+      html += `<div class="seasonal-detail-item">
+        <div>• ${escapeHTML(item.itemName)} <span style="color:var(--text-secondary);font-size:12px;">(${escapeHTML(item.roomName)})</span></div>
+        <div style="color:var(--text-secondary);font-size:12px;margin-left:12px;">→ in den ${escapeHTML(item.targetRoomType)} · ${escapeHTML(item.reason)}</div>
+        <button class="seasonal-action-btn" style="margin:4px 0 8px 12px;font-size:12px;padding:4px 10px;" data-action="seasonal-store" data-room="${item.roomId}" data-container="${item.containerId}" data-item="${escapeHTML(item.itemName)}" data-target="${item.targetRoomType}">📦 Einlagern</button>
+      </div>`;
+    }
+  }
+
+  if (seasonal.bringOut.length > 0) {
+    html += `<div style="font-weight:600;margin:12px 0 8px;">🔄 RAUSHOLEN (${seasonal.bringOut.length})</div>`;
+    for (const item of seasonal.bringOut) {
+      html += `<div class="seasonal-detail-item">
+        <div>• ${escapeHTML(item.itemName)} <span style="color:var(--text-secondary);font-size:12px;">(${escapeHTML(item.roomName)})</span></div>
+        <div style="color:var(--text-secondary);font-size:12px;margin-left:12px;">${escapeHTML(item.reason)}</div>
+      </div>`;
+    }
+  }
+
+  html += `<div class="improvement-quote">${escapeHTML(seasonal.tip)}</div>`;
+
+  if (seasonal.storeAway.length > 1) {
+    html += `<button class="seasonal-action-btn" data-action="seasonal-store-all" style="width:100%;margin-top:8px;">📦 Alle einlagern</button>`;
+  }
+
+  html += `<button class="seasonal-action-btn secondary" data-action="close-seasonal" style="width:100%;margin-top:8px;">🏠 Zurück</button>`;
+  html += `</div>`;
+
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    const closeBtn = e.target.closest('[data-action="close-seasonal"]');
+    if (closeBtn) {
+      overlay.remove();
+      releaseOverlay(overlayId);
+      return;
+    }
+
+    const storeBtn = e.target.closest('[data-action="seasonal-store"]');
+    if (storeBtn) {
+      const { room, container, item, target } = storeBtn.dataset;
+      const storageRoom = findStorageRoomByType(target);
+      if (storageRoom) {
+        Brain.moveItem(room, container, item, storageRoom.roomId, storageRoom.containerId);
+        showToast(`${item} → ${storageRoom.roomName}`);
+        storeBtn.closest('.seasonal-detail-item').style.opacity = '0.4';
+        storeBtn.disabled = true;
+        storeBtn.textContent = '✓ Eingelagert';
+      } else {
+        showToast(`Kein ${target} gefunden`, 'error');
+      }
+      return;
+    }
+
+    const storeAllBtn = e.target.closest('[data-action="seasonal-store-all"]');
+    if (storeAllBtn) {
+      let moved = 0;
+      for (const item of seasonal.storeAway) {
+        const storageRoom = findStorageRoomByType(item.targetRoomType);
+        if (storageRoom) {
+          Brain.moveItem(item.roomId, item.containerId, item.itemName, storageRoom.roomId, storageRoom.containerId);
+          moved++;
+        }
+      }
+      showToast(`${moved} Dinge eingelagert`);
+      overlay.remove();
+      releaseOverlay(overlayId);
+      renderBrainView();
+    }
+  });
+}
+
+function findStorageRoomByType(targetType) {
+  const data = Brain.getData();
+  for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    const roomType = normalizeRoomType(room.name);
+    if (roomType === targetType) {
+      const containerIds = Object.keys(room.containers || {});
+      if (containerIds.length > 0) {
+        return { roomId, roomName: room.name, containerId: containerIds[0] };
+      }
+    }
+  }
+  return null;
+}
+
+function buildLifeEventBanner() {
+  const events = detectLifeEvents();
+  if (events.length === 0) return null;
+
+  const top = events[0];
+  const dismissKey = `ordo_life_event_dismissed_${top.event}`;
+  const dismissed = localStorage.getItem(dismissKey);
+  if (dismissed) return null;
+
+  const banner = document.createElement('div');
+  banner.className = 'life-event-banner';
+
+  const title = document.createElement('div');
+  title.className = 'life-event-title';
+  title.textContent = `${top.emoji} ${top.message}`;
+
+  const body = document.createElement('div');
+  body.className = 'life-event-body';
+  body.textContent = top.suggestion;
+
+  const actions = document.createElement('div');
+  actions.className = 'seasonal-actions';
+
+  const actionBtn = document.createElement('button');
+  actionBtn.className = 'seasonal-action-btn';
+  actionBtn.textContent = top.suggestion.split('?')[0];
+  actionBtn.addEventListener('click', () => {
+    executeLifeEventAction(top.action);
+    localStorage.setItem(dismissKey, new Date().toISOString());
+    banner.remove();
+  });
+  actions.appendChild(actionBtn);
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.className = 'seasonal-action-btn secondary';
+  dismissBtn.textContent = '✕ Nicht relevant';
+  dismissBtn.addEventListener('click', () => {
+    localStorage.setItem(dismissKey, new Date().toISOString());
+    banner.remove();
+  });
+  actions.appendChild(dismissBtn);
+
+  banner.appendChild(title);
+  banner.appendChild(body);
+  banner.appendChild(actions);
+
+  return banner;
+}
+
+function executeLifeEventAction(action) {
+  switch (action) {
+    case 'generateDonationPDF':
+      import('./report.js').then(m => m.generateDonationListPDF());
+      break;
+    case 'startCleanup':
+      startCleanupQuest();
+      break;
+    case 'showArchiveSummary':
+      showImprovementReport();
+      break;
+    case 'suggestForRoom':
+      showHouseholdCheck();
+      break;
+  }
+}
+
+function buildImprovementCompact() {
+  const report = getImprovementReport();
+  if (report.current === undefined) return null;
+  if (!report.weekAgo && !report.monthAgo && !report.threeMonthsAgo && report.milestones.length === 0 && report.totalRemoved === 0) return null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'improvement-compact';
+
+  const headline = document.createElement('div');
+  headline.className = 'improvement-headline';
+
+  if (report.threeMonthsAgo !== null) {
+    headline.textContent = `📈 Vor 3 Monaten: ${report.threeMonthsAgo}% → Heute: ${report.current}%`;
+  } else if (report.monthAgo !== null) {
+    headline.textContent = `📈 Vor 1 Monat: ${report.monthAgo}% → Heute: ${report.current}%`;
+  } else {
+    headline.textContent = `📈 Dein Fortschritt`;
+  }
+  wrap.appendChild(headline);
+
+  const delta = document.createElement('div');
+  const ref = report.threeMonthsAgo ?? report.monthAgo ?? report.weekAgo;
+  if (ref !== null) {
+    const diff = report.current - ref;
+    const sign = diff >= 0 ? '↑' : '↓';
+    const trendLabel = report.trend === 'aufwärts' ? '📈' : report.trend === 'abwärts' ? '📉' : '➡️';
+    delta.className = `improvement-delta ${diff > 0 ? 'positive' : diff < 0 ? 'negative' : 'neutral'}`;
+    delta.textContent = `${sign}${Math.abs(diff)}% · Trend: ${report.trend} ${trendLabel}`;
+    wrap.appendChild(delta);
+  }
+
+  if (report.milestones.length > 0) {
+    const ms = document.createElement('div');
+    ms.className = 'improvement-milestones';
+    for (const m of report.milestones) {
+      const line = document.createElement('div');
+      line.textContent = `${m.emoji} ${m.label}`;
+      ms.appendChild(line);
+    }
+    wrap.appendChild(ms);
+  }
+
+  const detailBtn = document.createElement('button');
+  detailBtn.className = 'seasonal-action-btn';
+  detailBtn.textContent = '📊 Detailbericht';
+  detailBtn.style.marginTop = '8px';
+  detailBtn.addEventListener('click', () => showImprovementReport());
+  wrap.appendChild(detailBtn);
+
+  return wrap;
+}
+
+function showImprovementReport() {
+  const report = getImprovementReport();
+  const overlayId = requestOverlay('improvement-report');
+  if (!overlayId) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'quest-overlay';
+  overlay.id = overlayId;
+
+  const bars = [
+    { label: 'Heute', value: report.current },
+    { label: 'Vor 1 Woche', value: report.weekAgo },
+    { label: 'Vor 1 Monat', value: report.monthAgo },
+    { label: 'Vor 3 Monaten', value: report.threeMonthsAgo },
+  ];
+
+  let barsHtml = '';
+  for (const b of bars) {
+    if (b.value === null) continue;
+    barsHtml += `<div class="score-history-bar">
+      <span class="score-history-label">${escapeHTML(b.label)}</span>
+      <div style="flex:1;background:var(--bg-secondary);border-radius:4px;overflow:hidden;">
+        <div class="score-history-fill" style="width:${b.value}%"></div>
+      </div>
+      <span class="score-history-value">${b.value}%</span>
+    </div>`;
+  }
+
+  let milestonesHtml = '';
+  for (const m of report.milestones) {
+    milestonesHtml += `<div>${m.emoji} ${escapeHTML(m.label)}</div>`;
+  }
+
+  const quote = getImprovementMessage(report);
+
+  overlay.innerHTML = `<div class="quest-header">
+    <span>📊 Verbesserungs-Report</span>
+    <button class="quest-close" data-action="close-improvement">✕</button>
+  </div>
+  <div class="quest-body" style="padding:14px;">
+    <div style="font-weight:600;margin-bottom:8px;">Kopf-Freiheits-Index:</div>
+    ${barsHtml}
+    ${milestonesHtml ? `<div style="font-weight:600;margin:16px 0 8px;">Meilensteine:</div><div class="improvement-milestones">${milestonesHtml}</div>` : ''}
+    ${quote ? `<div class="improvement-quote">${escapeHTML(quote)}<br>— ORDO</div>` : ''}
+    <button class="seasonal-action-btn secondary" data-action="close-improvement" style="width:100%;margin-top:12px;">🏠 Zurück</button>
+  </div>`;
+
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="close-improvement"]')) {
+      overlay.remove();
+      releaseOverlay(overlayId);
+    }
+  });
+
+  // Animate bars after render
+  requestAnimationFrame(() => {
+    overlay.querySelectorAll('.score-history-fill').forEach(el => {
+      const w = el.style.width;
+      el.style.width = '0%';
+      requestAnimationFrame(() => { el.style.width = w; });
+    });
+  });
+}
+
+function getImprovementMessage(report) {
+  if (!report.threeMonthsAgo) {
+    return 'Noch nicht genug Daten für einen Langzeitvergleich. In ein paar Wochen kann ich dir zeigen wie du dich verbessert hast!';
+  }
+
+  const delta = report.current - report.threeMonthsAgo;
+
+  if (delta >= 15) return `+${delta}% in 3 Monaten. Du hast richtig aufgeräumt!`;
+  if (delta >= 5) return `Nicht schlecht. Vor drei Monaten war hier deutlich mehr Chaos.`;
+  if (delta >= 0) return 'Du hältst den Stand — das ist auch eine Leistung!';
+  return `Hmm, es hat sich etwas angesammelt. Sollen wir eine Runde aufräumen?`;
 }
 
 function buildRoomNode(roomId, room) {
@@ -2847,5 +3228,6 @@ export {
   setupNfcContextView, renderNfcContextView,
   setupPhotoTimeline, setupMoveContainerOverlay,
   showLightbox, closeLightbox, showBrainToast,
-  checkWarrantyBanner
+  checkWarrantyBanner,
+  showSeasonalDetails, showImprovementReport
 };
