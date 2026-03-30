@@ -388,8 +388,12 @@
           <label class="settings-label" for="nfc-room-select">Raum wählen</label>
           <select id="nfc-room-select" class="settings-input" aria-label="Raum für NFC Tag"></select>
           <div id="nfc-new-room-group" style="display:none;flex-direction:column;gap:8px;">
-            <input type="text" id="nfc-new-room-name" class="settings-input" placeholder="Raumname" aria-label="Neuer Raumname">
-            <input type="text" id="nfc-new-room-emoji" class="settings-input" placeholder="Emoji (z.B. 🛏️)" maxlength="4" aria-label="Emoji für neuen Raum">
+            <div class="vf-settings-field" id="vf-nfc-room-name">
+              <input type="text" id="nfc-new-room-name" class="settings-input" placeholder="Raumname" aria-label="Neuer Raumname" readonly>
+            </div>
+            <div class="vf-settings-field" id="vf-nfc-room-emoji">
+              <input type="text" id="nfc-new-room-emoji" class="settings-input" placeholder="Emoji (z.B. 🛏️)" maxlength="4" aria-label="Emoji für neuen Raum" readonly>
+            </div>
           </div>
         </div>
       </div>
@@ -398,7 +402,9 @@
         <div class="nfc-step-num">2</div>
         <div class="nfc-step-body">
           <label class="settings-label" for="nfc-container-name">Behälter benennen</label>
-          <input type="text" id="nfc-container-name" class="settings-input" placeholder='z.B. "Schrank links neben Tür"' aria-label="Behältername">
+          <div class="vf-settings-field" id="vf-nfc-container-name">
+              <input type="text" id="nfc-container-name" class="settings-input" placeholder='z.B. "Schrank links neben Tür"' aria-label="Behältername" readonly>
+            </div>
           <label class="settings-label" for="nfc-container-typ">Typ</label>
           <select id="nfc-container-typ" class="settings-input" aria-label="Behältertyp">
             <option value="schrank">Schrank</option>

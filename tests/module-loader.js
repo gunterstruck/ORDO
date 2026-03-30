@@ -44,6 +44,7 @@ function loadAllModules(rootDir) {
   const moduleOrder = [
     'brain.js',
     'overlay-manager.js',
+    'voice-input.js',
     'modal.js',
     'companion.js',
     'app.js',

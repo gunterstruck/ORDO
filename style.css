@@ -5789,3 +5789,270 @@ select.settings-input { appearance: none; }
   margin: 16px 0;
   font-size: 14px;
 }
+
+/* ══════════════════════════════════════════════════════════
+   Voice-First Input Styles
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Voice Field (modal / standalone) ──────────────────── */
+.vf-field {
+  position: relative;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.vf-display-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  min-height: 48px;
+}
+
+.vf-display-row:active {
+  background: #f0ece7;
+  border-color: var(--accent);
+}
+
+.vf-display {
+  flex: 1;
+  font-size: 16px;
+  color: var(--text);
+  line-height: 1.4;
+  user-select: none;
+}
+
+.vf-display--placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.vf-display--listening {
+  color: var(--accent-dark);
+  animation: vf-pulse 1s ease-in-out infinite;
+}
+
+@keyframes vf-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.vf-mic-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.vf-mic-btn:active {
+  transform: scale(0.92);
+}
+
+.vf-mic-btn--listening {
+  background: var(--error);
+  animation: vf-mic-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes vf-mic-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+/* ── Suggestion Row ───────────────────────────────────── */
+.vf-suggestion-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #FFF8E1;
+  border: 2px solid #FFD54F;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  animation: vf-slide-in 0.2s ease-out;
+}
+
+@keyframes vf-slide-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.vf-suggestion-text {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.vf-confirm-btn,
+.vf-reject-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.vf-confirm-btn {
+  background: var(--success);
+  color: #fff;
+}
+
+.vf-reject-btn {
+  background: #f5f5f5;
+  color: var(--text);
+}
+
+.vf-confirm-btn:active,
+.vf-reject-btn:active {
+  transform: scale(0.9);
+}
+
+/* ── Keyboard Fallback ────────────────────────────────── */
+.vf-kb-btn {
+  position: absolute;
+  bottom: -2px;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.vf-kb-btn:hover,
+.vf-kb-btn:active {
+  opacity: 1;
+}
+
+.vf-hidden-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 16px;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  background: #fff;
+  font-family: inherit;
+  outline: none;
+}
+
+/* ── Inline Voice Wrap (for settings fields) ──────────── */
+.vf-inline-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.vf-inline-wrap > input.vf-inline-input {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.vf-inline-wrap > input.vf-inline-input[readonly] {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.vf-inline-mic {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.vf-inline-mic:active {
+  transform: scale(0.92);
+}
+
+.vf-inline-mic.vf-mic-btn--listening {
+  background: var(--error);
+  animation: vf-mic-pulse 0.8s ease-in-out infinite;
+}
+
+.vf-inline-kb {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.vf-inline-kb:active {
+  opacity: 1;
+}
+
+.vf-inline-suggestion {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #FFF8E1;
+  border: 2px solid #FFD54F;
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  animation: vf-slide-in 0.2s ease-out;
+}
+
+.vf-inline-suggestion-text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.vf-inline-suggestion .vf-confirm-btn,
+.vf-inline-suggestion .vf-reject-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+}
+
+/* ── Settings field wrapper ───────────────────────────── */
+.vf-settings-field {
+  margin-bottom: 8px;
+}
