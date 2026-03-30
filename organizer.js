@@ -2,7 +2,7 @@
 
 import Brain from './brain.js';
 import { analyzeContainerForOrganizing } from './ai.js';
-import { ROOM_TYPES } from './app.js';
+import { ROOM_TYPES, normalizeRoomType } from './app.js';
 
 const RECOMMENDATION_CACHE_KEY = 'ordo_organizer_cache';
 const SCORE_HISTORY_KEY = 'ordo_score_history';
@@ -121,15 +121,7 @@ function itemNameOf(item) {
   return typeof item === 'string' ? item : (item?.name || '');
 }
 
-export function normalizeRoomType(roomNameOrType) {
-  const lower = (roomNameOrType || '').toLowerCase();
-  for (const [type, config] of Object.entries(ROOM_TYPES)) {
-    if (lower === type) return type;
-    if (lower === config.name.toLowerCase()) return type;
-    if (config.aliases.some(a => lower.includes(a))) return type;
-  }
-  return lower;
-}
+// normalizeRoomType is now imported from app.js (single source of truth)
 
 export function classifyItem(itemName) {
   const lower = (itemName || '').toLowerCase();
@@ -454,7 +446,8 @@ export async function containerCheck(roomId, containerId, photoBase64) {
 }
 
 export function getCachedRecommendations(roomId, containerId) {
-  const cache = JSON.parse(localStorage.getItem(RECOMMENDATION_CACHE_KEY) || '{}');
+  let cache;
+  try { cache = JSON.parse(localStorage.getItem(RECOMMENDATION_CACHE_KEY) || '{}'); } catch { return null; }
   const key = `${roomId}_${containerId}`;
   const entry = cache[key];
   if (!entry) return null;
@@ -466,14 +459,16 @@ export function getCachedRecommendations(roomId, containerId) {
 }
 
 function cacheRecommendations(roomId, containerId, data) {
-  const cache = JSON.parse(localStorage.getItem(RECOMMENDATION_CACHE_KEY) || '{}');
+  let cache;
+  try { cache = JSON.parse(localStorage.getItem(RECOMMENDATION_CACHE_KEY) || '{}'); } catch { cache = {}; }
   cache[`${roomId}_${containerId}`] = { data, timestamp: new Date().toISOString() };
   localStorage.setItem(RECOMMENDATION_CACHE_KEY, JSON.stringify(cache));
 }
 
 export function recordWeeklyScore() {
   const { percent } = calculateFreedomIndex();
-  const history = JSON.parse(localStorage.getItem(SCORE_HISTORY_KEY) || '[]');
+  let history;
+  try { history = JSON.parse(localStorage.getItem(SCORE_HISTORY_KEY) || '[]'); } catch { history = []; }
   const lastEntry = history[history.length - 1];
 
   if (lastEntry) {
@@ -488,7 +483,8 @@ export function recordWeeklyScore() {
 }
 
 export function getScoreTrend() {
-  const history = JSON.parse(localStorage.getItem(SCORE_HISTORY_KEY) || '[]');
+  let history;
+  try { history = JSON.parse(localStorage.getItem(SCORE_HISTORY_KEY) || '[]'); } catch { history = []; }
   if (history.length < 2) return null;
   const current = history[history.length - 1];
   const previous = history[history.length - 2];
@@ -1000,9 +996,8 @@ function forEachArchivedItem(containers, callback) {
 // ── Verbesserungs-Report ──────────────────────────────
 
 export function getImprovementReport() {
-  const history = JSON.parse(
-    localStorage.getItem(SCORE_HISTORY_KEY) || '[]'
-  );
+  let history;
+  try { history = JSON.parse(localStorage.getItem(SCORE_HISTORY_KEY) || '[]'); } catch { history = []; }
 
   const current = calculateFreedomIndex();
   const now = Date.now();

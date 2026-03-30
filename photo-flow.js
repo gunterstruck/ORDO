@@ -1885,11 +1885,20 @@ async function queuePhotoForAnalysis(blob, roomId, containerId) {
   const photoKey = `queued_${roomId}_${containerId}_${Date.now()}`;
   await Brain.savePhoto(photoKey, blob);
 
-  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  // Quest-Kontext mitspeichern, damit Offline-Fotos den Quest-Schritt abschließen können
+  const activeQuest = Brain.getQuest();
+  const questContext = activeQuest?.active ? {
+    type: activeQuest.type,
+    currentStep: activeQuest.current_step
+  } : null;
+
+  let queue;
+  try { queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { queue = []; }
   queue.push({
     photoKey,
     roomId,
     containerId,
+    questContext,
     queuedAt: new Date().toISOString(),
     status: 'pending'
   });
@@ -1899,7 +1908,8 @@ async function queuePhotoForAnalysis(blob, roomId, containerId) {
 }
 
 function getQueueLength() {
-  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  let queue;
+  try { queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { queue = []; }
   return queue.filter(q => q.status === 'pending' || q.status === 'retry').length;
 }
 
@@ -1921,7 +1931,8 @@ function updateQueueBadge() {
 }
 
 async function processQueue() {
-  const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+  let queue;
+  try { queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { queue = []; }
   const pending = queue.filter(q => q.status === 'pending' || q.status === 'retry');
 
   if (pending.length === 0) return;
@@ -1940,9 +1951,22 @@ async function processQueue() {
         continue;
       }
 
-      const base64 = await blobToBase64(blob);
       // Run the normal photo analysis flow
       await handlePhotoFile(new File([blob], 'queued.jpg', { type: 'image/jpeg' }), entry.roomId, entry.containerId);
+
+      // Quest-Schritt nachträglich als erledigt markieren wenn Quest-Kontext gespeichert war
+      if (entry.questContext) {
+        const currentQuest = Brain.getQuest();
+        if (currentQuest?.active && currentQuest.type === entry.questContext.type) {
+          const step = currentQuest.plan?.find(s =>
+            s.room_id === entry.roomId && s.container_id === entry.containerId && s.status === 'pending'
+          );
+          if (step) {
+            step.status = 'done';
+            Brain.saveQuest(currentQuest);
+          }
+        }
+      }
 
       entry.status = 'done';
       doneCount++;

@@ -461,6 +461,11 @@ async function sendCompanionMessage(text) {
       appendCompanionMessage('assistant', responseText);
       companionHistory.push({ role: 'assistant', content: responseText });
     }
+
+    // Limit history to prevent unbounded memory growth
+    if (companionHistory.length > 50) {
+      companionHistory = companionHistory.slice(-30);
+    }
   } catch (err) {
     removeLoadingMessage();
     appendCompanionMessage('assistant', 'Fehler bei der Anfrage. Versuch es nochmal.');
