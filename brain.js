@@ -2069,6 +2069,87 @@ const Brain = {
     }
   },
 
+  // ── Expiry / Verfallsdaten ──────────────────────────────
+
+  /**
+   * Setzt oder aktualisiert das Verfallsdatum eines Items.
+   */
+  setItemExpiry(roomId, containerId, itemName, expiryData) {
+    const data = this.getData();
+    const container = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!container) return false;
+
+    this._migrateContainerItems(container);
+    const item = container.items.find(i =>
+      typeof i === 'object' && i.name === itemName && i.status !== 'archiviert'
+    );
+    if (!item) return false;
+
+    item.expiry = {
+      ...item.expiry,
+      ...expiryData,
+      detected_at: expiryData.detected_at || isoNow(),
+    };
+
+    this.save(data);
+    this._emit('itemUpdated', { roomId, containerId, itemName, field: 'expiry' });
+    return true;
+  },
+
+  /**
+   * Gibt alle Items mit Verfallsdaten zurück, sortiert nach Dringlichkeit.
+   */
+  getItemsWithExpiry() {
+    const data = this.getData();
+    const results = [];
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    for (const [roomId, room] of Object.entries(data?.rooms || {})) {
+      this._collectExpiryItems(roomId, room.name, room.containers, now, results);
+    }
+
+    return results.sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+  },
+
+  /**
+   * Gibt nur bald ablaufende und abgelaufene Items zurück.
+   */
+  getExpiringItems(withinDays = 30) {
+    return this.getItemsWithExpiry().filter(e =>
+      e.daysUntilExpiry <= withinDays
+    );
+  },
+
+  _collectExpiryItems(roomId, roomName, containers, now, results) {
+    for (const [cId, c] of Object.entries(containers || {})) {
+      (c.items || []).forEach(item => {
+        if (typeof item !== 'object' || !item.expiry?.date) return;
+        if (item.status === 'archiviert') return;
+
+        const expiryDate = new Date(item.expiry.date);
+        expiryDate.setHours(0, 0, 0, 0);
+        const daysUntil = Math.round((expiryDate - now) / (1000 * 60 * 60 * 24));
+
+        results.push({
+          item,
+          roomId,
+          roomName,
+          containerId: cId,
+          containerName: c.name || cId,
+          expiryDate: item.expiry.date,
+          expiryType: item.expiry.type || 'sonstiges',
+          daysUntilExpiry: daysUntil,
+          isExpired: daysUntil < 0,
+          isExpiringSoon: daysUntil >= 0 && daysUntil <= 30,
+        });
+      });
+      if (c.containers) {
+        this._collectExpiryItems(roomId, roomName, c.containers, now, results);
+      }
+    }
+  },
+
   // ── Quest Data ─────────────────────────────────────────
 
   getQuest() {

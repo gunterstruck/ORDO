@@ -3,7 +3,7 @@
 import Brain from './brain.js';
 import { escapeHTML, showView, debugLog } from './app.js';
 import { showToast, showInputModal, showConfirmModal } from './modal.js';
-import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
+import { analyzeReceipt, estimateSingleItemValue, detectExpiryDate } from './ai.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 import { sendChatMessage } from './chat.js';
 import { capturePhoto } from './camera.js';
@@ -132,6 +132,22 @@ export function showItemDetailPanel(roomId, containerId, itemName) {
 
   purchaseSection.appendChild(purchaseContent);
   sheet.appendChild(purchaseSection);
+
+  // Expiry / Verfallsdaten section
+  if (itemObj.expiry?.date) {
+    const expirySection = document.createElement('div');
+    expirySection.className = 'item-detail-section';
+    const expiryHeader = document.createElement('div');
+    expiryHeader.className = 'item-detail-section-header';
+    expiryHeader.textContent = 'Verfallsdatum';
+    expirySection.appendChild(expiryHeader);
+
+    const expiryContent = document.createElement('div');
+    expiryContent.className = 'expiry-detail-section';
+    renderExpiryDetailSection(expiryContent, itemObj, roomId, containerId, itemName, panel);
+    expirySection.appendChild(expiryContent);
+    sheet.appendChild(expirySection);
+  }
 
   // Valuation section
   const valuationSection = document.createElement('div');
@@ -745,4 +761,188 @@ function showManualPurchaseForm(roomId, containerId, itemName, existingPurchase,
   panel.appendChild(overlay);
   panel.appendChild(sheet);
   document.body.appendChild(panel);
+}
+
+// ── Expiry Detail Section ────────────────────────────
+
+function getExpiryStatusLocal(daysUntil) {
+  if (daysUntil < 0) return { cls: 'expired', label: `Abgelaufen seit ${Math.abs(daysUntil)} Tagen`, icon: '🔴' };
+  if (daysUntil <= 7) return { cls: 'critical', label: `Noch ${daysUntil} Tage`, icon: '🔴' };
+  if (daysUntil <= 30) return { cls: 'warning', label: `Noch ${daysUntil} Tage`, icon: '🟡' };
+  if (daysUntil <= 90) return { cls: 'upcoming', label: `Noch ${Math.round(daysUntil / 30)} Monate`, icon: '🟢' };
+  return { cls: 'ok', label: `Noch ${Math.round(daysUntil / 30)} Monate`, icon: '🟢' };
+}
+
+function formatExpiryDateDE(dateStr) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 2) return `${parts[1]}/${parts[0]}`;
+  if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+  return dateStr;
+}
+
+function renderExpiryDetailSection(container, item, roomId, containerId, itemName, panel) {
+  const expiry = item.expiry;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const expiryDate = new Date(expiry.date);
+  expiryDate.setHours(0, 0, 0, 0);
+  const daysUntil = Math.round((expiryDate - now) / (1000 * 60 * 60 * 24));
+
+  const status = getExpiryStatusLocal(daysUntil);
+
+  const dateEl = document.createElement('div');
+  dateEl.className = 'expiry-detail-date';
+  dateEl.textContent = `⏰ MHD: ${formatExpiryDateDE(expiry.date)}`;
+  container.appendChild(dateEl);
+
+  const statusEl = document.createElement('div');
+  statusEl.className = `expiry-status ${status.cls}`;
+  statusEl.textContent = `${status.icon} ${status.label}`;
+  container.appendChild(statusEl);
+
+  if (expiry.detected_at) {
+    const sourceEl = document.createElement('div');
+    sourceEl.className = 'expiry-detail-source';
+    const sourceLabel = expiry.source === 'photo_ai' ? 'Erkannt per Foto' : 'Manuell eingegeben';
+    const dateStr = expiry.detected_at.slice(0, 10).split('-').reverse().join('.');
+    sourceEl.textContent = `${sourceLabel} am ${dateStr}`;
+    container.appendChild(sourceEl);
+  }
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
+
+  const photoBtn = document.createElement('button');
+  photoBtn.className = 'item-detail-action-btn';
+  photoBtn.textContent = '📷 Datum aktualisieren';
+  photoBtn.addEventListener('click', () => {
+    panel.remove();
+    releaseOverlay('item-detail');
+    import('./warranty-view.js').then(mod => {
+      mod.startExpiryPhotoCheck(roomId, containerId, itemName);
+    });
+  });
+  btnRow.appendChild(photoBtn);
+
+  const manualBtn = document.createElement('button');
+  manualBtn.className = 'item-detail-action-btn';
+  manualBtn.textContent = '✏️ Manuell ändern';
+  manualBtn.addEventListener('click', () => {
+    editExpiryDate(roomId, containerId, itemName, panel);
+  });
+  btnRow.appendChild(manualBtn);
+
+  container.appendChild(btnRow);
+}
+
+async function editExpiryDate(roomId, containerId, itemName, panel) {
+  // Try voice first
+  if (window.SpeechRecognition || window.webkitSpeechRecognition) {
+    showToast('Sag das Verfallsdatum...', 'info');
+    try {
+      const spoken = await listenForExpiryDate();
+      if (spoken) {
+        const parsed = parseGermanDate(spoken);
+        if (parsed) {
+          Brain.setItemExpiry(roomId, containerId, itemName, {
+            date: parsed,
+            source: 'manual',
+          });
+          showToast(`Verfallsdatum: ${formatExpiryDateDE(parsed)}`);
+          if (panel) { panel.remove(); releaseOverlay('item-detail'); }
+          showItemDetailPanel(roomId, containerId, itemName);
+          return;
+        }
+      }
+    } catch { /* voice failed, fall through to datepicker */ }
+  }
+
+  // Fallback: native datepicker
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.value = new Date().toISOString().slice(0, 10);
+  input.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', () => {
+    if (input.value) {
+      Brain.setItemExpiry(roomId, containerId, itemName, {
+        date: input.value,
+        source: 'manual',
+      });
+      showToast(`Verfallsdatum: ${formatExpiryDateDE(input.value)}`);
+      if (panel) { panel.remove(); releaseOverlay('item-detail'); }
+      showItemDetailPanel(roomId, containerId, itemName);
+    }
+    input.remove();
+  });
+
+  input.addEventListener('blur', () => {
+    setTimeout(() => { if (input.parentNode) input.remove(); }, 300);
+  });
+
+  input.showPicker?.() || input.click();
+}
+
+function listenForExpiryDate() {
+  return new Promise((resolve, reject) => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { reject(new Error('No speech')); return; }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'de-DE';
+    recognition.maxAlternatives = 1;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+      resolve(event.results[0]?.[0]?.transcript || '');
+    };
+    recognition.onerror = () => resolve(null);
+    recognition.start();
+
+    setTimeout(() => {
+      try { recognition.stop(); } catch {}
+      resolve(null);
+    }, 8000);
+  });
+}
+
+/**
+ * Parst deutsche Datumsangaben aus Sprache.
+ * "15. September 2026" → "2026-09-15"
+ * "September 2026" → "2026-09-01"
+ */
+export function parseGermanDate(text) {
+  const months = {
+    januar: '01', februar: '02', 'märz': '03', april: '04',
+    mai: '05', juni: '06', juli: '07', august: '08',
+    september: '09', oktober: '10', november: '11', dezember: '12',
+  };
+
+  const lower = text.toLowerCase().trim();
+
+  // "15. September 2026" or "15 September 2026"
+  const fullMatch = lower.match(/(\d{1,2})\.?\s*([a-zäöü]+)\s+(\d{4})/);
+  if (fullMatch) {
+    const day = fullMatch[1].padStart(2, '0');
+    const month = months[fullMatch[2]];
+    if (month) return `${fullMatch[3]}-${month}-${day}`;
+  }
+
+  // "September 2026"
+  const monthYear = lower.match(/([a-zäöü]+)\s+(\d{4})/);
+  if (monthYear) {
+    const month = months[monthYear[1]];
+    if (month) return `${monthYear[2]}-${month}-01`;
+  }
+
+  // "09/2026" or "09.2026"
+  const numericMatch = lower.match(/(\d{1,2})[\/.](\d{4})/);
+  if (numericMatch) {
+    const month = numericMatch[1].padStart(2, '0');
+    return `${numericMatch[2]}-${month}-01`;
+  }
+
+  return null;
 }

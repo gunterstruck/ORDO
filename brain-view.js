@@ -11,7 +11,7 @@ import { showReportDialog } from './report.js';
 import { showCurrentStep, startBlueprint, startCleanupQuest, showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 import { showItemDetailPanel } from './item-detail.js';
-import { showWarrantyOverview, checkWarrantyBanner } from './warranty-view.js';
+import { showWarrantyOverview, checkWarrantyBanner, showExpiryOverview, checkExpiryBanner } from './warranty-view.js';
 import { calculateFreedomIndex, getQuickWins, getQuickDecision, getTasksForTimeSlot, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend, getCurrentSeason, getSeasonalRecommendations, detectLifeEvents, getImprovementReport, getArchivedByReason } from './organizer.js';
 
 // ── Room Colors (type-based pastels) ──────────────────
@@ -314,6 +314,10 @@ function buildOrganizerDashboard() {
 
   wrap.appendChild(btnRow);
 
+  // Expiry banner
+  const expiryBannerEl = buildExpiryDashboardBanner();
+  if (expiryBannerEl) wrap.appendChild(expiryBannerEl);
+
   // Seasonal card
   const seasonalCard = buildSeasonalCard();
   if (seasonalCard) wrap.appendChild(seasonalCard);
@@ -327,6 +331,23 @@ function buildOrganizerDashboard() {
   if (improvementCard) wrap.appendChild(improvementCard);
 
   return wrap;
+}
+
+function buildExpiryDashboardBanner() {
+  const expiring = Brain.getExpiringItems(30);
+  const expired = expiring.filter(e => e.isExpired);
+  const soon = expiring.filter(e => !e.isExpired);
+  if (expired.length === 0 && soon.length === 0) return null;
+
+  const parts = [];
+  if (expired.length > 0) parts.push(`${expired.length} abgelaufen`);
+  if (soon.length > 0) parts.push(`${soon.length} läuft bald ab`);
+
+  const banner = document.createElement('div');
+  banner.className = 'expiry-banner';
+  banner.innerHTML = `<span>⚠️ ${parts.join(', ')}</span><span style="font-size:12px">📋 Details</span>`;
+  banner.addEventListener('click', () => showExpiryOverview());
+  return banner;
 }
 
 function buildSeasonalCard() {
@@ -3228,6 +3249,6 @@ export {
   setupNfcContextView, renderNfcContextView,
   setupPhotoTimeline, setupMoveContainerOverlay,
   showLightbox, closeLightbox, showBrainToast,
-  checkWarrantyBanner,
+  checkWarrantyBanner, checkExpiryBanner, showExpiryOverview,
   showSeasonalDetails, showImprovementReport
 };

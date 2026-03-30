@@ -375,6 +375,23 @@ export function getQuickWins(maxCount = 5) {
     });
   });
 
+  // Expired items (high priority health risk)
+  try {
+    const expiredItems = Brain.getExpiringItems(0).filter(e => e.isExpired);
+    for (const exp of expiredItems) {
+      wins.push({
+        type: 'decide',
+        description: `${exp.item.name} — abgelaufen (${Math.abs(exp.daysUntilExpiry)} Tage)`,
+        detail: 'Entsorgen?',
+        itemName: exp.item.name,
+        roomId: exp.roomId,
+        containerId: exp.containerId,
+        impactPoints: 3,
+        estimatedMinutes: 0.5,
+      });
+    }
+  } catch { /* expiry data may not exist */ }
+
   wins.sort((a, b) => (b.impactPoints / b.estimatedMinutes) - (a.impactPoints / a.estimatedMinutes));
   return wins.slice(0, maxCount);
 }

@@ -3,7 +3,7 @@
 import Brain from './brain.js';
 import { setupChat, initChat, maybeShowChatSuggestions } from './chat.js';
 import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, renderRoomDropdown, applyNfcContextToPhotoView, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay } from './photo-flow.js';
-import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay, checkWarrantyBanner } from './brain-view.js';
+import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay, checkWarrantyBanner, checkExpiryBanner } from './brain-view.js';
 import { setupOnboarding, showOnboarding } from './onboarding.js';
 import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
 import { setupCamera } from './camera.js';
@@ -291,6 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Check for expiring warranties and show banner
   try { checkWarrantyBanner(); } catch (err) { console.error('[ORDO] Warranty-Check fehlgeschlagen:', err); }
+  try { checkExpiryBanner(); } catch (err) { console.error('[ORDO] Expiry-Check fehlgeschlagen:', err); }
 });
 
 // ── Global Keyboard Handling ──────────────────────────

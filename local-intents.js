@@ -4,7 +4,7 @@
 import Brain from './brain.js';
 import { showView } from './app.js';
 import { calculateFreedomIndex } from './organizer.js';
-import { showWarrantyOverview } from './warranty-view.js';
+import { showWarrantyOverview, showExpiryOverview } from './warranty-view.js';
 import { startSmartPhotoCapture } from './smart-photo.js';
 import { showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
 import { generateDonationListPDF } from './report.js';
@@ -36,6 +36,11 @@ export function checkLocalIntent(text) {
   // Warranty / Garantie
   if (/garantie|was läuft.*ab|warranty/i.test(lower)) {
     return { action: 'showWarranty' };
+  }
+
+  // Expiry / Verfallsdaten
+  if (/verfallsdatum|ablaufdatum|mhd|haltbar|abgelaufen|expiry|verfallsdaten/i.test(lower)) {
+    return { action: 'showExpiryOverview' };
   }
 
   // Report / Versicherungsbericht
@@ -116,6 +121,10 @@ export function executeLocalIntent(intent) {
     case 'showWarranty':
       showWarrantyOverview();
       return 'Hier ist die Garantie-Übersicht.';
+
+    case 'showExpiryOverview':
+      showExpiryOverview();
+      return 'Hier ist die Verfallsdaten-Übersicht.';
 
     case 'showReport':
       showView('settings');

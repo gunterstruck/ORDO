@@ -98,6 +98,20 @@ function buildCompanionSystemPrompt() {
     quickWinsBlock = `\nTOP QUICK WINS:\n${quickWins}\n`;
   }
 
+  // Expiry context
+  let expiryBlock = '';
+  try {
+    const expiring = Brain.getExpiringItems(7);
+    const expired = expiring.filter(e => e.isExpired);
+    const soonExpiring = expiring.filter(e => !e.isExpired);
+    if (expired.length > 0) {
+      expiryBlock += `\nVERFALLEN: ${expired.length} Gegenstand/Gegenstände abgelaufen (z.B. ${expired[0].item.name}).\n`;
+    }
+    if (soonExpiring.length > 0) {
+      expiryBlock += `BALD ABGELAUFEN: ${soonExpiring.length} Gegenstand/Gegenstände läuft/laufen in den nächsten 7 Tagen ab.\n`;
+    }
+  } catch { /* expiry data may not exist */ }
+
   // Seasonal + life event context
   let seasonalBlock = '';
   try {
@@ -130,7 +144,7 @@ VERHALTENSREGELN:
 
 SPEZIFISCHE HILFE FÜR AKTUELLE SEITE (${viewLabel}):
 ${viewHint}
-${quickWinsBlock}${seasonalBlock}
+${quickWinsBlock}${expiryBlock}${seasonalBlock}
 HAUSHALT:
 ${context}
 
