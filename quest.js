@@ -8,7 +8,7 @@ import { handlePhotoFile, handleVideoFile } from './photo-flow.js';
 import { showView, escapeHTML, debugLog } from './app.js';
 import { requestOverlay, releaseOverlay, isOverlayActive } from './overlay-manager.js';
 import { capturePhoto, captureVideo } from './camera.js';
-import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide } from './organizer.js';
+import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide, roomCheck, householdCheck, getArchivedByReason, getSellableItems, findStorageRoom, normalizeRoomType, getQuickWins } from './organizer.js';
 import { getPersonality } from './chat.js';
 
 // Analysis messages now handled by LoadingManager in ai.js
@@ -1015,25 +1015,7 @@ function renderMoveStep(step) {
 }
 
 function renderDecideStep(step) {
-  const fromRoom = Brain.getRoom(step.from_room);
-  const fromContainer = Brain.getContainer(step.from_room, step.from_container);
-  const disposal = step.disposal_guide || getDisposalGuide(step.item_name);
-
-  return `
-    <div class="cleanup-step-badge decide">\u{1F914} ENTSCHEIDEN</div>
-    <div class="cleanup-item-name">${escapeHTML(step.item_name)}</div>
-    <div class="cleanup-location">\u{1F4CD} ${escapeHTML(fromRoom?.name || step.from_room)} &gt; ${escapeHTML(fromContainer?.name || step.from_container)}</div>
-    ${step.reason ? `<div class="cleanup-location">\u23F1\uFE0F ${escapeHTML(step.reason)}</div>` : ''}
-    <div class="disposal-tip">${escapeHTML(disposal.icon)} ${escapeHTML(disposal.text)}</div>
-    <div class="cleanup-actions">
-      <button class="cleanup-action-btn danger" data-action="discard">\u{1F5D1}\uFE0F Entsorgen</button>
-      <button class="cleanup-action-btn donate" data-action="donate">\u{1F381} Spenden</button>
-      <button class="cleanup-action-btn" data-action="keep">\u{1F4E6} Behalten</button>
-    </div>
-    <div class="cleanup-actions">
-      <button class="cleanup-action-btn" data-action="skip">\u23ED\uFE0F \u00DCberspringen</button>
-    </div>
-  `;
+  return renderDecideStepExtended(step);
 }
 
 function renderConsolidateStep(step) {
@@ -1149,6 +1131,36 @@ function wireCleanupActions(overlay, step, q) {
     showCleanupStep(q);
   });
 
+  // DECIDE: sell
+  overlay.querySelector('[data-action="sell"]')?.addEventListener('click', () => {
+    const oldScore = calculateFreedomIndex().percent;
+    Brain.archiveItem(step.from_room, step.from_container, step.item_name, 'verkauft');
+    step.archive_reason = 'verkauft';
+    completeCleanupStep(q, step, 'done');
+    q.progress.items_archived = (q.progress.items_archived || 0) + 1;
+    Brain.saveQuest(q);
+    showToast('Auf die Verkaufsliste gesetzt', 'success');
+
+    const newScore = calculateFreedomIndex().percent;
+    animateScoreChange(oldScore, newScore);
+    showCleanupStep(q);
+  });
+
+  // DECIDE: store
+  overlay.querySelector('[data-action="store"]')?.addEventListener('click', () => {
+    const storage = findStorageRoom();
+    if (storage) {
+      Brain.moveItemAcrossRooms(step.from_room, step.from_container, storage.roomId, storage.containerId, step.item_name);
+      completeCleanupStep(q, step, 'done');
+      q.progress.items_moved = (q.progress.items_moved || 0) + 1;
+      Brain.saveQuest(q);
+      showToast(`In ${storage.roomName} verschoben`, 'success');
+    } else {
+      showToast('Kein Lagerraum gefunden. Lege zuerst einen Keller oder Abstellraum an.', 'warning');
+    }
+    showCleanupStep(q);
+  });
+
   // CONSOLIDATE: keep one
   overlay.querySelector('[data-action="consolidate-keep-one"]')?.addEventListener('click', async () => {
     const locs = step.locations || [];
@@ -1249,6 +1261,8 @@ function getCleanupSummary(q) {
     itemsMoved: done.filter(s => s.action_type === 'move').length,
     itemsArchived: done.filter(s => s.archive_reason === 'entsorgt').length,
     itemsDonated: done.filter(s => s.archive_reason === 'gespendet').length,
+    itemsSold: done.filter(s => s.archive_reason === 'verkauft').length,
+    itemsStored: done.filter(s => s.archive_reason === 'eingelagert').length,
     decisions: done.filter(s => s.action_type === 'decide' || s.action_type === 'consolidate').length,
     scoreStart: q.progress.score_start,
     scoreEnd: calculateFreedomIndex().percent,
@@ -1305,6 +1319,8 @@ function showCleanupCompleted(q) {
   if (summary.decisions > 0) stats.push(`\u2022 ${summary.decisions} Entscheidungen getroffen`);
   if (summary.itemsArchived > 0) stats.push(`\u2022 ${summary.itemsArchived} Dinge entsorgt`);
   if (summary.itemsDonated > 0) stats.push(`\u2022 ${summary.itemsDonated} Dinge gespendet`);
+  if (summary.itemsSold > 0) stats.push(`\u2022 ${summary.itemsSold} Dinge zum Verkauf`);
+  if (summary.itemsStored > 0) stats.push(`\u2022 ${summary.itemsStored} Dinge eingelagert`);
   if (summary.skippedSteps > 0) stats.push(`\u2022 ${summary.skippedSteps} \u00fcbersprungen`);
 
   overlay.innerHTML = `
@@ -1357,4 +1373,364 @@ function animateScoreChange(oldPercent, newPercent) {
     el.textContent = `${newPercent}%`;
     el.classList.remove('score-changing', 'score-up');
   }, 2000);
+}
+
+// ── Raum-Check Overlay ─────────────────────────────────
+
+export function showRoomCheck(roomId) {
+  ensureQuestElements();
+  const result = roomCheck(roomId);
+  if (!result) {
+    showToast('Raum nicht gefunden');
+    return;
+  }
+
+  const overlay = document.getElementById('quest-overlay');
+  if (!overlay) return;
+
+  if (!requestOverlay('room-check', 50, () => {
+    overlay.style.display = 'none';
+    releaseOverlay('room-check');
+  })) return;
+
+  overlay.style.display = 'flex';
+
+  const scoreCls = result.roomScore >= 75 ? 'high' : (result.roomScore >= 50 ? 'medium' : 'low');
+
+  let wrongHtml = '';
+  if (result.wrongItems.length > 0) {
+    wrongHtml = `
+      <div class="room-check-section">
+        <div class="room-check-section-title">🔄 Falscher Ort (${result.wrongItems.length})</div>
+        ${result.wrongItems.map(w => `<div class="room-check-item">• ${escapeHTML(w.itemName)} → besser im ${escapeHTML(w.suggestedRoomName)}</div>`).join('')}
+      </div>`;
+  }
+
+  let dupeHtml = '';
+  if (result.duplicates.length > 0) {
+    dupeHtml = `
+      <div class="room-check-section">
+        <div class="room-check-section-title">📦 Duplikate im Raum (${result.duplicates.length})</div>
+        ${result.duplicates.map(d => `<div class="room-check-item">• ${escapeHTML(d.name)} in ${d.locations.map(l => escapeHTML(l.containerName)).join(' + ')}</div>`).join('')}
+      </div>`;
+  }
+
+  let staleHtml = '';
+  if (result.staleItems.length > 0) {
+    staleHtml = `
+      <div class="room-check-section">
+        <div class="room-check-section-title">⏱️ Lange nicht gesehen (${result.staleItems.length})</div>
+        ${result.staleItems.map(s => `<div class="room-check-item">• ${escapeHTML(s.itemName)} (${s.months} Monate)</div>`).join('')}
+      </div>`;
+  }
+
+  let capacityHtml = '';
+  if (result.containerScores.length > 0) {
+    const capRows = result.containerScores.map(c => {
+      if (!c.capacity) return '';
+      const lvl = c.capacity.level;
+      const cls = lvl === 'ok' ? 'ok' : (lvl === 'voll' ? 'full' : (lvl === 'überfüllt' ? 'overfilled' : 'empty'));
+      const icon = lvl === 'ok' ? '����' : (lvl === 'voll' ? '🟡' : (lvl === 'überfüllt' ? '🔴' : '⚪'));
+      return `<div class="capacity-bar"><span class="capacity-indicator ${cls}"></span> ${escapeHTML(c.containerName)}: ${icon} ${lvl} (${c.capacity.count}/${c.capacity.capacity})</div>`;
+    }).join('');
+
+    capacityHtml = `
+      <div class="room-check-section">
+        <div class="room-check-section-title">📊 Füllstand</div>
+        ${capRows}
+      </div>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="quest-card room-check-overlay">
+      <div class="room-check-score">
+        <h3>🏠 Raum-Check: ${escapeHTML(result.roomName)}</h3>
+        <div class="quest-progress-bar"><div class="quest-progress-fill ${scoreCls}" style="width:${result.roomScore}%"></div></div>
+        <div style="font-size:14px;margin-top:4px">${result.roomScore}% · ${result.totalItems} Gegenstände · ${result.containerScores.length} Container</div>
+      </div>
+      ${wrongHtml}
+      ${dupeHtml}
+      ${staleHtml}
+      ${capacityHtml}
+      <div class="cleanup-actions" style="margin-top:16px">
+        ${result.quickWins.length > 0 ? `<button class="cleanup-action-btn primary" id="room-check-cleanup">🧹 Raum aufräumen (~${result.estimatedMinutes} Min)</button>` : ''}
+        <button class="cleanup-action-btn" id="room-check-close">🏠 Zurück</button>
+      </div>
+    </div>
+  `;
+
+  overlay.querySelector('#room-check-cleanup')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('room-check');
+    // Start cleanup quest with only this room's quick wins
+    startCleanupQuest(result.estimatedMinutes || 10);
+  });
+  overlay.querySelector('#room-check-close')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('room-check');
+  });
+}
+
+// ── Haushalts-Check Overlay ────────────────────────────
+
+export function showHouseholdCheck() {
+  ensureQuestElements();
+  const result = householdCheck();
+
+  const overlay = document.getElementById('quest-overlay');
+  if (!overlay) return;
+
+  if (!requestOverlay('household-check', 50, () => {
+    overlay.style.display = 'none';
+    releaseOverlay('household-check');
+  })) return;
+
+  overlay.style.display = 'flex';
+
+  const scoreCls = result.overallScore >= 75 ? 'high' : (result.overallScore >= 50 ? 'medium' : 'low');
+
+  const roomRows = result.roomScores.map(r => {
+    const room = Brain.getRoom(r.roomId);
+    const emoji = room?.emoji || '🏠';
+    return `<div class="household-room-row">
+      <span>${emoji} ${escapeHTML(r.roomName)}</span>
+      <span>${r.totalItems} Items</span>
+      <span class="household-room-score">${r.roomScore}%</span>
+    </div>`;
+  }).join('');
+
+  let issuesHtml = '';
+  const issues = [];
+  if (result.totalWrongPlace > 0) issues.push(`• ${result.totalWrongPlace} Dinge am falschen Ort`);
+  if (result.totalStale > 0) issues.push(`• ${result.totalStale} Dinge seit 12+ Monaten weg`);
+  if (result.allDuplicates.length > 0) issues.push(`• ${result.allDuplicates.length} Duplikate über Räume verteilt`);
+  if (issues.length > 0) {
+    issuesHtml = `
+      <div class="room-check-section">
+        <div class="room-check-section-title">Haushalt-weit</div>
+        ${issues.map(i => `<div class="room-check-item">${i}</div>`).join('')}
+      </div>`;
+  }
+
+  let pendingHtml = '';
+  if (result.pendingDonations > 0 || result.pendingSales > 0) {
+    const parts = [];
+    if (result.pendingDonations > 0) parts.push(`📦 ${result.pendingDonations} Dinge zum Spenden bereit`);
+    if (result.pendingSales > 0) parts.push(`💰 ${result.pendingSales} Dinge zum Verkauf bereit`);
+    pendingHtml = `<div class="household-pending">${parts.map(p => `<div>${p}</div>`).join('')}</div>`;
+  }
+
+  overlay.innerHTML = `
+    <div class="quest-card room-check-overlay">
+      <div class="room-check-score">
+        <h3>🏠 Haushalts-Check</h3>
+        <div style="font-size:20px;font-weight:700;margin:8px 0">🧠 Gesamtscore: ${result.overallScore}%</div>
+        <div class="quest-progress-bar"><div class="quest-progress-fill ${scoreCls}" style="width:${result.overallScore}%"></div></div>
+        <div style="font-size:14px;margin-top:4px">${result.totalItems} Gegenstände · ${result.roomScores.length} Räume</div>
+      </div>
+      <div class="room-check-section">
+        <div class="room-check-section-title">Räume</div>
+        ${roomRows}
+      </div>
+      ${issuesHtml}
+      ${pendingHtml}
+      <div class="cleanup-actions" style="margin-top:16px;flex-direction:column;gap:8px">
+        ${result.topQuickWins.length > 0 ? `<button class="cleanup-action-btn primary" id="hh-full-quest">🧹 Komplett-Aufräum-Quest (~${Math.round(result.estimatedTotalMinutes)} Min)</button>` : ''}
+        ${result.pendingDonations > 0 ? `<button class="cleanup-action-btn" id="hh-donation-pdf">📋 Spendenliste PDF</button>` : ''}
+        <button class="cleanup-action-btn" id="hh-sales-view">💰 Verkaufs-Entwürfe</button>
+        <button class="cleanup-action-btn" id="hh-close">🏠 Zurück</button>
+      </div>
+    </div>
+  `;
+
+  overlay.querySelector('#hh-full-quest')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('household-check');
+    startCleanupQuest(Math.round(result.estimatedTotalMinutes) || 15);
+  });
+  overlay.querySelector('#hh-donation-pdf')?.addEventListener('click', async () => {
+    const { generateDonationListPDF } = await import('./report.js');
+    generateDonationListPDF();
+  });
+  overlay.querySelector('#hh-sales-view')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('household-check');
+    showSalesView();
+  });
+  overlay.querySelector('#hh-close')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('household-check');
+  });
+}
+
+// ── Verkaufs-Entwürfe Overlay ──────────────────────────
+
+export async function showSalesView() {
+  ensureQuestElements();
+  const items = getSellableItems();
+
+  const overlay = document.getElementById('quest-overlay');
+  if (!overlay) return;
+
+  if (!requestOverlay('sales-view', 50, () => {
+    overlay.style.display = 'none';
+    releaseOverlay('sales-view');
+  })) return;
+
+  overlay.style.display = 'flex';
+
+  if (items.length === 0) {
+    overlay.innerHTML = `
+      <div class="quest-card room-check-overlay">
+        <h3>💰 Verkaufs-Entwürfe</h3>
+        <p style="text-align:center;color:var(--text-secondary);margin:20px 0">Keine verkaufbaren Items gefunden (Wert > 10€)</p>
+        <div class="cleanup-actions"><button class="cleanup-action-btn" id="sales-close">🏠 Zurück</button></div>
+      </div>
+    `;
+    overlay.querySelector('#sales-close')?.addEventListener('click', () => {
+      overlay.style.display = 'none';
+      releaseOverlay('sales-view');
+    });
+    return;
+  }
+
+  // Show loading state
+  overlay.innerHTML = `
+    <div class="quest-card room-check-overlay">
+      <h3>���� Verkaufs-Entwürfe</h3>
+      <p style="text-align:center;margin:20px 0">Erstelle Verkaufstexte für ${items.length} Gegenstände...</p>
+    </div>
+  `;
+
+  let salesTexts = [];
+  try {
+    const { generateSalesTexts } = await import('./ai.js');
+    salesTexts = await generateSalesTexts(items);
+  } catch (err) {
+    console.warn('Verkaufstext-Generierung fehlgeschlagen:', err);
+  }
+
+  // Build drafts using AI texts or fallback
+  const drafts = items.map((item, i) => {
+    const aiText = salesTexts.find(t => t.index === i + 1);
+    return {
+      item,
+      title: aiText?.title || item.name,
+      description: aiText?.description || `${item.name} in gutem Zustand. Aus ${item.roomName}.`,
+      suggestedPrice: aiText?.suggested_price || (item.value ? Math.round(item.value * 0.5) : null),
+    };
+  });
+
+  const draftsHtml = drafts.map((d, i) => `
+    <div class="sales-draft" data-idx="${i}">
+      <div class="sales-title">${escapeHTML(d.title)}</div>
+      <div class="sales-description">${escapeHTML(d.description)}</div>
+      ${d.suggestedPrice ? `<div class="sales-price">💰 Vorschlag: ${d.suggestedPrice} €</div>` : ''}
+      <div class="sales-actions">
+        <button class="copy-btn" data-copy="${i}">📋 Kopieren</button>
+        <button data-sold="${i}">✅ Verkauft</button>
+        <button data-donate="${i}">🎁 Doch spenden</button>
+      </div>
+    </div>
+  `).join('');
+
+  overlay.innerHTML = `
+    <div class="quest-card room-check-overlay" style="max-height:85vh;overflow-y:auto">
+      <h3>💰 Verkaufs-Entwürfe</h3>
+      ${draftsHtml}
+      <div class="cleanup-actions" style="margin-top:12px;flex-direction:column;gap:8px">
+        <button class="cleanup-action-btn primary" id="sales-copy-all">📋 Alle kopieren</button>
+        <button class="cleanup-action-btn" id="sales-close">🏠 Zurück</button>
+      </div>
+    </div>
+  `;
+
+  // Copy single
+  overlay.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.copy);
+      const d = drafts[idx];
+      const text = `${d.title}\n\n${d.description}\n\nPreis: ${d.suggestedPrice ? d.suggestedPrice + ' €' : 'VB'}`;
+      copyToClipboard(text);
+    });
+  });
+
+  // Copy all
+  overlay.querySelector('#sales-copy-all')?.addEventListener('click', () => {
+    const allText = drafts.map(d =>
+      `${d.title}\n\n${d.description}\n\nPreis: ${d.suggestedPrice ? d.suggestedPrice + ' €' : 'VB'}`
+    ).join('\n\n---\n\n');
+    copyToClipboard(allText);
+  });
+
+  // Mark as sold
+  overlay.querySelectorAll('[data-sold]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.sold);
+      const item = drafts[idx].item;
+      Brain.archiveItem(item.roomId, item.containerId, item.name, 'verkauft');
+      btn.closest('.sales-draft').style.opacity = '0.4';
+      showToast(`${item.name} als verkauft markiert`);
+    });
+  });
+
+  // Change to donate
+  overlay.querySelectorAll('[data-donate]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.donate);
+      const item = drafts[idx].item;
+      Brain.archiveItem(item.roomId, item.containerId, item.name, 'gespendet');
+      btn.closest('.sales-draft').style.opacity = '0.4';
+      showToast(`${item.name} auf die Spendenliste gesetzt`);
+    });
+  });
+
+  overlay.querySelector('#sales-close')?.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    releaseOverlay('sales-view');
+  });
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('In die Zwischenablage kopiert');
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    showToast('Kopiert');
+  }
+}
+
+// ── Erweiterte Archivierungs-Aktionen im Aufräum-Quest ─
+
+/**
+ * Erweitert den Decide-Step um Verkaufen und Einlagern.
+ */
+export function renderDecideStepExtended(step) {
+  const fromRoom = Brain.getRoom(step.from_room);
+  const fromContainer = Brain.getContainer(step.from_room, step.from_container);
+  const disposal = step.disposal_guide || getDisposalGuide(step.item_name);
+
+  return `
+    <div class="cleanup-step-badge decide">🤔 ENTSCHEIDEN</div>
+    <div class="cleanup-item-name">${escapeHTML(step.item_name)}</div>
+    <div class="cleanup-location">📍 ${escapeHTML(fromRoom?.name || step.from_room)} > ${escapeHTML(fromContainer?.name || step.from_container)}</div>
+    ${step.reason ? `<div class="cleanup-location">⏱️ ${escapeHTML(step.reason)}</div>` : ''}
+    <div class="disposal-tip">${escapeHTML(disposal.icon)} ${escapeHTML(disposal.text)}</div>
+    <div class="cleanup-actions">
+      <button class="cleanup-action-btn danger" data-action="discard">🗑️ Entsorgen</button>
+      <button class="cleanup-action-btn donate" data-action="donate">🎁 Spenden</button>
+      <button class="cleanup-action-btn" data-action="sell">💰 Verkaufen</button>
+      <button class="cleanup-action-btn" data-action="store">��� Einlagern</button>
+    </div>
+    <div class="cleanup-actions">
+      <button class="cleanup-action-btn" data-action="keep">Doch behalten</button>
+      <button class="cleanup-action-btn" data-action="skip">⏭️ Überspringen</button>
+    </div>
+  `;
 }

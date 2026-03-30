@@ -95,4 +95,124 @@ describe('getQuickWins()', () => {
   });
 });
 
+describe('getArchivedByReason()', () => {
+  it('gruppiert archivierte Items nach Grund', () => {
+    seedData();
+    // Archiviere Items mit verschiedenen Gründen
+    context.Brain.archiveItem('kueche', 'schrank', 'Ibuprofen', 'gespendet');
+    context.Brain.archiveItem('kueche', 'schrank', 'USB Kabel', 'entsorgt');
+
+    const result = context.getArchivedByReason();
+    assertEqual(result.donated.length, 1);
+    assertEqual(result.donated[0].name, 'Ibuprofen');
+    assertEqual(result.discarded.length, 1);
+    assertEqual(result.discarded[0].name, 'USB Kabel');
+    assertEqual(result.sold.length, 0);
+    assertEqual(result.stored.length, 0);
+  });
+
+  it('erkennt verkauft und eingelagert', () => {
+    seedData();
+    context.Brain.archiveItem('kueche', 'schrank', 'Schere', 'verkauft');
+
+    const result = context.getArchivedByReason();
+    assertEqual(result.sold.length, 1);
+    assertEqual(result.sold[0].name, 'Schere');
+  });
+});
+
+describe('getSellableItems()', () => {
+  it('filtert Items mit Wert > 10€', () => {
+    seedData();
+    // Ibuprofen hat Preis 5€ → nicht verkaufbar
+    context.Brain.archiveItem('kueche', 'schrank', 'Ibuprofen', 'gespendet');
+
+    // Füge teures Item hinzu und archiviere es
+    context.Brain.addItem('kueche', 'schrank', 'Bohrmaschine');
+    const data = context.Brain.getData();
+    const item = data.rooms.kueche.containers.schrank.items.find(i => i.name === 'Bohrmaschine');
+    item.valuation = { replacement_value: 80 };
+    context.Brain.save(data);
+    context.Brain.archiveItem('kueche', 'schrank', 'Bohrmaschine', 'entsorgt');
+
+    const sellable = context.getSellableItems();
+    assert(sellable.length >= 1);
+    assert(sellable[0].value > 10);
+  });
+});
+
+describe('findStorageRoom()', () => {
+  it('gibt null wenn kein Lagerraum existiert', () => {
+    seedData();
+
+    const storage = context.findStorageRoom();
+    assertEqual(storage, null);
+  });
+
+  it('findet Keller als Lagerraum', () => {
+    seedData();
+    context.Brain.addRoom('keller', 'Keller', '🏚️');
+    context.Brain.addContainer('keller', 'regal1', 'Kellerregal', 'regal');
+
+    const storage = context.findStorageRoom();
+    assert(storage !== null);
+    assertEqual(storage.roomId, 'keller');
+    assertEqual(storage.roomName, 'Keller');
+  });
+});
+
+describe('roomCheck()', () => {
+  it('berechnet Score für einen Raum', () => {
+    seedData();
+    const result = context.roomCheck('kueche');
+    assert(result !== null);
+    assert(typeof result.roomScore === 'number');
+    assert(result.roomScore >= 0 && result.roomScore <= 100);
+    assertEqual(result.roomId, 'kueche');
+    assertEqual(result.roomName, 'Küche');
+    assert(typeof result.totalItems === 'number');
+    assert(Array.isArray(result.containerScores));
+    assert(Array.isArray(result.wrongItems));
+    assert(Array.isArray(result.staleItems));
+  });
+
+  it('gibt null für unbekannten Raum', () => {
+    seedData();
+    const result = context.roomCheck('nichtda');
+    assertEqual(result, null);
+  });
+});
+
+describe('findDuplicatesInRoom()', () => {
+  it('findet Duplikate innerhalb eines Raums', () => {
+    localStorage.clear();
+    context.Brain.init();
+    context.Brain.addRoom('kueche', 'Küche', '🍳');
+    context.Brain.addContainer('kueche', 'schrank', 'Oberschrank', 'schrank');
+    context.Brain.addContainer('kueche', 'schub', 'Schublade', 'schublade');
+    context.Brain.addItem('kueche', 'schrank', 'Schere');
+    context.Brain.addItem('kueche', 'schub', 'Schere');
+
+    const dupes = context.findDuplicatesInRoom('kueche');
+    assert(dupes.length >= 1);
+    assertEqual(dupes[0].name, 'schere');
+    assertEqual(dupes[0].count, 2);
+  });
+});
+
+describe('householdCheck()', () => {
+  it('gibt Gesamt-Score und Raum-Scores zurück', () => {
+    seedData();
+    const result = context.householdCheck();
+    assert(typeof result.overallScore === 'number');
+    assert(result.overallScore >= 0 && result.overallScore <= 100);
+    assert(Array.isArray(result.roomScores));
+    assert(result.roomScores.length > 0);
+    assert(typeof result.totalItems === 'number');
+    assert(Array.isArray(result.topQuickWins));
+    assert(typeof result.pendingDonations === 'number');
+    assert(typeof result.pendingSales === 'number');
+  });
+});
+
 printResults();

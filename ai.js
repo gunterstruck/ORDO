@@ -1641,6 +1641,63 @@ Antworte NUR mit JSON:
   }
 }
 
+/**
+ * Generiert Verkaufstexte für mehrere Items in einem Call.
+ * @param {Array<{ name, value, category, roomName }>} items
+ * @returns {Array<{ index, title, description, suggested_price, price_reasoning }>}
+ */
+export async function generateSalesTexts(items) {
+  if (items.length === 0) return [];
+
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) throw new Error('api_key');
+
+  const itemList = items.map((item, i) =>
+    `${i + 1}. ${item.name}, Geschätzter Neupreis: ${item.value ? item.value + '€' : 'unbekannt'}, Herkunft: ${item.roomName}`
+  ).join('\n');
+
+  const prompt = `
+Erstelle für folgende Gegenstände jeweils einen Verkaufstext
+für eBay Kleinanzeigen / Vinted / Flohmarkt.
+
+${itemList}
+
+Pro Gegenstand antworte mit JSON:
+{
+  "items": [
+    {
+      "index": 1,
+      "title": "Kurzer Verkaufstitel (max 50 Zeichen)",
+      "description": "Ansprechende Beschreibung (3-5 Sätze). Ehrlich, freundlich, ohne Übertreibung.",
+      "suggested_price": 35,
+      "price_reasoning": "Gebrauchtpreis ca. 40-60% vom Neupreis"
+    }
+  ]
+}
+
+Regeln:
+- Preise realistisch (40-60% vom Neupreis für guten Zustand)
+- Beschreibung nennt Zustand ehrlich
+- Keine Marken-Claims die du nicht kennst
+- Titel kurz und suchmaschinenfreundlich
+- Antworte NUR mit JSON
+`;
+
+  const result = await callGemini(apiKey, 'Antworte nur mit JSON.', [
+    { role: 'user', content: prompt }
+  ], { taskType: 'batchEstimateValues' });
+
+  try {
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return [];
+    const parsed = JSON.parse(jsonMatch[0]);
+    return parsed.items || [];
+  } catch {
+    console.warn('Verkaufstext-Parsing fehlgeschlagen');
+    return [];
+  }
+}
+
 // ── Gemini Multimodal Live API (WebSocket Audio Streaming) ──────
 
 const LIVE_MODEL = 'gemini-3.1-flash-live-preview';

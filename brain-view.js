@@ -8,7 +8,7 @@ import { capturePhoto } from './camera.js';
 import { sendChatMessage } from './chat.js';
 import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
 import { showReportDialog } from './report.js';
-import { showCurrentStep, startBlueprint, startCleanupQuest } from './quest.js';
+import { showCurrentStep, startBlueprint, startCleanupQuest, showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
 import { showItemDetailPanel } from './item-detail.js';
 import { showWarrantyOverview, checkWarrantyBanner } from './warranty-view.js';
@@ -295,11 +295,24 @@ function buildOrganizerDashboard() {
   }
   wrap.appendChild(list);
 
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+
   const startBtn = document.createElement('button');
   startBtn.className = 'brain-add-btn';
   startBtn.dataset.action = 'organizer-start-session';
   startBtn.textContent = '🧹 Aufräum-Session starten';
-  wrap.appendChild(startBtn);
+  startBtn.style.flex = '1';
+  btnRow.appendChild(startBtn);
+
+  const hhCheckBtn = document.createElement('button');
+  hhCheckBtn.className = 'brain-add-btn';
+  hhCheckBtn.dataset.action = 'organizer-household-check';
+  hhCheckBtn.textContent = '🏠 Haushalts-Check';
+  hhCheckBtn.style.flex = '1';
+  btnRow.appendChild(hhCheckBtn);
+
+  wrap.appendChild(btnRow);
 
   return wrap;
 }
@@ -349,6 +362,17 @@ function buildRoomNode(roomId, room) {
   addBtn.dataset.action = 'add-container';
   addBtn.dataset.room = roomId;
   body.appendChild(addBtn);
+
+  // Room-Check button
+  if (totalContainers > 0) {
+    const roomCheckBtn = document.createElement('button');
+    roomCheckBtn.className = 'brain-add-btn';
+    roomCheckBtn.textContent = '🏠 Raum-Check';
+    roomCheckBtn.dataset.action = 'organizer-room-check';
+    roomCheckBtn.dataset.room = roomId;
+    roomCheckBtn.style.marginTop = '4px';
+    body.appendChild(roomCheckBtn);
+  }
 
   roomEl.appendChild(header);
   roomEl.appendChild(body);
@@ -2572,6 +2596,18 @@ function setupBrainTreeDelegation() {
     const organizerCheckBtn = e.target.closest('[data-action="organizer-container-check"]');
     if (organizerCheckBtn) {
       await runOrganizerContainerCheck(organizerCheckBtn.dataset.room, organizerCheckBtn.dataset.container);
+      return;
+    }
+
+    const roomCheckBtn = e.target.closest('[data-action="organizer-room-check"]');
+    if (roomCheckBtn) {
+      showRoomCheck(roomCheckBtn.dataset.room);
+      return;
+    }
+
+    const hhCheckBtn = e.target.closest('[data-action="organizer-household-check"]');
+    if (hhCheckBtn) {
+      showHouseholdCheck();
       return;
     }
 

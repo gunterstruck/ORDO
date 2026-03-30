@@ -499,6 +499,237 @@ export function getScoreTrend() {
   };
 }
 
+// ── Circular Engine: Archivierte Items ─────────────────
+
+/**
+ * Gibt alle archivierten Items gruppiert nach Grund zurück.
+ * @returns {{ donated: Array, discarded: Array, sold: Array, stored: Array, unknown: Array }}
+ */
+export function getArchivedByReason() {
+  const data = Brain.getData();
+  const result = {
+    donated: [],
+    discarded: [],
+    sold: [],
+    stored: [],
+    unknown: [],
+  };
+
+  for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    collectArchivedRecursive(room.containers, roomId, room.name, result);
+  }
+
+  return result;
+}
+
+function collectArchivedRecursive(containers, roomId, roomName, result) {
+  for (const [containerId, container] of Object.entries(containers || {})) {
+    for (const item of (container.items || [])) {
+      const obj = typeof item === 'string' ? null : item;
+      if (!obj || obj.status !== 'archiviert') continue;
+
+      const entry = {
+        name: obj.name,
+        roomId, roomName,
+        containerId, containerName: container.name,
+        archivedAt: obj.archived_at,
+        reason: obj.archived_reason || 'archiviert',
+        value: obj.valuation?.replacement_value || obj.purchase?.price || null,
+        photoKey: obj.crop_ref || `${roomId}_${containerId}`,
+        category: classifyItem(obj.name),
+      };
+
+      switch (entry.reason) {
+        case 'gespendet': result.donated.push(entry); break;
+        case 'entsorgt': result.discarded.push(entry); break;
+        case 'verkauft': result.sold.push(entry); break;
+        case 'eingelagert': result.stored.push(entry); break;
+        default: result.unknown.push(entry); break;
+      }
+    }
+
+    if (container.containers) {
+      collectArchivedRecursive(container.containers, roomId, roomName, result);
+    }
+  }
+}
+
+/**
+ * Gibt archivierte Items zurück die verkaufbar sind (Wert > 10€).
+ */
+export function getSellableItems() {
+  const { donated, discarded, unknown } = getArchivedByReason();
+  const all = [...donated, ...discarded, ...unknown];
+
+  return all.filter(item =>
+    item.value && item.value > 10
+  ).sort((a, b) => (b.value || 0) - (a.value || 0));
+}
+
+/**
+ * Findet einen geeigneten Lagerraum (Keller, Abstellraum, Dachboden, Garage).
+ */
+export function findStorageRoom() {
+  const data = Brain.getData();
+  const storageTypes = ['keller', 'abstellraum', 'dachboden', 'garage'];
+
+  for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    const roomType = normalizeRoomType(room.name);
+    if (storageTypes.includes(roomType)) {
+      const containerIds = Object.keys(room.containers || {});
+      if (containerIds.length > 0) {
+        return {
+          roomId,
+          roomName: room.name,
+          containerId: containerIds[0],
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+// ── Raum-Check ─────────────────────────────────────────
+
+/**
+ * Analysiert einen kompletten Raum über alle Container hinweg.
+ * Komplett lokal, kein API-Call.
+ * @param {string} roomId
+ * @returns {{ roomScore, containerScores[], wrongItems[], duplicates[], staleItems[], quickWins[], estimatedMinutes, totalItems }}
+ */
+export function roomCheck(roomId) {
+  const room = Brain.getRoom(roomId);
+  if (!room) return null;
+
+  const roomType = normalizeRoomType(room.name);
+  const containers = room.containers || {};
+
+  const containerScores = [];
+  for (const [cId, container] of Object.entries(containers)) {
+    const capacity = getContainerCapacity(roomId, cId);
+    const wrongItems = [];
+    const staleItems = [];
+
+    for (const item of (container.items || [])) {
+      const obj = typeof item === 'string' ? { name: item, status: 'aktiv' } : item;
+      if (obj.status === 'archiviert') continue;
+
+      const placement = checkItemPlacement(obj, roomType);
+      if (placement && placement !== 'passt') wrongItems.push({ ...placement, itemName: obj.name });
+
+      if (obj.last_seen) {
+        const months = (Date.now() - new Date(obj.last_seen).getTime()) / (1000 * 60 * 60 * 24 * 30);
+        if (months >= 12) staleItems.push({ itemName: obj.name, months: Math.round(months) });
+      }
+    }
+
+    containerScores.push({
+      containerId: cId,
+      containerName: container.name,
+      capacity,
+      wrongItems,
+      staleItems,
+    });
+  }
+
+  const allWrongItems = containerScores.flatMap(c => c.wrongItems);
+  const roomDuplicates = findDuplicatesInRoom(roomId);
+  const overfilled = containerScores.filter(c => c.capacity?.level === 'überfüllt');
+  const underused = containerScores.filter(c => c.capacity?.level === 'leer');
+
+  const totalIssues = allWrongItems.length + roomDuplicates.length
+    + overfilled.length + containerScores.reduce((s, c) => s + c.staleItems.length, 0);
+  const totalItems = containerScores.reduce((s, c) => s + (c.capacity?.count || 0), 0);
+  const maxIssues = Math.max(totalItems * 2, 1);
+  const roomScore = Math.max(0, Math.min(100,
+    Math.round(100 - (totalIssues / maxIssues * 100))
+  ));
+
+  const quickWins = getQuickWins(10).filter(w => w.roomId === roomId);
+  const estimatedMinutes = quickWins.reduce((sum, w) => sum + w.estimatedMinutes, 0);
+
+  return {
+    roomId,
+    roomName: room.name,
+    roomScore,
+    containerScores,
+    wrongItems: allWrongItems,
+    duplicates: roomDuplicates,
+    overfilled,
+    underused,
+    staleItems: containerScores.flatMap(c => c.staleItems),
+    quickWins,
+    estimatedMinutes: Math.round(estimatedMinutes),
+    totalItems,
+  };
+}
+
+/**
+ * Findet Duplikate NUR innerhalb eines Raums.
+ */
+export function findDuplicatesInRoom(roomId) {
+  const room = Brain.getRoom(roomId);
+  if (!room) return [];
+
+  const itemMap = {};
+  for (const [cId, container] of Object.entries(room.containers || {})) {
+    for (const item of (container.items || [])) {
+      const obj = typeof item === 'string' ? { name: item } : item;
+      if (obj.status === 'archiviert') continue;
+      const key = obj.name.toLowerCase().trim();
+      if (!itemMap[key]) itemMap[key] = [];
+      itemMap[key].push({ containerId: cId, containerName: container.name });
+    }
+  }
+
+  return Object.entries(itemMap)
+    .filter(([_, locs]) => locs.length > 1)
+    .map(([name, locations]) => ({ name, locations, count: locations.length }));
+}
+
+// ── Haushalts-Check ────────────────────────────────────
+
+/**
+ * Analysiert den gesamten Haushalt.
+ * Komplett lokal, kein API-Call.
+ * @returns {{ overallScore, roomScores[], topQuickWins[], totalItems, totalWrongPlace, totalStale, allDuplicates[], pendingDonations, pendingSales, estimatedTotalMinutes }}
+ */
+export function householdCheck() {
+  const data = Brain.getData();
+  const roomIds = Object.keys(data.rooms || {});
+
+  const roomScores = roomIds.map(id => roomCheck(id)).filter(Boolean);
+
+  const overallScore = roomScores.length > 0
+    ? Math.round(roomScores.reduce((sum, r) => sum + r.roomScore, 0) / roomScores.length)
+    : 100;
+
+  const allDuplicates = findHouseholdDuplicates();
+  const topQuickWins = getQuickWins(5);
+
+  const totalItems = roomScores.reduce((s, r) => s + r.totalItems, 0);
+  const totalWrongPlace = roomScores.reduce((s, r) => s + r.wrongItems.length, 0);
+  const totalStale = roomScores.reduce((s, r) => s + r.staleItems.length, 0);
+
+  const archived = getArchivedByReason();
+  const pendingDonations = archived.donated.length;
+  const pendingSales = archived.sold.length;
+
+  return {
+    overallScore,
+    roomScores,
+    topQuickWins,
+    totalItems,
+    totalWrongPlace,
+    totalStale,
+    allDuplicates,
+    pendingDonations,
+    pendingSales,
+    estimatedTotalMinutes: topQuickWins.reduce((s, w) => s + w.estimatedMinutes, 0),
+  };
+}
+
 // ── Aufräum-Quest Plan ─────────────────────────────────
 
 function mapWinTypeToAction(winType) {
