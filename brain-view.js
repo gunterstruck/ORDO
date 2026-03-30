@@ -10,6 +10,8 @@ import { analyzeReceipt, estimateSingleItemValue } from './ai.js';
 import { showReportDialog } from './report.js';
 import { showCurrentStep, startBlueprint, startCleanupQuest, showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
 import { requestOverlay, releaseOverlay } from './overlay-manager.js';
+import { init3DView, destroy3DView, isWebGLAvailable, loadSplat, loadGLTF, clearSplats, check3DAvailability } from './spatial-3d.js';
+import { generateWorldFromPhoto, downloadSplat, hasMarbleKey, getMarbleKey } from './marble-api.js';
 import { showItemDetailPanel } from './item-detail.js';
 import { showWarrantyOverview, checkWarrantyBanner, showExpiryOverview, checkExpiryBanner } from './warranty-view.js';
 import { calculateFreedomIndex, getQuickWins, getQuickDecision, getTasksForTimeSlot, simulateScore, containerCheck, recordWeeklyScore, getScoreTrend, getCurrentSeason, getSeasonalRecommendations, detectLifeEvents, getImprovementReport, getArchivedByReason } from './organizer.js';
@@ -2118,6 +2120,27 @@ function renderMapRoomDetail(roomId) {
     detail.appendChild(containerGrid);
   }
 
+  // 3D-Button (nur wenn WebGL verfügbar und Marble Key oder Scan vorhanden)
+  if (isWebGLAvailable()) {
+    const has3D = hasMarbleKey();
+    // Check for cached splat async, show button optimistically if marble key exists
+    Brain.getSplat(roomId).then(cachedSplat => {
+      if (has3D || cachedSplat) {
+        const btn3d = document.createElement('button');
+        btn3d.className = 'room-3d-btn';
+        btn3d.innerHTML = '🔮 Raum in 3D anzeigen';
+        btn3d.addEventListener('click', () => show3DRoom(roomId));
+        // Insert before footer if exists, otherwise append
+        const footer = detail.querySelector('.map-room-footer');
+        if (footer) {
+          detail.insertBefore(btn3d, footer);
+        } else {
+          detail.appendChild(btn3d);
+        }
+      }
+    });
+  }
+
   // Room footer with organizer info
   try {
     const data = Brain.getData();
@@ -3244,11 +3267,194 @@ function formatValueDE(value) {
 
 
 // ── Exports ────────────────────────────────────────────
+// ── 3D Room Viewer ─────────────────────────────────────────
+
+/**
+ * Zeigt einen Raum als 3D-Ansicht.
+ * Flow: Cache prüfen → Marble API → Anzeigen
+ */
+async function show3DRoom(roomId) {
+  // 1. Prüfe ob WebGL verfügbar
+  if (!isWebGLAvailable()) {
+    showToast('3D wird auf diesem Gerät nicht unterstützt', 'error');
+    return;
+  }
+
+  // 2. Prüfe ob gecachter Splat existiert
+  const cachedSplat = await Brain.getSplat(roomId);
+
+  if (cachedSplat) {
+    // Direkt anzeigen
+    const overlay = create3DOverlay(roomId);
+    if (!overlay) return;
+    const blobUrl = URL.createObjectURL(new Blob([cachedSplat]));
+    try {
+      await loadSplat(blobUrl);
+    } catch (err) {
+      console.warn('Splat laden fehlgeschlagen, versuche GLTF:', err);
+      try {
+        await loadGLTF(new Blob([cachedSplat]));
+      } catch (err2) {
+        console.error('3D-Daten konnten nicht geladen werden:', err2);
+        showToast('3D-Daten konnten nicht geladen werden', 'error');
+      }
+    }
+    return;
+  }
+
+  // 3. Prüfe ob Marble Key vorhanden
+  if (!hasMarbleKey()) {
+    showToast('Marble API Key in den Einstellungen eintragen für 3D-Ansicht', 'info');
+    return;
+  }
+
+  // 4. Kein Cache → Foto nehmen und Marble API aufrufen
+  const room = Brain.getRoom(roomId);
+  const roomPhoto = await getLatestRoomPhoto(roomId);
+
+  if (!roomPhoto) {
+    showToast('Kein Foto vorhanden. Mach erst ein Foto vom Raum.', 'info');
+    return;
+  }
+
+  // 5. Overlay mit Loading anzeigen
+  const overlay = create3DOverlay(roomId);
+  if (!overlay) return;
+  showLoadingIn3D(overlay, 'Erstelle 3D-Ansicht...');
+
+  try {
+    const base64 = await blobToBase64(roomPhoto);
+    const marbleKey = getMarbleKey();
+
+    // 6. Marble API aufrufen
+    const result = await generateWorldFromPhoto(base64, marbleKey);
+
+    // 7. Splat herunterladen
+    const splatData = await downloadSplat(result.splatUrl);
+
+    // 8. In IndexedDB cachen
+    await Brain.saveSplat(roomId, splatData);
+
+    // 9. Anzeigen
+    const blobUrl = URL.createObjectURL(new Blob([splatData]));
+    await loadSplat(blobUrl);
+
+    hideLoadingIn3D(overlay);
+    debugLog(`3D-Raum generiert: ${room?.name || roomId}`);
+
+  } catch (err) {
+    console.error('3D-Generierung fehlgeschlagen:', err);
+    showToast('3D-Ansicht konnte nicht erstellt werden', 'error');
+    close3DViewer();
+  }
+}
+
+/**
+ * Erstellt das 3D-Overlay.
+ */
+function create3DOverlay(roomId) {
+  if (!requestOverlay('3d-viewer', 70, () => close3DViewer())) return null;
+
+  const room = Brain.getRoom(roomId);
+  const overlay = document.createElement('div');
+  overlay.id = 'spatial-3d-overlay';
+  overlay.classList.add('spatial-3d-overlay');
+
+  overlay.innerHTML = `
+    <div class="spatial-3d-header">
+      <button class="spatial-3d-back" id="spatial-3d-back">← Zurück</button>
+      <span class="spatial-3d-title">${escapeHTML(room?.emoji || '🏠')} ${escapeHTML(room?.name || 'Raum')} (3D)</span>
+      <button class="spatial-3d-refresh" id="spatial-3d-refresh">🔄</button>
+    </div>
+    <div class="spatial-3d-canvas" id="spatial-3d-canvas"></div>
+    <div class="spatial-3d-hint">
+      Finger-Gesten: 1 Finger drehen · 2 Finger zoomen
+    </div>
+    <div class="spatial-3d-footer">
+      <button class="spatial-3d-btn" id="spatial-3d-close">🏠 Zurück zur Karte</button>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Events
+  document.getElementById('spatial-3d-back').addEventListener('click', close3DViewer);
+  document.getElementById('spatial-3d-close').addEventListener('click', close3DViewer);
+  document.getElementById('spatial-3d-refresh').addEventListener('click', () => {
+    close3DViewer();
+    Brain.deleteSplat(roomId).then(() => show3DRoom(roomId));
+  });
+
+  // Three.js initialisieren
+  const canvas = document.getElementById('spatial-3d-canvas');
+  init3DView(canvas);
+
+  return overlay;
+}
+
+function close3DViewer() {
+  destroy3DView();
+  const overlay = document.getElementById('spatial-3d-overlay');
+  if (overlay) overlay.remove();
+  releaseOverlay('3d-viewer');
+}
+
+function showLoadingIn3D(overlay, text) {
+  const canvas = overlay.querySelector('.spatial-3d-canvas');
+  if (!canvas) return;
+  const loading = document.createElement('div');
+  loading.className = 'spatial-3d-loading';
+  loading.innerHTML = `
+    <div class="spatial-3d-loading-spinner"></div>
+    <div class="spatial-3d-loading-text">${escapeHTML(text)}</div>
+  `;
+  canvas.appendChild(loading);
+}
+
+function hideLoadingIn3D(overlay) {
+  const loading = overlay.querySelector('.spatial-3d-loading');
+  if (loading) loading.remove();
+}
+
+/**
+ * Holt das neueste Foto eines Raums (erstes Container-Foto).
+ */
+async function getLatestRoomPhoto(roomId) {
+  const containers = Brain.getOrderedContainers(roomId);
+  for (const [cId, c] of containers) {
+    if (c.has_photo || c.photo_history?.length > 0) {
+      const photoKey = Brain.getLatestPhotoKey(roomId, cId);
+      const blob = await Brain.getPhoto(photoKey);
+      if (blob) return blob;
+      // Fallback key
+      const blob2 = await Brain.getPhoto(`${roomId}_${cId}`);
+      if (blob2) return blob2;
+    }
+  }
+  return null;
+}
+
+/**
+ * Konvertiert einen Blob zu Base64.
+ */
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 export {
   setupBrain, renderBrainView, setupMapViewToggle,
   setupNfcContextView, renderNfcContextView,
   setupPhotoTimeline, setupMoveContainerOverlay,
   showLightbox, closeLightbox, showBrainToast,
   checkWarrantyBanner, checkExpiryBanner, showExpiryOverview,
-  showSeasonalDetails, showImprovementReport
+  showSeasonalDetails, showImprovementReport,
+  show3DRoom
 };

@@ -8,7 +8,7 @@ import { showWarrantyOverview, showExpiryOverview } from './warranty-view.js';
 import { startSmartPhotoCapture } from './smart-photo.js';
 import { showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
 import { generateDonationListPDF } from './report.js';
-import { showSeasonalDetails, showImprovementReport } from './brain-view.js';
+import { showSeasonalDetails, showImprovementReport, show3DRoom } from './brain-view.js';
 
 /**
  * Check if a voice/text command can be handled locally without API call.
@@ -100,6 +100,18 @@ export function checkLocalIntent(text) {
     return { action: 'showSeasonalDetails' };
   }
 
+  // 3D-Raumansicht
+  if (/3d|drei.?d|begehbar|raum.*ansicht|3d.*ansicht/i.test(lower)) {
+    // Try to find which room
+    const rooms3d = Brain.getRooms();
+    for (const [id, room] of Object.entries(rooms3d)) {
+      if (lower.includes(room.name.toLowerCase())) {
+        return { action: 'show3DRoom', roomId: id, roomName: room.name };
+      }
+    }
+    return { action: 'show3DRoom' };
+  }
+
   return null;
 }
 
@@ -170,6 +182,15 @@ export function executeLocalIntent(intent) {
     case 'showSeasonalDetails':
       showSeasonalDetails();
       return 'Hier sind die saisonalen Empfehlungen.';
+
+    case 'show3DRoom':
+      if (intent.roomId) {
+        show3DRoom(intent.roomId);
+        return `Öffne ${intent.roomName} in 3D...`;
+      }
+      // No specific room → show brain view and let user pick
+      showView('brain');
+      return 'Wähle einen Raum in der Kartenansicht und tippe auf "🔮 3D".';
 
     default:
       return null;

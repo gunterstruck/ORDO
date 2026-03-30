@@ -88,8 +88,9 @@
 
 const STORAGE_KEY = 'haushalt_data';
 const PHOTO_DB_NAME = 'haushalt_photos';
-const PHOTO_DB_VERSION = 1;
+const PHOTO_DB_VERSION = 2;
 const PHOTO_STORE = 'photos';
+const SPLAT_STORE = 'splats';
 const MAX_PHOTO_HISTORY = 10;
 
 /** ISO-Zeitstempel ohne Millisekunden */
@@ -252,6 +253,9 @@ const Brain = {
         if (!db.objectStoreNames.contains(PHOTO_STORE)) {
           db.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
         }
+        if (!db.objectStoreNames.contains(SPLAT_STORE)) {
+          db.createObjectStore(SPLAT_STORE, { keyPath: 'id' });
+        }
       };
       req.onsuccess = e => {
         this._photoDB = e.target.result;
@@ -299,6 +303,54 @@ const Brain = {
       tx.objectStore(PHOTO_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
+    });
+  },
+
+  // --- IndexedDB Splat Storage (3D Gaussian Splats) ---
+
+  async saveSplat(roomId, splatData) {
+    if (!this._photoDB) return;
+    return new Promise((resolve, reject) => {
+      const tx = this._photoDB.transaction(SPLAT_STORE, 'readwrite');
+      const store = tx.objectStore(SPLAT_STORE);
+      store.put({
+        id: `splat_${roomId}`,
+        data: splatData,
+        created: Date.now(),
+        roomId,
+      });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async getSplat(roomId) {
+    if (!this._photoDB) return null;
+    return new Promise((resolve) => {
+      const tx = this._photoDB.transaction(SPLAT_STORE, 'readonly');
+      const req = tx.objectStore(SPLAT_STORE).get(`splat_${roomId}`);
+      req.onsuccess = () => resolve(req.result?.data || null);
+      req.onerror = () => resolve(null);
+    });
+  },
+
+  async deleteSplat(roomId) {
+    if (!this._photoDB) return;
+    return new Promise((resolve) => {
+      const tx = this._photoDB.transaction(SPLAT_STORE, 'readwrite');
+      tx.objectStore(SPLAT_STORE).delete(`splat_${roomId}`);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  },
+
+  async hasCachedSplats() {
+    if (!this._photoDB) return false;
+    return new Promise((resolve) => {
+      const tx = this._photoDB.transaction(SPLAT_STORE, 'readonly');
+      const req = tx.objectStore(SPLAT_STORE).count();
+      req.onsuccess = () => resolve(req.result > 0);
+      req.onerror = () => resolve(false);
     });
   },
 
@@ -2259,4 +2311,4 @@ const Brain = {
 
 // ES Module export (brain.js bleibt inhaltlich unverändert)
 export default Brain;
-export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE, calculateAutoLayout, calculateNeighborLayout };
+export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE, SPLAT_STORE, calculateAutoLayout, calculateNeighborLayout };

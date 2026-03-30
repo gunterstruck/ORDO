@@ -2,7 +2,7 @@
 const BASE_URL = new URL('./', self.location.href).href;
 
 // Version hochzählen bei jedem Deploy → löscht automatisch alten Cache
-const CACHE_VERSION = 'v33';
+const CACHE_VERSION = 'v34';
 const CACHE_NAME = `ordo-${CACHE_VERSION}`;
 
 // App-Shell-Dateien
@@ -30,6 +30,8 @@ const APP_SHELL = [
   BASE_URL + 'local-intents.js',
   BASE_URL + 'companion.js',
   BASE_URL + 'voice-input.js',
+  BASE_URL + 'spatial-3d.js',
+  BASE_URL + 'marble-api.js',
   BASE_URL + 'manifest.json',
   BASE_URL + 'icon-192.png',
   BASE_URL + 'icon-512.png',
@@ -58,6 +60,7 @@ self.addEventListener('fetch', event => {
 
   // API-Calls nie cachen
   if (event.request.url.includes('generativelanguage.googleapis.com')) return;
+  if (event.request.url.includes('api.worldlabs.ai')) return;
 
   const url = event.request.url;
   const isAppShell = APP_SHELL.some(asset => url === asset || url.startsWith(asset + '?'));
