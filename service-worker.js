@@ -2,7 +2,7 @@
 const BASE_URL = new URL('./', self.location.href).href;
 
 // Version hochzählen bei jedem Deploy → löscht automatisch alten Cache
-const CACHE_VERSION = 'v35';
+const CACHE_VERSION = 'v36';
 const CACHE_NAME = `ordo-${CACHE_VERSION}`;
 
 // App-Shell-Dateien
@@ -32,6 +32,7 @@ const APP_SHELL = [
   BASE_URL + 'voice-input.js',
   BASE_URL + 'spatial-3d.js',
   BASE_URL + 'marble-api.js',
+  BASE_URL + 'pcm-processor.js',
   BASE_URL + 'manifest.json',
   BASE_URL + 'icon-192.png',
   BASE_URL + 'icon-512.png',
