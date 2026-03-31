@@ -14,282 +14,128 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="app">
 
-  <!-- ── ONBOARDING VIEW (einmalig beim allerersten Start) ── -->
-  <div id="view-onboarding" class="view" style="display:none">
-    <!-- Schritt 1: Willkommen -->
-    <div class="onboarding-screen" id="onboarding-welcome">
-      <div class="onboarding-hero">
-        <span class="onboarding-icon">🏠</span>
-        <h1 class="onboarding-title">Hallo! Ich bin ORDO.</h1>
-        <p class="onboarding-subtitle">Dein Haushaltsassistent. Ich merke mir wo alles liegt.</p>
-      </div>
-      <button id="onboarding-start" class="onboarding-btn-primary">Weiter →</button>
-      <button id="onboarding-skip" class="onboarding-btn-skip">Überspringen</button>
+  <!-- Minimal-Header -->
+  <header id="ordo-header" class="ordo-header">
+    <span class="ordo-logo">ORDO</span>
+    <div class="ordo-header-actions">
+      <button id="ordo-home-btn" class="header-icon-btn" aria-label="Home">🏠</button>
+      <button id="ordo-settings-btn" class="header-icon-btn" aria-label="Einstellungen">⚙️</button>
     </div>
+  </header>
 
-    <!-- Schritt 2: API-Key -->
-    <div id="onboarding-step-apikey" class="onboarding-screen" style="display:none">
-      <span class="onboarding-icon">🔗</span>
-      <h2 class="onboarding-step-title">Ich brauche einen Gemini API-Key.</h2>
-      <p class="onboarding-step-desc">Damit ich deine Fotos verstehen kann. Kostenlos bei Google.</p>
-      <a id="onboarding-apikey-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="onboarding-btn-secondary onboarding-apikey-link-btn">Schlüssel erstellen →</a>
-      <form onsubmit="return false" autocomplete="off">
-        <label for="onboarding-apikey-input" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">API Key</label>
-        <input type="password" id="onboarding-apikey-input" class="onboarding-apikey-input" placeholder="Schlüssel hier einfügen…" autocomplete="off">
-      </form>
-      <div id="onboarding-apikey-status" class="onboarding-apikey-status" style="display:none"></div>
-      <div class="onboarding-apikey-actions">
-        <button id="onboarding-apikey-test" class="onboarding-btn-secondary" disabled>Testen</button>
-        <button id="onboarding-apikey-next" class="onboarding-btn-primary" disabled>Testen & Weiter →</button>
-      </div>
-      <button id="onboarding-apikey-skip" class="onboarding-btn-skip">Später einrichten</button>
-    </div>
+  <!-- Der Dialog-Stream — DAS ist die ganze App -->
+  <main id="dialog-stream" class="dialog-stream">
+    <!-- Hier erscheinen alle Agent- und User-Nachrichten -->
+  </main>
 
-    <!-- Schritt 3: Erstes Foto -->
-    <div id="onboarding-step-first-photo" class="onboarding-screen" style="display:none">
-      <span class="onboarding-icon">📷</span>
-      <h2 class="onboarding-step-title">Mach ein Foto von einem Raum.</h2>
-      <p class="onboarding-step-desc">Egal welcher. Ich erkenne den Rest.</p>
-      <div class="onboarding-scan-buttons">
-        <button id="onboarding-photo-btn" class="onboarding-camera-btn">📷 Foto aufnehmen</button>
-      </div>
-      <div id="onboarding-photo-result" style="display:none">
-        <div id="onboarding-photo-result-text" class="onboarding-photo-result-text"></div>
-      </div>
-      <div id="onboarding-scan-status" class="onboarding-scan-status" style="display:none">
-        <div class="onboarding-spinner"></div>
-        <p class="onboarding-scan-status-text" id="onboarding-scan-status-text">KI analysiert den Raum…</p>
-        <div id="onboarding-scan-progress" class="onboarding-progress-bar" style="display:none">
-          <div id="onboarding-scan-progress-fill" class="onboarding-progress-fill"></div>
-        </div>
-        <details id="onboarding-debug-panel" class="onboarding-debug-panel">
-          <summary class="onboarding-debug-summary">Kommunikations-Log</summary>
-          <pre id="onboarding-debug-log" class="onboarding-debug-log">— noch kein Log —</pre>
-        </details>
-      </div>
-      <button id="onboarding-finish" class="onboarding-btn-primary" style="display:none">✅ Los geht's!</button>
-      <button id="onboarding-photo-skip" class="onboarding-btn-skip">Ohne Foto starten</button>
+  <!-- Input-Bar (fixiert am unteren Rand) -->
+  <footer id="input-bar" class="input-bar">
+    <button id="voice-btn" class="voice-main-btn" aria-label="Sprechen">
+      <span class="voice-icon">🎤</span>
+    </button>
+    <button id="photo-btn" class="input-icon-btn" aria-label="Foto">📷</button>
+    <button id="video-btn" class="input-icon-btn" aria-label="Video">🎥</button>
+    <div id="text-input-wrapper" class="text-input-wrapper collapsed">
+      <input type="text" id="text-input" placeholder="Oder tippe..."
+             enterkeyhint="send" autocomplete="off">
+      <button id="send-btn" class="send-btn" aria-label="Senden">➤</button>
     </div>
+  </footer>
 
-    <!-- Legacy screens kept for backwards compat with onboarding.js -->
-    <div id="onboarding-step-start-choice" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title">Wie möchtest du starten?</h2>
-      <div class="onboarding-choice-card">
-        <h3>🏠 Wohnung scannen</h3>
-        <p>Mach ein Foto von jedem Raum. (Empfohlen – 5 Min)</p>
-        <button id="onboarding-start-blueprint" class="onboarding-btn-primary">Wohnung scannen</button>
-      </div>
-      <div class="onboarding-choice-card">
-        <h3>📷 Einzelnes Foto</h3>
-        <p>Starte mit einem Raum oder Schrank.</p>
-        <button id="onboarding-start-single" class="onboarding-btn-secondary">Einzelnes Foto</button>
-      </div>
-    </div>
-    <div id="onboarding-step-scan" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title" id="onboarding-scan-title">Raum erfassen</h2>
-      <p class="onboarding-step-desc" id="onboarding-scan-desc">Fotografiere einen Raum oder filme einen Rundgang.</p>
-      <div class="onboarding-scan-buttons">
-        <button id="onboarding-scan-photo-btn" class="onboarding-camera-btn">📷</button>
-        <button id="onboarding-scan-video-btn" class="onboarding-camera-btn onboarding-video-btn">🎬</button>
-      </div>
-      <div class="onboarding-scan-labels">
-        <span>Foto</span>
-        <span>Video</span>
-      </div>
-    </div>
-    <div id="onboarding-step-review" class="onboarding-screen" style="display:none">
-      <h2 class="onboarding-step-title">Erkannte Räume</h2>
-      <p class="onboarding-step-desc">Prüfe und bearbeite die Ergebnisse.</p>
-      <div id="onboarding-room-cards" class="onboarding-room-cards"></div>
-      <div class="onboarding-review-actions">
-        <button id="onboarding-add-more" class="onboarding-btn-secondary">+ Weiteren Raum scannen</button>
-        <button id="onboarding-confirm-all" class="onboarding-btn-primary">Alles übernehmen</button>
-      </div>
-    </div>
-    <div id="onboarding-step-done" class="onboarding-screen" style="display:none">
-      <span class="onboarding-icon">✨</span>
-      <h2 class="onboarding-step-title">Dein Zuhause ist bereit!</h2>
-      <p class="onboarding-step-desc" id="onboarding-done-desc">Räume und Möbel wurden angelegt.</p>
-      <button id="onboarding-done-finish" class="onboarding-btn-primary">Jetzt loslegen</button>
+  <!-- Fullscreen-Overlays für Kamera, Picking, etc. -->
+  <div id="fullscreen-overlay" class="fullscreen-overlay hidden"></div>
+
+  <!-- ── TOAST CONTAINER ──────────────────────────────── -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ── MODAL (wiederverwendbar) ─────────────────────── -->
+  <div id="ordo-modal" class="ordo-modal-backdrop" style="display:none" aria-modal="true" role="dialog">
+    <div class="ordo-modal-panel">
+      <h3 id="ordo-modal-title" class="ordo-modal-title"></h3>
+      <p id="ordo-modal-desc" class="ordo-modal-desc"></p>
+      <div id="ordo-modal-fields" class="ordo-modal-fields"></div>
+      <div id="ordo-modal-actions" class="ordo-modal-actions"></div>
     </div>
   </div>
 
-  <!-- ── CHAT VIEW ──────────────────────────────── -->
-  <div id="view-chat" class="view active">
-    <!-- Zahnrad-Icon für Einstellungen -->
-    <button id="settings-gear" class="settings-gear" aria-label="Einstellungen">⚙️</button>
-    <div id="chat-messages"></div>
-    <!-- Quick-Suggestion Buttons -->
-    <div id="chat-suggestions" class="chat-suggestions"></div>
-    <div id="chat-input-row">
-      <!-- Foto-Vorschau (versteckt bis Foto gewählt) -->
-      <div id="chat-photo-preview" hidden>
-        <img id="chat-photo-thumb" alt="Foto-Vorschau">
-        <button id="chat-photo-remove" aria-label="Foto entfernen">✕</button>
-      </div>
+  <!-- ── LIGHTBOX ──────────────────────────────────────── -->
+  <div id="lightbox" class="lightbox" style="display:none">
+    <button id="lightbox-close" class="lightbox-close" aria-label="Schließen">✕</button>
+    <img id="lightbox-img" alt="Vollbild">
+  </div>
 
-      <!-- Voice-First: Mikrofon als primäre Aktion -->
-      <div class="chat-actions-primary">
-        <button class="voice-btn-large" id="voice-main-btn" aria-label="Mit ORDO sprechen">
-          <span class="voice-icon">🎤</span>
-          <span class="voice-label">Sprich mit ORDO</span>
-        </button>
-      </div>
-
-      <!-- Sekundäre Aktionen: Foto + Video (nur sichtbar bei leerem Chat) -->
-      <div class="chat-actions-secondary" id="chat-actions-secondary">
-        <button class="action-btn-round" id="photo-chat-btn" aria-label="Foto aufnehmen">
-          <span>📷</span>
-          <span class="btn-label">Foto</span>
-        </button>
-        <button class="action-btn-round" id="video-chat-btn" aria-label="Video aufnehmen">
-          <span>🎥</span>
-          <span class="btn-label">Video</span>
-        </button>
-      </div>
-
-      <!-- Text-Fallback (hidden, voice-first) -->
-      <div class="chat-text-fallback" id="chat-text-fallback" style="display:none">
-        <div class="text-fallback-hint" id="text-fallback-hint" style="display:none">
-          Oder tippe eine Frage...
-        </div>
-        <div class="text-fallback-input" id="text-fallback-input" style="display:none">
-          <div class="chat-controls">
-            <button id="chat-camera" aria-label="Foto hinzufügen">📎</button>
-            <textarea
-              id="chat-input"
-              placeholder="Frage an ORDO..."
-              rows="1"
-              aria-label="Nachricht eingeben"
-            ></textarea>
-            <button id="chat-send" aria-label="Senden">↑</button>
-          </div>
-        </div>
+  <!-- ── PICKING OVERLAY ───────────────────────────────── -->
+  <div id="picking-overlay" class="picking-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Gegenstände markieren">
+    <div class="picking-header">
+      <button id="picking-close" class="picking-close-btn" aria-label="Schließen">✕</button>
+      <span class="picking-header-title">Gegenstände markieren</span>
+      <button id="picking-done" class="picking-done-btn">Fertig</button>
+    </div>
+    <div id="picking-photo-wrapper" class="picking-photo-wrapper">
+      <img id="picking-photo" alt="Foto analysieren">
+    </div>
+    <div id="picking-summary" class="picking-summary"></div>
+    <div id="picking-panel" class="picking-panel" style="display:none">
+      <div id="picking-panel-label" class="picking-panel-label"></div>
+      <input type="hidden" id="picking-panel-input" class="picking-panel-input">
+      <div class="picking-panel-actions">
+        <button id="picking-panel-mic" class="picking-panel-mic picking-panel-mic--primary" aria-label="Diktieren">🎤 Diktieren</button>
+        <button id="picking-panel-confirm" class="picking-panel-confirm">Stimmt ✓</button>
+        <button id="picking-panel-skip" class="picking-panel-skip">Überspringen</button>
       </div>
     </div>
   </div>
 
-  <!-- ── PHOTO VIEW ─────────────────────────────── -->
-  <div id="view-photo" class="view">
-    <div class="photo-view-header">
-      <button id="photo-back-btn" class="photo-back-btn" aria-label="Zurück">← Zurück</button>
-      <span class="photo-view-header-title">Erfassen</span>
-    </div>
-    <p class="photo-section-title">Raum auswählen</p>
-    <select id="photo-room-select" aria-label="Raum auswählen"></select>
-
-    <div id="photo-nfc-hint" style="display:none" class="photo-nfc-hint"></div>
-
-    <p class="photo-section-title">Ort (optional)</p>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button id="photo-custom-mic" class="picking-panel-mic picking-panel-mic--primary" aria-label="Ort diktieren">🎤 Ort diktieren</button>
-      <button id="photo-custom-chat" class="picking-panel-mic" aria-label="Chat" style="font-size:16px">💬</button>
-      <input type="hidden" id="photo-custom-name">
-    </div>
-    <div id="photo-custom-name-display" class="photo-custom-name-display" style="display:none"></div>
-    <div id="photo-custom-chat-area" style="display:none;margin-top:6px">
-      <div id="photo-custom-chat-log" style="max-height:100px;overflow-y:auto;margin-bottom:6px;font-size:13px"></div>
-      <div style="display:flex;gap:6px;align-items:center;justify-content:center">
-        <button id="photo-custom-chat-voice" class="companion-voice-btn" aria-label="Sprich den Ort" style="width:44px;height:44px;font-size:18px">🎤</button>
-        <input id="photo-custom-chat-input" type="hidden">
-        <button id="photo-custom-chat-send" style="display:none">Fragen</button>
+  <!-- ── STAGING OVERLAY ───────────────────────────────── -->
+  <div id="staging-overlay" class="staging-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Fotos sammeln">
+    <div class="staging-modal">
+      <div class="staging-header">
+        <button id="staging-close" class="staging-close-btn" aria-label="Schließen">✕</button>
+        <span id="staging-title" class="staging-title">Fotos sammeln</span>
+      </div>
+      <div id="staging-thumbnails" class="staging-thumbnails"></div>
+      <div class="staging-add-row">
+        <button id="staging-add-btn" class="staging-add-btn">+ Foto hinzufügen</button>
+      </div>
+      <p id="staging-hint" class="staging-hint" style="display:none"></p>
+      <div class="staging-footer">
+        <button id="staging-cancel-btn" class="staging-cancel-btn">Abbrechen</button>
+        <button id="staging-analyze-btn" class="staging-analyze-btn" disabled>Analysieren</button>
       </div>
     </div>
-
-    <p class="photo-section-title">Foto aufnehmen</p>
-    <div class="photo-btn-group">
-      <button id="photo-camera-btn" aria-label="Kamera öffnen">📷</button>
-      <button id="photo-gallery-btn" aria-label="Galerie öffnen">🖼️</button>
-    </div>
-
-    <p class="photo-section-title">Video-Rundgang</p>
-    <div class="photo-btn-group">
-      <button id="photo-video-btn" aria-label="Video aufnehmen">🎬 Video aufnehmen</button>
-      <button id="photo-video-upload-btn" aria-label="Video hochladen">📁 Video hochladen</button>
-    </div>
-
-    <!-- Hidden file inputs -->
-    <input type="file" id="photo-input-gallery" accept="image/*" style="display:none" aria-label="Bild aus Galerie">
-    <input type="file" id="photo-input-video" accept="video/*" style="display:none" aria-label="Video hochladen">
-
-    <img id="photo-preview" alt="Vorschau" aria-live="polite">
-    <div id="photo-status" class="photo-status" role="status" aria-live="polite"></div>
-
-    <details id="photo-debug-panel" style="margin-top:12px">
-      <summary style="font-size:12px;color:#888;cursor:pointer;user-select:none">🔍 Debug-Log</summary>
-      <pre id="photo-debug-log" style="
-        font-size:11px;
-        background:#111;
-        color:#0f0;
-        padding:8px;
-        border-radius:6px;
-        max-height:180px;
-        overflow-y:auto;
-        margin-top:4px;
-        white-space:pre-wrap;
-        word-break:break-all;
-      ">— noch kein Log —</pre>
-    </details>
   </div>
 
-  <!-- ── BRAIN VIEW ──────────────────────────────── -->
-  <div id="view-brain" class="view">
-    <div class="brain-view-header">
-      <span class="brain-view-title">🏠 Mein Zuhause</span>
-      <div class="brain-view-toggle" id="brain-view-toggle">
-        <button class="brain-toggle-btn active" data-mode="list">☰</button>
-        <button class="brain-toggle-btn" data-mode="map">⊞</button>
+  <!-- ── REVIEW OVERLAY ────────────────────────────────── -->
+  <div id="review-overlay" class="review-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Erkannte Gegenstände prüfen">
+    <div class="review-modal">
+      <div class="review-header">
+        <h2 class="review-title">Erkannte Gegenstände</h2>
+        <p id="review-subtitle" class="review-subtitle"></p>
       </div>
-      <button id="brain-report-btn" class="brain-report-btn" title="Versicherungsbericht">📄</button>
-      <button id="brain-warranty-overview" class="brain-warranty-btn" title="Garantie-Übersicht">🛡️</button>
-      <button id="brain-scan-rooms" class="brain-scan-btn">📷 Scannen</button>
-      <button id="brain-add-room">+ Raum</button>
-    </div>
-    <div id="brain-breadcrumb" class="brain-breadcrumb" style="display:none"></div>
-    <div id="brain-tree"></div>
-    <div id="brain-map" class="map-view" style="display:none"></div>
-  </div>
-
-  <!-- ── NFC CONTEXT VIEW ────────────────────────── -->
-  <div id="view-nfc-context" class="view">
-    <div class="nfc-ctx-header">
-      <button id="nfc-ctx-back" class="nfc-ctx-back-btn" aria-label="Zurück">← Zurück</button>
-      <span id="nfc-ctx-room-label" class="nfc-ctx-room-label"></span>
-    </div>
-    <div id="nfc-ctx-container-name" class="nfc-ctx-container-name"></div>
-
-    <div id="nfc-ctx-photo-area" class="nfc-ctx-photo-area" style="display:none">
-      <img id="nfc-ctx-photo" class="nfc-ctx-photo" alt="Foto des Behälters">
-      <div id="nfc-ctx-photo-date" class="nfc-ctx-photo-date"></div>
-    </div>
-
-    <div id="nfc-ctx-empty" class="nfc-ctx-empty" style="display:none">
-      <p class="nfc-ctx-empty-text">Dieser Bereich ist noch leer.</p>
-    </div>
-
-    <div id="nfc-ctx-items" class="nfc-ctx-items" style="display:none">
-      <p class="nfc-ctx-section-title">Inhalt:</p>
-      <div id="nfc-ctx-item-chips" class="nfc-ctx-item-chips"></div>
-    </div>
-
-    <div id="nfc-ctx-children" class="nfc-ctx-children" style="display:none">
-      <p class="nfc-ctx-section-title">Bereiche:</p>
-      <div id="nfc-ctx-children-list" class="nfc-ctx-children-list"></div>
-    </div>
-
-    <div class="nfc-ctx-actions">
-      <button id="nfc-ctx-photo-btn" class="nfc-ctx-action-btn nfc-ctx-action-btn--primary">
-        <span id="nfc-ctx-photo-btn-label">📷 Foto aktualisieren</span>
-      </button>
-      <button id="nfc-ctx-chat-btn" class="nfc-ctx-action-btn nfc-ctx-action-btn--secondary">
-        💬 Frage stellen
-      </button>
+      <p class="review-hint">Hake an was stimmt. Korrigiere Namen oder Mengen per Tippen. Nicht Erkanntes unten manuell hinzufügen.</p>
+      <p id="review-tip" class="review-tip" style="display:none"></p>
+      <div id="review-list" class="review-list"></div>
+      <button id="review-add-manual" class="review-add-manual-btn">+ Gegenstand manuell hinzufügen</button>
+      <div class="review-actions">
+        <button id="review-cancel" class="review-cancel-btn">Abbrechen</button>
+        <button id="review-confirm" class="review-confirm-btn">Übernehmen</button>
+      </div>
     </div>
   </div>
 
-  <!-- ── PHOTO TIMELINE OVERLAY ────────────────────── -->
+  <!-- ── CAMERA CAPTURE OVERLAY ─────────────────────────── -->
+  <div id="camera-overlay" class="camera-overlay" style="display:none">
+    <video id="camera-video" class="camera-video" autoplay playsinline muted></video>
+    <div id="camera-record-timer" class="camera-record-timer" style="display:none">0:00</div>
+    <div class="camera-controls">
+      <button id="camera-cancel-btn" class="camera-cancel-btn" aria-label="Abbrechen">✕</button>
+      <button id="camera-shutter-btn" class="camera-shutter-btn" aria-label="Foto aufnehmen"></button>
+      <button id="camera-switch-btn" class="camera-switch-btn" aria-label="Kamera wechseln">🔄</button>
+    </div>
+  </div>
+
+  <!-- ── PHOTO TIMELINE OVERLAY ────────────────────────── -->
   <div id="photo-timeline-overlay" class="photo-timeline-overlay" style="display:none">
     <div class="photo-timeline-header">
       <button id="photo-timeline-close" class="picking-close-btn" aria-label="Schließen">✕</button>
@@ -298,7 +144,7 @@
     <div id="photo-timeline-grid" class="photo-timeline-grid"></div>
   </div>
 
-  <!-- ── MOVE CONTAINER OVERLAY ────────────────────── -->
+  <!-- ── MOVE CONTAINER OVERLAY ────────────────────────── -->
   <div id="move-container-overlay" class="move-container-overlay" style="display:none">
     <div class="move-container-modal">
       <div class="staging-header">
@@ -312,398 +158,10 @@
     </div>
   </div>
 
-  <!-- ── SETTINGS VIEW ──────────────────────────── -->
-  <div id="view-settings" class="view">
-    <h1 style="font-size:22px;font-weight:700;margin-bottom:4px;">Einstellungen</h1>
-
-    <div id="settings-msg" class="settings-msg" role="status" aria-live="polite"></div>
-
-    <!-- API -->
-    <div class="settings-section">
-      <div class="settings-section-title">API</div>
-      <form autocomplete="off" onsubmit="return false">
-      <label class="settings-label" for="settings-api-key">Google AI API Key (Gemini)</label>
-      <div class="settings-api-key-row">
-        <input
-          type="password"
-          id="settings-api-key"
-          class="settings-input"
-          placeholder="AIza…"
-          autocomplete="off"
-        >
-        <button id="settings-api-key-toggle" class="settings-eye-btn" type="button" aria-label="Key anzeigen/verbergen">👁️</button>
-      </div>
-      <button id="settings-save-key" class="settings-btn settings-btn--primary">Speichern</button>
-
-      <!-- Fallback Provider -->
-      <details id="fallback-provider-section" style="margin-top:14px">
-        <summary style="font-size:13px;color:#aaa;cursor:pointer;user-select:none">Fallback-Provider (optional)</summary>
-        <p style="font-size:12px;color:#888;margin:8px 0 12px">Wenn der Haupt-Provider nicht erreichbar ist, versucht ORDO automatisch den nächsten.</p>
-
-        <div id="fallback-provider-list" style="display:flex;flex-direction:column;gap:12px">
-          <!-- OpenAI -->
-          <div class="fallback-provider-card" data-provider="openai">
-            <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600">
-              <input type="checkbox" id="fallback-openai-enabled" class="fallback-toggle"> OpenAI
-            </label>
-            <label for="fallback-openai-key" class="settings-label" style="font-size:12px;margin-top:6px">OpenAI API Key</label>
-            <input type="password" id="fallback-openai-key" class="settings-input" placeholder="sk-…" autocomplete="off" style="font-size:13px" disabled>
-          </div>
-
-          <!-- OpenRouter -->
-          <div class="fallback-provider-card" data-provider="openrouter">
-            <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600">
-              <input type="checkbox" id="fallback-openrouter-enabled" class="fallback-toggle"> OpenRouter
-            </label>
-            <label for="fallback-openrouter-key" class="settings-label" style="font-size:12px;margin-top:6px">OpenRouter API Key</label>
-            <input type="password" id="fallback-openrouter-key" class="settings-input" placeholder="sk-or-…" autocomplete="off" style="font-size:13px" disabled>
-          </div>
-        </div>
-
-        <button id="fallback-save-btn" class="settings-btn settings-btn--secondary" style="margin-top:10px">Fallback speichern</button>
-        <div id="fallback-status" style="display:none;margin-top:8px;font-size:12px;padding:6px 10px;border-radius:8px"></div>
-      </details>
-      </form>
-    </div>
-
-    <!-- 3D / Marble -->
-    <div class="settings-section">
-      <div class="settings-section-title">3D-Raumansicht (optional)</div>
-      <form autocomplete="off" onsubmit="return false">
-      <label class="settings-label" for="settings-marble-key">Marble API Key</label>
-      <div class="settings-api-key-row">
-        <input
-          type="password"
-          id="settings-marble-key"
-          class="settings-input"
-          placeholder="Key einfügen…"
-          autocomplete="off"
-        >
-        <button id="settings-marble-key-toggle" class="settings-eye-btn" type="button" aria-label="Key anzeigen/verbergen">👁️</button>
-      </div>
-      <p class="settings-hint">Für 3D-Raumansichten. Kostenloser Test auf marble.worldlabs.ai</p>
-      <button id="settings-save-marble-key" class="settings-btn settings-btn--primary">Speichern</button>
-      </form>
-
-      <div style="margin-top:14px">
-        <label class="settings-label">3D-Scan importieren</label>
-        <p class="settings-hint">Importiere einen Raumscan von Scaniverse, Polycam oder KIRI Engine</p>
-        <button id="settings-import-3d-scan" class="settings-btn settings-btn--secondary">GLTF/GLB Datei auswählen</button>
-        <label for="settings-3d-scan-file" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">3D-Scan Datei</label>
-        <input type="file" id="settings-3d-scan-file" accept=".gltf,.glb" style="display:none">
-      </div>
-    </div>
-
-    <!-- Persönlichkeit -->
-    <div class="settings-section">
-      <div class="settings-section-title">Persönlichkeit</div>
-      <p class="settings-hint">Wie soll ORDO mit dir reden?</p>
-      <div id="personality-options" class="personality-options">
-        <label class="personality-option">
-          <input type="radio" name="personality" value="sachlich">
-          <span class="personality-label">😐 Sachlich — nur Fakten</span>
-        </label>
-        <label class="personality-option">
-          <input type="radio" name="personality" value="freundlich">
-          <span class="personality-label">🙂 Freundlich — mit einem Augenzwinkern</span>
-        </label>
-        <label class="personality-option">
-          <input type="radio" name="personality" value="kauzig" checked>
-          <span class="personality-label">😏 Kauzig — trockener Humor inklusive</span>
-        </label>
-      </div>
-    </div>
-
-    <!-- NFC Tag schreiben -->
-    <div class="settings-section">
-      <div class="settings-section-title">NFC Tag beschreiben</div>
-
-      <div class="nfc-step">
-        <div class="nfc-step-num">1</div>
-        <div class="nfc-step-body">
-          <label class="settings-label" for="nfc-room-select">Raum wählen</label>
-          <select id="nfc-room-select" class="settings-input" aria-label="Raum für NFC Tag"></select>
-          <div id="nfc-new-room-group" style="display:none;flex-direction:column;gap:8px;">
-            <div class="vf-settings-field" id="vf-nfc-room-name">
-              <input type="text" id="nfc-new-room-name" class="settings-input" placeholder="Raumname" aria-label="Neuer Raumname" readonly>
-            </div>
-            <div class="vf-settings-field" id="vf-nfc-room-emoji">
-              <input type="text" id="nfc-new-room-emoji" class="settings-input" placeholder="Emoji (z.B. 🛏️)" maxlength="4" aria-label="Emoji für neuen Raum" readonly>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="nfc-step">
-        <div class="nfc-step-num">2</div>
-        <div class="nfc-step-body">
-          <label class="settings-label" for="nfc-container-name">Behälter benennen</label>
-          <div class="vf-settings-field" id="vf-nfc-container-name">
-              <input type="text" id="nfc-container-name" class="settings-input" placeholder='z.B. "Schrank links neben Tür"' aria-label="Behältername" readonly>
-            </div>
-          <label class="settings-label" for="nfc-container-typ">Typ</label>
-          <select id="nfc-container-typ" class="settings-input" aria-label="Behältertyp">
-            <option value="schrank">Schrank</option>
-            <option value="regal">Regal</option>
-            <option value="schublade">Schublade</option>
-            <option value="kiste">Kiste</option>
-            <option value="tisch">Tisch</option>
-            <option value="sonstiges">Sonstiges</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="nfc-step">
-        <div class="nfc-step-num">3</div>
-        <div class="nfc-step-body">
-          <p class="settings-label">Vorschau der URL</p>
-          <div class="nfc-preview-box" id="nfc-preview-url">–</div>
-        </div>
-      </div>
-
-      <div class="nfc-step">
-        <div class="nfc-step-num">4</div>
-        <div class="nfc-step-body">
-          <button id="nfc-write-btn" class="settings-btn settings-btn--primary">NFC Tag jetzt beschreiben</button>
-        </div>
-      </div>
-
-      <div id="nfc-fallback" style="display:none;flex-direction:column;gap:10px;">
-        <p style="font-size:14px;">NFC Schreiben nicht verfügbar auf diesem Gerät.<br>Bitte diese URL manuell in "NFC Tools" eintragen:</p>
-        <div class="nfc-fallback-url nfc-preview-box" id="nfc-fallback-url"></div>
-        <button id="nfc-copy-btn" class="settings-btn settings-btn--secondary">URL kopieren</button>
-      </div>
-    </div>
-
-    <!-- Raum-Scan -->
-    <div class="settings-section">
-      <div class="settings-section-title">Raum-Scan</div>
-      <p class="settings-hint">Fotografiere Räume und lass die KI Möbel automatisch erkennen.</p>
-      <button id="settings-room-scan" class="settings-btn settings-btn--secondary">Räume scannen</button>
-    </div>
-
-    <!-- Daten -->
-    <div class="settings-section">
-      <div class="settings-section-title">Daten</div>
-      <button id="settings-report" class="settings-btn settings-btn--primary">📄 Versicherungsbericht (PDF)</button>
-      <button id="settings-donation-pdf" class="settings-btn settings-btn--secondary">📋 Spendenliste (PDF)</button>
-      <button id="settings-sales-view" class="settings-btn settings-btn--secondary">💰 Verkaufs-Entwürfe</button>
-      <button id="settings-export" class="settings-btn settings-btn--secondary">Haushalt exportieren</button>
-      <button id="settings-import" class="settings-btn settings-btn--secondary">Haushalt importieren</button>
-      <input type="file" id="settings-import-file" accept=".json" style="display:none" aria-label="Import-Datei">
-      <button id="settings-reset" class="settings-btn settings-btn--danger">Alles zurücksetzen</button>
-    </div>
-
-    <!-- Info -->
-    <div class="settings-section">
-      <div class="settings-section-title">Info</div>
-      <p class="app-version">App Version: 2.0</p>
-    </div>
-
-    <!-- Impressum (aus Footer hierher verschoben) -->
-    <div class="settings-section">
-      <div class="settings-section-title">Impressum</div>
-      <div class="impressum-inline">
-        <address>
-          <p class="impressum-placeholder">[Vor- und Nachname]</p>
-          <p class="impressum-placeholder">[Straße und Hausnummer]</p>
-          <p class="impressum-placeholder">[PLZ Ort]</p>
-          <p class="impressum-placeholder">[E-Mail Adresse]</p>
-        </address>
-      </div>
-    </div>
-
-    <!-- Erweitert (aufklappbar) -->
-    <div class="settings-section">
-      <button id="settings-advanced-toggle" class="settings-advanced-toggle">Erweitert ▾</button>
-      <div id="settings-advanced-body" class="settings-advanced-body" style="display:none">
-        <button class="nfc-info-toggle" id="nfc-info-toggle">Wie funktioniert NFC? ▾</button>
-        <div class="nfc-info-body" id="nfc-info-body" style="display:none;">
-          NFC Tags sind kleine Aufkleber mit einem Chip. Wenn du dein Handy daran hältst öffnet sich diese App automatisch – ohne suchen, ohne tippen.<br><br>
-          <strong>Android:</strong> funktioniert direkt im Chrome Browser.<br>
-          <strong>iPhone:</strong> zum Beschreiben bitte "NFC Tools" verwenden.
-        </div>
-        <div class="settings-section-title" style="margin-top:16px">Foto-Historie</div>
-        <label class="settings-label" for="settings-photo-history-limit">Max. Fotos pro Bereich</label>
-        <select id="settings-photo-history-limit" class="settings-input" aria-label="Foto-Historie Limit">
-          <option value="5">5 Fotos</option>
-          <option value="10" selected>10 Fotos</option>
-          <option value="20">20 Fotos</option>
-        </select>
-
-        <div class="settings-section-title" style="margin-top:16px">Debug / API-Status</div>
-        <button id="debug-test-btn" class="settings-btn settings-btn--secondary">API-Verbindung testen</button>
-        <button id="debug-clear-btn" class="settings-btn settings-btn--secondary">Log leeren</button>
-        <pre id="debug-log" style="
-          margin-top:10px;
-          background:#1a1a1a;
-          color:#e0e0e0;
-          font-size:11px;
-          padding:10px;
-          border-radius:10px;
-          max-height:260px;
-          overflow-y:auto;
-          white-space:pre-wrap;
-          word-break:break-all;
-          font-family:monospace;
-        ">— noch kein Log —</pre>
-
-        <div class="settings-section-title" style="margin-top:16px">Letzte API-Calls</div>
-        <button id="debug-api-log-btn" class="settings-btn settings-btn--secondary">API-Log anzeigen</button>
-        <pre id="debug-api-log" style="
-          margin-top:10px;
-          background:#1a1a1a;
-          color:#e0e0e0;
-          font-size:11px;
-          padding:10px;
-          border-radius:10px;
-          max-height:200px;
-          overflow-y:auto;
-          white-space:pre-wrap;
-          word-break:break-all;
-          font-family:monospace;
-        ">— noch keine API-Calls —</pre>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ── BOTTOM NAV ─────────────────────────────── -->
-  <nav id="nav" role="navigation" aria-label="Hauptnavigation">
-    <button class="nav-btn active" data-view="chat" aria-label="Finden">
-      <span class="nav-icon">🔍</span>
-      Finden
-    </button>
-    <button class="nav-btn" data-view="photo" aria-label="Foto erfassen">
-      <span class="nav-icon">📷</span>
-      Erfassen
-    </button>
-    <button class="nav-btn" data-view="brain" aria-label="Mein Zuhause">
-      <span class="nav-icon">🏠</span>
-      Mein Zuhause
-    </button>
-  </nav>
-
-</div>
-
-<!-- ── TOAST CONTAINER ──────────────────────────────── -->
-<div id="toast-container" class="toast-container"></div>
-
-<!-- ── MODAL (wiederverwendbar) ─────────────────────── -->
-<div id="ordo-modal" class="ordo-modal-backdrop" style="display:none" aria-modal="true" role="dialog">
-  <div class="ordo-modal-panel">
-    <h3 id="ordo-modal-title" class="ordo-modal-title"></h3>
-    <p id="ordo-modal-desc" class="ordo-modal-desc"></p>
-    <div id="ordo-modal-fields" class="ordo-modal-fields"></div>
-    <div id="ordo-modal-actions" class="ordo-modal-actions"></div>
-  </div>
-</div>
-
-<!-- ── LIGHTBOX ──────────────────────────────────────── -->
-<div id="lightbox" class="lightbox" style="display:none">
-  <button id="lightbox-close" class="lightbox-close" aria-label="Schließen">✕</button>
-  <img id="lightbox-img" alt="Vollbild">
-</div>
-
-<!-- ── PICKING OVERLAY ───────────────────────────────── -->
-<div id="picking-overlay" class="picking-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Gegenstände markieren">
-  <div class="picking-header">
-    <button id="picking-close" class="picking-close-btn" aria-label="Schließen">✕</button>
-    <span class="picking-header-title">Gegenstände markieren</span>
-    <button id="picking-done" class="picking-done-btn">Fertig</button>
-  </div>
-  <div id="picking-photo-wrapper" class="picking-photo-wrapper">
-    <img id="picking-photo" alt="Foto analysieren">
-  </div>
-  <div id="picking-summary" class="picking-summary"></div>
-  <div id="picking-panel" class="picking-panel" style="display:none">
-    <div id="picking-panel-label" class="picking-panel-label"></div>
-    <input type="hidden" id="picking-panel-input" class="picking-panel-input">
-    <div class="picking-panel-actions">
-      <button id="picking-panel-mic" class="picking-panel-mic picking-panel-mic--primary" aria-label="Diktieren">🎤 Diktieren</button>
-      <button id="picking-panel-confirm" class="picking-panel-confirm">Stimmt ✓</button>
-      <button id="picking-panel-skip" class="picking-panel-skip">Überspringen</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── STAGING OVERLAY ───────────────────────────────── -->
-<div id="staging-overlay" class="staging-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Fotos sammeln">
-  <div class="staging-modal">
-    <div class="staging-header">
-      <button id="staging-close" class="staging-close-btn" aria-label="Schließen">✕</button>
-      <span id="staging-title" class="staging-title">Fotos sammeln</span>
-    </div>
-    <div id="staging-thumbnails" class="staging-thumbnails"></div>
-    <div class="staging-add-row">
-      <button id="staging-add-btn" class="staging-add-btn">+ Foto hinzufügen</button>
-    </div>
-    <p id="staging-hint" class="staging-hint" style="display:none"></p>
-    <div class="staging-footer">
-      <button id="staging-cancel-btn" class="staging-cancel-btn">Abbrechen</button>
-      <button id="staging-analyze-btn" class="staging-analyze-btn" disabled>Analysieren</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── REVIEW OVERLAY ────────────────────────────────── -->
-<div id="review-overlay" class="review-overlay" style="display:none" aria-modal="true" role="dialog" aria-label="Erkannte Gegenstände prüfen">
-  <div class="review-modal">
-    <div class="review-header">
-      <h2 class="review-title">Erkannte Gegenstände</h2>
-      <p id="review-subtitle" class="review-subtitle"></p>
-    </div>
-    <p class="review-hint">Hake an was stimmt. Korrigiere Namen oder Mengen per Tippen. Nicht Erkanntes unten manuell hinzufügen.</p>
-    <p id="review-tip" class="review-tip" style="display:none"></p>
-    <div id="review-list" class="review-list"></div>
-    <button id="review-add-manual" class="review-add-manual-btn">+ Gegenstand manuell hinzufügen</button>
-    <div class="review-actions">
-      <button id="review-cancel" class="review-cancel-btn">Abbrechen</button>
-      <button id="review-confirm" class="review-confirm-btn">Übernehmen</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── CAMERA CAPTURE OVERLAY ─────────────────────────── -->
-<div id="camera-overlay" class="camera-overlay" style="display:none">
-  <video id="camera-video" class="camera-video" autoplay playsinline muted></video>
-  <div id="camera-record-timer" class="camera-record-timer" style="display:none">0:00</div>
-  <div class="camera-controls">
-    <button id="camera-cancel-btn" class="camera-cancel-btn" aria-label="Abbrechen">✕</button>
-    <button id="camera-shutter-btn" class="camera-shutter-btn" aria-label="Foto aufnehmen"></button>
-    <button id="camera-switch-btn" class="camera-switch-btn" aria-label="Kamera wechseln">🔄</button>
-  </div>
-</div>
-
-<!-- ── CONTEXTUAL AI COMPANION ───────────────────────── -->
-<div id="ordo-companion-container">
-  <button id="companion-circle" class="companion-circle-btn" aria-label="ORDO Begleiter öffnen">
-    <span class="companion-icon">🏠</span>
-  </button>
-
-  <div id="companion-modal" class="companion-modal" style="display:none">
-    <div class="companion-header">
-      <span class="companion-title">ORDO</span>
-      <div class="companion-header-actions">
-        <button id="companion-resize" class="companion-header-btn" aria-label="Größe ändern">⤢</button>
-        <button id="companion-minimize" class="companion-header-btn" aria-label="Minimieren">✕</button>
-      </div>
-    </div>
-    <div id="companion-messages" class="companion-chat-body"></div>
-    <div class="companion-input-area">
-      <button id="companion-voice" class="companion-voice-btn" aria-label="Sprich mit ORDO">🎤</button>
-      <button id="companion-live" class="companion-live-btn" aria-label="Live-Modus starten">
-        <span class="companion-live-icon">🎙️</span>
-        <span class="companion-live-label">Live</span>
-      </button>
-    </div>
-    <div id="companion-live-status" class="companion-live-status" style="display:none">
-      <div class="companion-live-indicator"></div>
-      <span id="companion-live-status-text">Verbinde...</span>
-      <button id="companion-live-stop" class="companion-live-stop-btn" aria-label="Live beenden">■</button>
-    </div>
-  </div>
-</div>
+  <!-- Hidden file inputs (used by various modules) -->
+  <input type="file" id="photo-input-gallery" accept="image/*" style="display:none" aria-label="Bild aus Galerie">
+  <input type="file" id="photo-input-video" accept="video/*" style="display:none" aria-label="Video hochladen">
+  <input type="file" id="settings-import-file" accept=".json" style="display:none" aria-label="Import-Datei">
 
 <script type="importmap">
 {
