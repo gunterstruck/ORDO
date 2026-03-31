@@ -6,7 +6,7 @@ import { callGemini, loadingManager, getErrorMessage } from './ai.js';
 import { capturePhoto } from './camera.js';
 import { blobToBase64, resizeImage } from './photo-flow.js';
 import { showToast } from './modal.js';
-import { ROOM_TYPES, ensureRoom, debugLog } from './app.js';
+import { ROOM_TYPES, ensureRoom, debugLog, escapeHTML } from './app.js';
 import { renderBrainView } from './brain-view.js';
 
 // ── Smart Photo Prompt ──────────────────────────────
@@ -172,13 +172,13 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
       <div class="smart-photo-content">
         <img src="${photoUrl}" class="smart-photo-preview" alt="Foto-Vorschau">
         <div class="smart-photo-location">
-          📍 ${roomEmoji} ${room.name || 'Raum'}${isNewRoom ? ' (neu)' : ''} › ${container.name || 'Container'}${isNewContainer ? ' (neu)' : ''}
+          📍 ${roomEmoji} ${escapeHTML(room.name || 'Raum')}${isNewRoom ? ' (neu)' : ''} › ${escapeHTML(container.name || 'Container')}${isNewContainer ? ' (neu)' : ''}
         </div>
         ${items.length > 0 ? `
           <div class="smart-photo-items-label">Gefunden:</div>
           <div class="smart-photo-items">${itemsHtml}</div>
         ` : '<div class="smart-photo-items-label">Keine Gegenstände erkannt</div>'}
-        ${analysis.description ? `<div class="smart-photo-desc">${analysis.description}</div>` : ''}
+        ${analysis.description ? `<div class="smart-photo-desc">${escapeHTML(analysis.description)}</div>` : ''}
         <div class="smart-photo-actions">
           <button class="smart-photo-btn primary" id="smart-photo-confirm">✅ Stimmt so</button>
           <button class="smart-photo-btn" id="smart-photo-discard">🗑️ Verwerfen</button>

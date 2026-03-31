@@ -252,7 +252,7 @@ Antworte mit diesem JSON am Ende deiner Nachricht:
         rec.continuous = false;
         let settled = false;
         rec.onresult = (event) => { if (!settled) { settled = true; resolve(event.results[0][0].transcript); } };
-        rec.onerror = (event) => { if (!settled) { settled = true; resolve(event.error === 'no-speech' ? null : null); } };
+        rec.onerror = (event) => { if (!settled) { settled = true; resolve(null); } };
         rec.onend = () => { if (!settled) { settled = true; resolve(null); } };
         rec.start();
         setTimeout(() => rec.stop(), 10000);
@@ -1798,7 +1798,7 @@ function confirmReview() {
     // 2. Newly detected items: add as new
     const newItems = deltaData.neuErkannt
       .filter(i => i.checked && i.name.trim())
-      .map(i => ({ name: i.name.trim(), menge: i.menge || 1, checked: true }));
+      .map(i => ({ name: i.name.trim(), menge: i.menge || 1, checked: true, expiry: i.expiry }));
     if (newItems.length > 0) {
       Brain.addItemsFromReview(roomId, containerId, newItems);
       totalChanges += newItems.length;

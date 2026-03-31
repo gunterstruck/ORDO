@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#E8A87C">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="icon" type="image/png" href="icon-192.png">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ORDO">
   <title>ORDO – Dein Haushaltsassistent</title>
@@ -316,6 +318,7 @@
     <!-- API -->
     <div class="settings-section">
       <div class="settings-section-title">API</div>
+      <form autocomplete="off" onsubmit="return false">
       <label class="settings-label" for="settings-api-key">Google AI API Key (Gemini)</label>
       <div class="settings-api-key-row">
         <input
@@ -356,11 +359,13 @@
         <button id="fallback-save-btn" class="settings-btn settings-btn--secondary" style="margin-top:10px">Fallback speichern</button>
         <div id="fallback-status" style="display:none;margin-top:8px;font-size:12px;padding:6px 10px;border-radius:8px"></div>
       </details>
+      </form>
     </div>
 
     <!-- 3D / Marble -->
     <div class="settings-section">
       <div class="settings-section-title">3D-Raumansicht (optional)</div>
+      <form autocomplete="off" onsubmit="return false">
       <label class="settings-label" for="settings-marble-key">Marble API Key</label>
       <div class="settings-api-key-row">
         <input
@@ -375,6 +380,7 @@
       </div>
       <p class="settings-hint">Für 3D-Raumansichten. Kostenloser Test auf marble.worldlabs.ai</p>
       <button id="settings-save-marble-key" class="settings-btn settings-btn--primary">Speichern</button>
+      </form>
 
       <div style="margin-top:14px">
         <label class="settings-label">3D-Scan importieren</label>

@@ -95,7 +95,7 @@ const MAX_PHOTO_HISTORY = 10;
 
 /** ISO-Zeitstempel ohne Millisekunden */
 function isoNow() {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, '');
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 /**

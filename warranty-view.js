@@ -111,7 +111,7 @@ export function checkWarrantyBanner() {
 
   const banner = document.createElement('div');
   banner.className = 'warranty-banner';
-  banner.innerHTML = `<span>🛡️ ${expiring.length} Garantie${expiring.length > 1 ? 'n' : ''} läuft bald ab</span><button class="warranty-banner-btn">Ansehen</button>`;
+  banner.innerHTML = `<span>🛡️ ${expiring.length} Garantie${expiring.length > 1 ? 'n' : ''} ${expiring.length > 1 ? 'laufen' : 'läuft'} bald ab</span><button class="warranty-banner-btn">Ansehen</button>`;
 
   banner.querySelector('.warranty-banner-btn').addEventListener('click', () => {
     banner.remove();
@@ -318,7 +318,7 @@ function startExpiryPhotoCheck(roomId, containerId, itemName) {
       const { blobToBase64 } = await import('./photo-flow.js');
 
       // Get API key
-      const apiKey = localStorage.getItem('ordo_api_key');
+      const apiKey = Brain.getApiKey();
       if (!apiKey) { showToast('API-Key fehlt', 'error'); return; }
 
       const base64 = await blobToBase64(file);

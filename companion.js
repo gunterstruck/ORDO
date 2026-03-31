@@ -441,7 +441,7 @@ async function sendCompanionMessage(text) {
   try {
     const systemPrompt = buildCompanionSystemPrompt();
     const history = companionHistory.slice(-16).map(m => ({ role: m.role, content: m.content }));
-    const chatMessages = buildMessages(history, text);
+    const chatMessages = buildMessages(history, null);
 
     const response = await callGemini(apiKey, systemPrompt, chatMessages, {
       tools: ORDO_FUNCTIONS,
@@ -547,6 +547,10 @@ async function startLiveMode() {
     if (text.trim()) {
       appendCompanionMessage(role, text);
       companionHistory.push({ role, content: text });
+      // Limit history to prevent unbounded memory growth in live mode
+      if (companionHistory.length > 50) {
+        companionHistory = companionHistory.slice(-30);
+      }
     }
   };
 

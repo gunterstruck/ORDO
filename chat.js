@@ -475,7 +475,7 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
     }
 
     const history = Brain.getChatHistory().slice(-20).map(m => ({ role: m.role, content: m.content }));
-    const chatMessages = buildMessages(history, text || 'Was siehst du auf diesem Foto?');
+    const chatMessages = buildMessages(history, null);
 
     if (photo) {
       const lastMsg = chatMessages[chatMessages.length - 1];
@@ -763,7 +763,7 @@ function isCleanupIntent(text) {
   const patterns = [
     /\baufräum/,
     /\bräum.*auf/,
-    /\lass uns aufräumen/,
+    /\blass uns aufräumen/,
     /\bhilf.*aufräum/,
     /\bräum.?session/,
     /\bordnung.*schaffen/,
