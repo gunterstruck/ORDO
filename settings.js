@@ -8,6 +8,7 @@ import { showReportDialog, generateDonationListPDF } from './report.js';
 import { showSalesView } from './quest.js';
 import { getPersonality, setPersonality } from './chat.js';
 import { wrapInputWithVoice } from './voice-input.js';
+import { isWebGLAvailable } from './spatial-3d.js';
 
 let settingsInitialized = false;
 
@@ -223,6 +224,115 @@ export function setupSettings() {
     }
     showSettingsMsg('Fallback-Einstellungen gespeichert.', 'success');
   });
+
+  // Marble API Key
+  document.getElementById('settings-save-marble-key')?.addEventListener('click', () => {
+    const key = document.getElementById('settings-marble-key').value.trim();
+    if (key) {
+      localStorage.setItem('ordo_marble_api_key', key);
+      showSettingsMsg('Marble API Key gespeichert. 3D ist jetzt freigeschaltet!', 'success');
+    } else {
+      localStorage.removeItem('ordo_marble_api_key');
+      showSettingsMsg('Marble API Key entfernt.', 'success');
+    }
+  });
+
+  document.getElementById('settings-marble-key-toggle')?.addEventListener('click', () => {
+    const input = document.getElementById('settings-marble-key');
+    const btn = document.getElementById('settings-marble-key-toggle');
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = '🙈';
+    } else {
+      input.type = 'password';
+      btn.textContent = '👁️';
+    }
+  });
+
+  // 3D Scan Import
+  document.getElementById('settings-import-3d-scan')?.addEventListener('click', () => {
+    document.getElementById('settings-3d-scan-file')?.click();
+  });
+
+  document.getElementById('settings-3d-scan-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const rooms = Object.entries(Brain.getData().rooms || {});
+    if (rooms.length === 0) {
+      showSettingsMsg('Erstelle zuerst einen Raum.', 'error');
+      return;
+    }
+
+    // Raum-Auswahl per Confirm-Modal
+    const roomId = await selectRoomForScanImport(rooms);
+    if (!roomId) return;
+
+    try {
+      const buffer = await file.arrayBuffer();
+      await Brain.saveSplat(roomId, buffer);
+
+      // Metadata setzen
+      const data = Brain.getData();
+      if (data.rooms[roomId]) {
+        if (!data.rooms[roomId].spatial) data.rooms[roomId].spatial = {};
+        data.rooms[roomId].spatial.scan_type = 'gltf_import';
+        data.rooms[roomId].spatial.scan_source = file.name;
+        data.rooms[roomId].spatial.scan_date = new Date().toISOString();
+        Brain.save(data);
+      }
+
+      showSettingsMsg(`3D-Scan für ${Brain.getRoom(roomId)?.name || roomId} importiert!`, 'success');
+    } catch (err) {
+      showSettingsMsg('Import fehlgeschlagen: ' + err.message, 'error');
+    }
+
+    // Reset file input
+    e.target.value = '';
+  });
+}
+
+/**
+ * Zeigt eine einfache Raum-Auswahl für den 3D-Scan-Import.
+ */
+async function selectRoomForScanImport(rooms) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'ordo-modal-backdrop';
+    backdrop.style.display = 'flex';
+
+    const panel = document.createElement('div');
+    panel.className = 'ordo-modal-panel';
+    panel.innerHTML = `<h3 class="ordo-modal-title">Raum für 3D-Scan wählen</h3>`;
+
+    const list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin:12px 0;max-height:300px;overflow-y:auto';
+
+    for (const [id, room] of rooms) {
+      const btn = document.createElement('button');
+      btn.className = 'settings-btn settings-btn--secondary';
+      btn.textContent = `${room.emoji || '🏠'} ${room.name}`;
+      btn.addEventListener('click', () => {
+        backdrop.remove();
+        resolve(id);
+      });
+      list.appendChild(btn);
+    }
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'settings-btn';
+    cancelBtn.textContent = 'Abbrechen';
+    cancelBtn.style.marginTop = '8px';
+    cancelBtn.addEventListener('click', () => {
+      backdrop.remove();
+      resolve(null);
+    });
+
+    panel.appendChild(list);
+    panel.appendChild(cancelBtn);
+    backdrop.appendChild(panel);
+    document.body.appendChild(backdrop);
+  });
 }
 
 export function renderSettings() {
@@ -242,6 +352,10 @@ export function renderSettings() {
       keyInput.value = providerCfg.keys?.[providerId] || '';
     }
   }
+
+  // Restore Marble API key
+  const marbleKeyInput = document.getElementById('settings-marble-key');
+  if (marbleKeyInput) marbleKeyInput.value = localStorage.getItem('ordo_marble_api_key') || '';
 
   // Set personality radio
   const currentPersonality = getPersonality();

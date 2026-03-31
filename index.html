@@ -358,6 +358,32 @@
       </details>
     </div>
 
+    <!-- 3D / Marble -->
+    <div class="settings-section">
+      <div class="settings-section-title">3D-Raumansicht (optional)</div>
+      <label class="settings-label" for="settings-marble-key">Marble API Key</label>
+      <div class="settings-api-key-row">
+        <input
+          type="password"
+          id="settings-marble-key"
+          class="settings-input"
+          placeholder="Key einfügen…"
+          autocomplete="off"
+          aria-label="Marble API Key"
+        >
+        <button id="settings-marble-key-toggle" class="settings-eye-btn" type="button" aria-label="Key anzeigen/verbergen">👁️</button>
+      </div>
+      <p class="settings-hint">Für 3D-Raumansichten. Kostenloser Test auf marble.worldlabs.ai</p>
+      <button id="settings-save-marble-key" class="settings-btn settings-btn--primary">Speichern</button>
+
+      <div style="margin-top:14px">
+        <label class="settings-label">3D-Scan importieren</label>
+        <p class="settings-hint">Importiere einen Raumscan von Scaniverse, Polycam oder KIRI Engine</p>
+        <button id="settings-import-3d-scan" class="settings-btn settings-btn--secondary">GLTF/GLB Datei auswählen</button>
+        <input type="file" id="settings-3d-scan-file" accept=".gltf,.glb" style="display:none" aria-label="3D-Scan Datei">
+      </div>
+    </div>
+
     <!-- Persönlichkeit -->
     <div class="settings-section">
       <div class="settings-section-title">Persönlichkeit</div>
@@ -669,6 +695,14 @@
   </div>
 </div>
 
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.178.0/three.module.js",
+    "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.10/spark.module.js"
+  }
+}
+</script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
