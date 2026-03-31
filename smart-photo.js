@@ -7,7 +7,6 @@ import { capturePhoto } from './camera.js';
 import { blobToBase64, resizeImage } from './photo-flow.js';
 import { showToast } from './modal.js';
 import { ROOM_TYPES, ensureRoom, debugLog, escapeHTML } from './app.js';
-import { renderBrainView } from './brain-view.js';
 
 // ── Smart Photo Prompt ──────────────────────────────
 function buildSmartPhotoPrompt() {
@@ -228,7 +227,33 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
       URL.revokeObjectURL(photoUrl);
       hideSmartPhotoOverlay();
       showToast(`${roomEmoji} ${room.name} › ${container.name}: ${items.length} Gegenstände gespeichert`, 'success');
-      renderBrainView();
+
+      // Ergebnis in den Dialog-Stream posten
+      try {
+        const { agentMessage } = await import('./dialog-stream.js');
+        const { onboardingPhotoComplete, companionSays } = await import('./ordo-agent.js');
+
+        // Onboarding-Phase 3: Erstes Foto abschließen
+        const onboardingState = localStorage.getItem('ordo_onboarding_completed');
+        if (onboardingState === 'pending_photo') {
+          onboardingPhotoComplete({ room, items });
+        } else {
+          // Normaler Scan: Ergebnis im Stream zeigen
+          const text = companionSays({
+            sachlich: `${roomEmoji} ${room.name} › ${container.name}: ${items.length} Gegenstände gespeichert.`,
+            freundlich: `${roomEmoji} ${room.name} › ${container.name} erkannt! ${items.length} Gegenstände gespeichert.`,
+            kauzig: `${roomEmoji} ${room.name} › ${container.name}. ${items.length} Dinge. Gemerkt.`,
+          });
+          agentMessage(text, [
+            { type: 'ContainerList', props: { roomId: room.id } },
+          ], [
+            { icon: '📷', label: 'Nächstes Foto', action: 'takePhoto', primary: true },
+            { icon: '🏠', label: 'Zuhause', action: 'showHome' },
+          ]);
+        }
+      } catch (streamErr) {
+        debugLog(`Dialog-Stream Update fehlgeschlagen: ${streamErr.message}`);
+      }
 
     } catch (err) {
       showToast('Fehler beim Speichern: ' + err.message, 'error');
