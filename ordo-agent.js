@@ -551,9 +551,11 @@ async function testAndSaveApiKey(key) {
   const loading = showStreamLoading('Teste Verbindung zu Gemini...');
 
   try {
-    localStorage.setItem('ordo_api_key', key);
+    Brain.setApiKey(key);
 
-    const result = await callGemini(key, 'Antworte mit genau einem Wort: Hallo', [], {
+    const result = await callGemini(key, 'Antworte mit genau einem Wort: OK', [
+      { role: 'user', content: 'Test' },
+    ], {
       taskType: 'test',
     });
 
@@ -580,7 +582,7 @@ async function testAndSaveApiKey(key) {
 
   } catch (err) {
     hideStreamLoading(loading);
-    localStorage.removeItem('ordo_api_key');
+    localStorage.removeItem('ordo_api_key');  // Key entfernen wenn ungültig
 
     agentMessage(
       'Der Key funktioniert leider nicht. ' +
