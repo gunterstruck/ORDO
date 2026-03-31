@@ -1974,6 +1974,7 @@ export class GeminiLiveSession {
 
     // Audio-Processor trennen
     if (this.micProcessor) {
+      if (this.micProcessor.port) this.micProcessor.port.onmessage = null;
       this.micProcessor.disconnect();
       this.micProcessor = null;
     }
@@ -2041,24 +2042,10 @@ export class GeminiLiveSession {
       }
     }, 200);
 
-    // ScriptProcessor für PCM-Capture (4096 Samples bei 16kHz = 256ms Chunks)
-    // Hinweis: ScriptProcessor ist deprecated, aber universell unterstützt.
-    // AudioWorklet benötigt eine separate Datei und ist für diesen Use-Case Overkill.
-    this.micProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
-    source.connect(this.micProcessor);
-    // Connect to destination (nötig damit onaudioprocess feuert), aber leise
-    const gain = this.audioContext.createGain();
-    gain.gain.value = 0; // Mic-Audio nicht über Lautsprecher ausgeben
-    this.micProcessor.connect(gain);
-    gain.connect(this.audioContext.destination);
-
-    this.micProcessor.onaudioprocess = (e) => {
+    // PCM-Capture: AudioWorklet (modern) mit ScriptProcessor-Fallback
+    const sendPcmChunk = (pcm16Buffer) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-      const float32 = e.inputBuffer.getChannelData(0);
-      const pcm16 = this._float32ToPcm16(float32);
-      const base64 = this._arrayBufferToBase64(pcm16.buffer);
-
+      const base64 = this._arrayBufferToBase64(pcm16Buffer);
       try {
         this.ws.send(JSON.stringify({
           realtimeInput: {
@@ -2071,6 +2058,39 @@ export class GeminiLiveSession {
       } catch {
         // WebSocket bereits geschlossen – ignorieren
       }
+    };
+
+    if (this.audioContext.audioWorklet) {
+      // Modern: AudioWorkletNode
+      try {
+        await this.audioContext.audioWorklet.addModule('pcm-processor.js');
+        this.micProcessor = new AudioWorkletNode(this.audioContext, 'pcm-processor');
+        source.connect(this.micProcessor);
+        this.micProcessor.connect(this.audioContext.destination);
+        this.micProcessor.port.onmessage = (e) => {
+          sendPcmChunk(e.data.pcm16);
+        };
+      } catch (err) {
+        debugLog(`[Live] AudioWorklet fehlgeschlagen, nutze Fallback: ${err.message}`);
+        this._setupScriptProcessorFallback(source, sendPcmChunk);
+      }
+    } else {
+      // Fallback: ScriptProcessorNode (für ältere Browser)
+      this._setupScriptProcessorFallback(source, sendPcmChunk);
+    }
+  }
+
+  _setupScriptProcessorFallback(source, sendPcmChunk) {
+    this.micProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    source.connect(this.micProcessor);
+    const gain = this.audioContext.createGain();
+    gain.gain.value = 0;
+    this.micProcessor.connect(gain);
+    gain.connect(this.audioContext.destination);
+    this.micProcessor.onaudioprocess = (e) => {
+      const float32 = e.inputBuffer.getChannelData(0);
+      const pcm16 = this._float32ToPcm16(float32);
+      sendPcmChunk(pcm16.buffer);
     };
   }
 
