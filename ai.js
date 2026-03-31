@@ -46,7 +46,34 @@ export { PROVIDERS };
 const MODELS = {
   fast: 'gemini-3-flash-preview',      // neuestes Flash – Chat & Text
   pro: 'gemini-3.1-pro-preview',       // neuestes Pro – Foto/Video-Analyse, räumliche Tiefe
+  stableFast: 'gemini-2.5-flash',      // stabiles Flash – Fallback bei Überlastung
+  stablePro: 'gemini-2.5-pro',         // stabiles Pro – Fallback bei Überlastung
 };
+
+// Timeout für einzelne API-Requests (ms)
+const REQUEST_TIMEOUT_MS = 30000;
+
+/**
+ * Event: API antwortet langsam (nach 8s ohne Antwort).
+ * Wird vom Dialog-Stream aufgefangen und dem Nutzer gezeigt.
+ */
+function _emitSlowWarning(model) {
+  try {
+    window.dispatchEvent(new CustomEvent('ordo-api-slow', { detail: { model } }));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Event: Modell-Fallback wurde ausgelöst.
+ * Informiert den Nutzer transparent über den Wechsel.
+ */
+function _emitModelFallback(requestedModel, usedModel) {
+  try {
+    window.dispatchEvent(new CustomEvent('ordo-model-fallback', {
+      detail: { requestedModel, usedModel },
+    }));
+  } catch { /* ignore */ }
+}
 
 /**
  * Bestimmt das optimale Modell basierend auf dem Input.
@@ -553,13 +580,11 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
   // Retry with exponential backoff for 5xx/429 errors + model fallback
   const MAX_RETRIES = 2;
   const modelsToTry = [model];
-  // Bidirectional fallback: Flash ↔ Pro
-  // If Pro is unavailable (503), fall back to Flash (still good for images).
-  // If Flash is unavailable, fall back to Pro (for image/video tasks).
-  if (model === MODELS.fast && (options.hasImage || options.hasVideo)) {
-    modelsToTry.push(MODELS.pro);
-  } else if (model === MODELS.pro) {
-    modelsToTry.push(MODELS.fast);
+  // Fallback-Kette: Preview → anderes Preview → stabiles Modell
+  if (model === MODELS.pro) {
+    modelsToTry.push(MODELS.fast, MODELS.stableFast);
+  } else if (model === MODELS.fast) {
+    modelsToTry.push(MODELS.stableFast);
   }
 
   for (const currentModel of modelsToTry) {
@@ -578,18 +603,39 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
 
       let response;
       try {
+        // Timeout: bricht den Request nach REQUEST_TIMEOUT_MS ab
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+        // Feedback nach 8s: Nutzer informieren dass API langsam ist
+        const slowTimer = setTimeout(() => {
+          _emitSlowWarning(currentModel);
+        }, 8000);
+
         response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
+        clearTimeout(slowTimer);
       } catch (fetchErr) {
-        debugLog(`NETZWERK-FEHLER: ${fetchErr.message}`);
+        const isTimeout = fetchErr.name === 'AbortError';
+        debugLog(isTimeout
+          ? `TIMEOUT nach ${REQUEST_TIMEOUT_MS / 1000}s (Modell: ${currentModel})`
+          : `NETZWERK-FEHLER: ${fetchErr.message}`);
         if (attempt < MAX_RETRIES) {
           const wait = Math.pow(2, attempt + 1) * 1000;
           debugLog(`Retry ${attempt + 1}/${MAX_RETRIES} in ${wait / 1000}s…`);
           await new Promise(r => setTimeout(r, wait));
           continue;
+        }
+        // Bei Timeout: nächstes Modell versuchen statt sofort aufzugeben
+        if (isTimeout && currentModel !== modelsToTry[modelsToTry.length - 1]) {
+          debugLog(`${currentModel} Timeout – versuche nächstes Modell…`);
+          break;
         }
         throw fetchErr;
       }
@@ -635,8 +681,13 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
 
       logApiCall(options.taskType || 'chat', currentModel, thinkingCfg, startTime);
 
+      const isStableFallback = currentModel === MODELS.stableFast || currentModel === MODELS.stablePro;
       if (currentModel !== model) {
-        debugLog(`Hinweis: Fallback-Modell ${currentModel} verwendet (statt ${model})`);
+        const fallbackNote = isStableFallback
+          ? `⚠️ Stabiles Modell ${currentModel} verwendet (${model} war nicht erreichbar)`
+          : `Hinweis: Fallback-Modell ${currentModel} verwendet (statt ${model})`;
+        debugLog(fallbackNote);
+        _emitModelFallback(model, currentModel);
       }
 
       // If function calling is enabled, return structured response
