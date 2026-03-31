@@ -553,10 +553,13 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
   // Retry with exponential backoff for 5xx/429 errors + model fallback
   const MAX_RETRIES = 2;
   const modelsToTry = [model];
-  // Only fallback to Pro for image/video tasks (where Pro quality matters).
-  // For chat, Pro is slower and doesn't improve the experience.
+  // Bidirectional fallback: Flash ↔ Pro
+  // If Pro is unavailable (503), fall back to Flash (still good for images).
+  // If Flash is unavailable, fall back to Pro (for image/video tasks).
   if (model === MODELS.fast && (options.hasImage || options.hasVideo)) {
     modelsToTry.push(MODELS.pro);
+  } else if (model === MODELS.pro) {
+    modelsToTry.push(MODELS.fast);
   }
 
   for (const currentModel of modelsToTry) {
