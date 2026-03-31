@@ -44,7 +44,7 @@ export function setupOnboarding() {
   document.getElementById('onboarding-photo-skip')?.addEventListener('click', finishOnboarding);
 
   // Settings re-trigger
-  document.getElementById('settings-room-scan').addEventListener('click', startBlueprint);
+  document.getElementById('settings-room-scan')?.addEventListener('click', startBlueprint);
 }
 
 function setupFirstPhotoStep() {
@@ -581,7 +581,7 @@ async function onRoomScanVideo(file) {
 
     const result = JSON.parse(jsonMatch[0]);
     const rooms = result.raeume || [];
-    debugLog(`${rooms.length} Räume erkannt: ${rooms.map(r => r.name || r.id).join(', ')}`);
+    debugLog(`${rooms.length} Räume erkannt: ${rooms.map(r => r.raum_name || r.raum_typ).join(', ')}`);
 
     if (rooms.length === 0) {
       showToast('Keine Räume im Video erkannt. Bitte erneut versuchen.', 'error');

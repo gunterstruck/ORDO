@@ -120,8 +120,12 @@ function sanitizeAIResponse(text) {
   if (!text) return '';
   return text
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/\bhref\s*=\s*["']javascript:[^"']*["']/gi, '')
     .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
     .replace(/\bon\w+\s*=\s*[^\s>"']+/gi, '')
+    .replace(/\bon\w+\s*=\s*[^\s>]*/gi, '')
     .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, '')
     .replace(/<object\b[^>]*>.*?<\/object>/gi, '')
     .replace(/<embed\b[^>]*>/gi, '');
@@ -926,10 +930,12 @@ export function buildMessages(history, newUserText) {
       lastRole = m.role;
     }
   }
-  if (lastRole === 'user') {
-    msgs.push({ role: 'assistant', content: '…' });
+  if (newUserText) {
+    if (lastRole === 'user') {
+      msgs.push({ role: 'assistant', content: '…' });
+    }
+    msgs.push({ role: 'user', content: newUserText });
   }
-  msgs.push({ role: 'user', content: newUserText });
   return msgs;
 }
 
@@ -1184,8 +1190,7 @@ export function executeOrdoAction(action) {
         const toC = Brain.getContainer(action.to_room, toId);
         if (!fromC || !toR || !toC) return;
         const fromR = Brain.getRoom(action.from_room);
-        Brain.removeItem(action.from_room, fromId, action.item);
-        Brain.addItem(action.to_room, toId, action.item);
+        Brain.moveItemAcrossRooms(action.from_room, fromId, action.to_room, toId, action.item);
         emitAction(`✓ ${action.item} verschoben: ${fromR?.name || action.from_room} → ${toR?.name || action.to_room}`);
         break;
       }

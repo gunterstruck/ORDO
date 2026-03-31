@@ -57,7 +57,7 @@ function getRoomFreshness(room) {
 
   const daysSince = (Date.now() - latestUpdate) / (1000 * 60 * 60 * 24);
   if (daysSince < 1) return { cls: 'fresh', label: 'Heute' };
-  if (daysSince < 30) return { cls: 'fresh', label: `Vor ${Math.round(daysSince)} Tagen` };
+  if (daysSince < 30) return { cls: 'fresh', label: `Vor ${Math.round(daysSince)} ${Math.round(daysSince) === 1 ? 'Tag' : 'Tagen'}` };
   if (daysSince < 180) return { cls: 'aging', label: `Vor ${Math.round(daysSince / 30)} Monaten` };
   return { cls: 'stale', label: `Vor ${Math.round(daysSince / 30)} Monaten` };
 }
@@ -441,7 +441,7 @@ function showSeasonalDetails() {
       html += `<div class="seasonal-detail-item">
         <div>• ${escapeHTML(item.itemName)} <span style="color:var(--text-secondary);font-size:12px;">(${escapeHTML(item.roomName)})</span></div>
         <div style="color:var(--text-secondary);font-size:12px;margin-left:12px;">→ in den ${escapeHTML(item.targetRoomType)} · ${escapeHTML(item.reason)}</div>
-        <button class="seasonal-action-btn" style="margin:4px 0 8px 12px;font-size:12px;padding:4px 10px;" data-action="seasonal-store" data-room="${item.roomId}" data-container="${item.containerId}" data-item="${escapeHTML(item.itemName)}" data-target="${item.targetRoomType}">📦 Einlagern</button>
+        <button class="seasonal-action-btn" style="margin:4px 0 8px 12px;font-size:12px;padding:4px 10px;" data-action="seasonal-store" data-room="${item.roomId}" data-container="${item.containerId}" data-item="${escapeHTML(item.itemName)}" data-target="${escapeHTML(item.targetRoomType)}">📦 Einlagern</button>
       </div>`;
     }
   }
@@ -1631,12 +1631,22 @@ function executeUndo() {
   if (!lastSpatialAction) return;
 
   if (lastSpatialAction.type === 'move_item') {
-    Brain.moveItem(
-      lastSpatialAction.toRoom,
-      lastSpatialAction.toContainer,
-      lastSpatialAction.fromContainer,
-      lastSpatialAction.item
-    );
+    if (lastSpatialAction.toRoom !== lastSpatialAction.fromRoom) {
+      Brain.moveItemAcrossRooms(
+        lastSpatialAction.toRoom,
+        lastSpatialAction.toContainer,
+        lastSpatialAction.fromRoom,
+        lastSpatialAction.fromContainer,
+        lastSpatialAction.item
+      );
+    } else {
+      Brain.moveItem(
+        lastSpatialAction.toRoom,
+        lastSpatialAction.toContainer,
+        lastSpatialAction.fromContainer,
+        lastSpatialAction.item
+      );
+    }
     showBrainToast(`Rückgängig: ${lastSpatialAction.item} zurück verschoben`);
   } else if (lastSpatialAction.type === 'reorder_containers') {
     Brain.setContainerOrder(lastSpatialAction.roomId, lastSpatialAction.previousOrder);
@@ -2144,8 +2154,8 @@ function renderMapRoomDetail(roomId) {
   // Room footer with organizer info
   try {
     const data = Brain.getData();
-    const freedomIndex = calculateFreedomIndex(data);
-    const quickWins = getQuickWins(data);
+    const freedomIndex = calculateFreedomIndex();
+    const quickWins = getQuickWins(3);
     const roomQuickWins = quickWins.filter(qw => qw.roomId === roomId);
 
     if (freedomIndex || roomQuickWins.length > 0) {
@@ -3432,21 +3442,6 @@ async function getLatestRoomPhoto(roomId) {
     }
   }
   return null;
-}
-
-/**
- * Konvertiert einen Blob zu Base64.
- */
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
 }
 
 export {

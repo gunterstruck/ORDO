@@ -14,6 +14,8 @@ export function showToast(message, type = 'success', duration = 3000) {
   setTimeout(() => {
     toast.classList.add('toast--out');
     toast.addEventListener('animationend', () => toast.remove());
+    // Fallback removal in case animationend never fires
+    setTimeout(() => { if (toast.parentNode) toast.remove(); }, duration + 1000);
   }, duration);
 }
 
@@ -90,7 +92,10 @@ export function showInputModal({ title, description, fields }) {
     actionsEl.appendChild(cancelBtn);
     actionsEl.appendChild(okBtn);
 
+    let closed = false;
     function close(result) {
+      if (closed) return;
+      closed = true;
       modal.style.display = 'none';
       modal.removeEventListener('click', onBackdrop);
       voiceFields.forEach(vf => vf.destroy?.());
@@ -170,7 +175,10 @@ export function showConfirmModal({ title, description, confirmLabel, danger }) {
     actionsEl.appendChild(cancelBtn);
     actionsEl.appendChild(confirmBtn);
 
+    let closed = false;
     function close(result) {
+      if (closed) return;
+      closed = true;
       modal.style.display = 'none';
       modal.removeEventListener('click', onBackdrop);
       releaseOverlay('modal-confirm');

@@ -108,7 +108,7 @@ function getRoomTypeLabels() {
 
 const DISPOSAL_GUIDE = {
   elektro: { text: 'Elektroschrott: Zum Wertstoffhof oder Saturn/MediaMarkt Rückgabe', icon: '⚡', hinweis: 'Elektrogeräte nicht in den Hausmüll!' },
-  batterien: { text: 'Sammelbox im Supermarkt oder Drogerie', icon: '🔋', hinweis: "Gibt\'s in jedem Supermarkt am Eingang" },
+  batterien: { text: 'Sammelbox im Supermarkt oder Drogerie', icon: '🔋', hinweis: "Gibt's in jedem Supermarkt am Eingang" },
   medikamente: { text: 'Apotheke oder Restmüll', icon: '💊', hinweis: 'Nie in die Toilette oder den Ausguss spülen' },
   textilien: { text: 'Altkleidercontainer oder Sozialkaufhaus', icon: '👕', hinweis: 'Nur saubere, trockene Kleidung' },
   glas: { text: 'Glascontainer (nach Farbe sortiert)', icon: '🫙', hinweis: 'Deckel vorher abschrauben' },

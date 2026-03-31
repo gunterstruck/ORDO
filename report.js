@@ -659,7 +659,7 @@ async function renderContainers(doc, roomId, containers, startY, depth, options,
     const icon = typIcon[c.typ] || '📋';
 
     // Check page break before container section
-    y = checkPageBreakGlobal(doc, y, 40);
+    y = checkPageBreakGlobal(doc, y, 40, addPage, addFooter);
 
     // Container header
     const indent = depth * 5;
@@ -690,7 +690,7 @@ async function renderContainers(doc, roomId, containers, startY, depth, options,
         if (dataUrl) {
           const compressed = await compressImage(dataUrl, 1200, 900, 0.7);
           if (compressed) {
-            y = checkPageBreakGlobal(doc, y, 55);
+            y = checkPageBreakGlobal(doc, y, 55, addPage, addFooter);
             try {
               doc.addImage(compressed, 'JPEG', MARGIN + indent, y, 80, 60);
               // Photo timestamp
@@ -758,7 +758,7 @@ async function renderContainers(doc, roomId, containers, startY, depth, options,
         tableData.push([name + (extra ? `\n${extra}` : ''), mengeStr, valueStr]);
       }
 
-      y = checkPageBreakGlobal(doc, y, 20);
+      y = checkPageBreakGlobal(doc, y, 20, addPage, addFooter);
 
       doc.autoTable({
         startY: y,
@@ -790,7 +790,7 @@ async function renderContainers(doc, roomId, containers, startY, depth, options,
     if (options.receiptPhotos) {
       for (const item of activeItems) {
         if (typeof item !== 'object' || !item.purchase?.receipt_photo_key) continue;
-        y = checkPageBreakGlobal(doc, y, 35);
+        y = checkPageBreakGlobal(doc, y, 35, addPage, addFooter);
         const receiptUrl = await loadPhotoAsDataUrl(item.purchase.receipt_photo_key);
         if (receiptUrl) {
           const compressed = await compressImage(receiptUrl, 600, 400, 0.6);
@@ -820,14 +820,11 @@ async function renderContainers(doc, roomId, containers, startY, depth, options,
   return y;
 }
 
-function checkPageBreakGlobal(doc, y, needed) {
+function checkPageBreakGlobal(doc, y, needed, addPageFn, addFooterFn) {
   const PAGE_H = 297;
   if (y + needed > PAGE_H - 20) {
-    // Add footer to current page
-    doc.setFontSize(8);
-    doc.setTextColor(...COLORS.lightText);
-    doc.text(`ORDO Inventarbericht – ${todayDE()}`, 15, PAGE_H - 8);
-    doc.addPage();
+    if (addFooterFn) addFooterFn();
+    addPageFn();
     return 20;
   }
   return y;
