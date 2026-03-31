@@ -17,6 +17,27 @@ import {
 import { logAction, getLastActivityTime, touchActivity } from './session-log.js';
 
 // ══════════════════════════════════════
+// API-FEEDBACK EVENTS
+// ══════════════════════════════════════
+
+// Zeigt dem Nutzer wenn die API langsam ist
+window.addEventListener('ordo-api-slow', (e) => {
+  const loadingEls = document.querySelectorAll('.stream-loading .stream-loading-text');
+  const lastEl = loadingEls[loadingEls.length - 1];
+  if (lastEl) {
+    lastEl.textContent = 'API antwortet langsam — bitte Geduld...';
+  }
+});
+
+// Zeigt dem Nutzer wenn auf ein anderes Modell gewechselt wurde
+window.addEventListener('ordo-model-fallback', (e) => {
+  const { requestedModel, usedModel } = e.detail || {};
+  if (requestedModel && usedModel) {
+    systemMessage(`⚡ ${requestedModel} war überlastet — ${usedModel} hat übernommen.`);
+  }
+});
+
+// ══════════════════════════════════════
 // PERSONALITY HELPER
 // ══════════════════════════════════════
 

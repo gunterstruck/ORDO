@@ -132,11 +132,29 @@ function showSmartPhotoLoading() {
     <div class="smart-photo-modal">
       <div class="smart-photo-loading">
         <div class="loading-dots"><span></span><span></span><span></span></div>
-        <p>Foto wird analysiert...</p>
+        <p id="smart-photo-status">Foto wird analysiert...</p>
       </div>
     </div>
   `;
   overlay.style.display = 'flex';
+
+  // Feedback bei langsamer API direkt im Overlay aktualisieren
+  const slowHandler = () => {
+    const statusEl = document.getElementById('smart-photo-status');
+    if (statusEl) statusEl.textContent = 'API antwortet langsam — versuche alternatives Modell...';
+  };
+  const fallbackHandler = (e) => {
+    const statusEl = document.getElementById('smart-photo-status');
+    if (statusEl) statusEl.textContent = `Wechsel auf ${e.detail?.usedModel || 'Fallback'}...`;
+  };
+  window.addEventListener('ordo-api-slow', slowHandler);
+  window.addEventListener('ordo-model-fallback', fallbackHandler);
+
+  // Cleanup-Referenz für hideSmartPhotoOverlay
+  overlay._cleanupListeners = () => {
+    window.removeEventListener('ordo-api-slow', slowHandler);
+    window.removeEventListener('ordo-model-fallback', fallbackHandler);
+  };
 }
 
 // ── Result UI ───────────────────────────────────────
@@ -269,7 +287,10 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
 
 function hideSmartPhotoOverlay() {
   const overlay = document.getElementById('smart-photo-overlay');
-  if (overlay) overlay.style.display = 'none';
+  if (overlay) {
+    overlay.style.display = 'none';
+    if (overlay._cleanupListeners) overlay._cleanupListeners();
+  }
 }
 
 // ── FAB Setup ───────────────────────────────────────
