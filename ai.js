@@ -50,8 +50,8 @@ const MODELS = {
   stablePro: 'gemini-2.5-pro',         // stabiles Pro – Fallback bei Überlastung
 };
 
-// Timeout für einzelne API-Requests (ms)
-const REQUEST_TIMEOUT_MS = 30000;
+// Timeout für einzelne API-Requests (ms) – kurz genug um schnell zu fallbacken
+const REQUEST_TIMEOUT_MS = 15000;
 
 /**
  * Event: API antwortet langsam (nach 8s ohne Antwort).
@@ -626,16 +626,22 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
         debugLog(isTimeout
           ? `TIMEOUT nach ${REQUEST_TIMEOUT_MS / 1000}s (Modell: ${currentModel})`
           : `NETZWERK-FEHLER: ${fetchErr.message}`);
+        // Bei Timeout: SOFORT nächstes Modell (nicht retrien — bringt nichts)
+        if (isTimeout) {
+          if (currentModel !== modelsToTry[modelsToTry.length - 1]) {
+            debugLog(`${currentModel} Timeout – wechsle sofort zu ${modelsToTry[modelsToTry.indexOf(currentModel) + 1]}…`);
+            break;
+          }
+          const err = new Error(`Alle Modelle nicht erreichbar (Timeout nach ${REQUEST_TIMEOUT_MS / 1000}s)`);
+          err.httpStatus = 408;
+          throw err;
+        }
+        // Netzwerk-Fehler: normal retrien
         if (attempt < MAX_RETRIES) {
           const wait = Math.pow(2, attempt + 1) * 1000;
           debugLog(`Retry ${attempt + 1}/${MAX_RETRIES} in ${wait / 1000}s…`);
           await new Promise(r => setTimeout(r, wait));
           continue;
-        }
-        // Bei Timeout: nächstes Modell versuchen statt sofort aufzugeben
-        if (isTimeout && currentModel !== modelsToTry[modelsToTry.length - 1]) {
-          debugLog(`${currentModel} Timeout – versuche nächstes Modell…`);
-          break;
         }
         throw fetchErr;
       }
