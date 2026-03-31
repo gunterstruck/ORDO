@@ -256,6 +256,65 @@ html, body {
   transition: opacity 0.3s;
 }
 
+/* ── Action Chips in Chat Bubbles ─────────────── */
+.chat-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.chat-action-chip {
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border, #e0d6cc);
+  background: white;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  font-family: inherit;
+}
+
+.chat-action-chip:active {
+  background: var(--accent, #E8A87C);
+  color: white;
+  border-color: var(--accent);
+  transform: scale(0.95);
+}
+
+.chat-action-chip.primary {
+  background: var(--accent, #E8A87C);
+  color: white;
+  border-color: var(--accent);
+}
+
+.chat-action-chip.primary:active {
+  opacity: 0.85;
+}
+
+.chat-msg--system .chat-action-chip {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.chat-actions-row.used .chat-action-chip:not(.activated) {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.chat-action-chip.activated {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 /* ── Photo Proof Buttons (under chat messages) ─── */
 .chat-proof-buttons {
   display: flex;

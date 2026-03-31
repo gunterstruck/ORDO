@@ -6,7 +6,7 @@ import { showToast, showInputModal } from './modal.js';
 import { ROOM_PRESETS, ensureRoom, debugLog, showView, getNfcContext, getCurrentView } from './app.js';
 import { renderBrainView, showBrainToast } from './brain-view.js';
 import { showOnboardingDoneStep, analyzeRoomScanPhotos } from './onboarding.js';
-import { appendMessage } from './chat.js';
+import { appendMessage, getContextActions } from './chat.js';
 import { capturePhoto, captureVideo } from './camera.js';
 import { uploadVideoToGemini, deleteGeminiFile, FILE_API_URL, FILE_API_GET_URL, MAX_VIDEO_SIZE_MB } from './ai.js';
 
@@ -711,7 +711,7 @@ function processPhotoAnalysisResult(roomId, analysis) {
   // Unsichere Items: one question per item
   unsicherQuestions.forEach(({ item, container }) => {
     const msg = `Ich habe eine ${item} gefunden und sie vorläufig in "${container}" einsortiert. Stimmt das, oder soll ich sie woanders zuordnen?`;
-    appendMessage('assistant', msg);
+    appendMessage('assistant', msg, getContextActions('photo_done'));
     Brain.addChatMessage('assistant', msg);
   });
 
@@ -719,7 +719,7 @@ function processPhotoAnalysisResult(roomId, analysis) {
   if (unklarItems.length > 0) {
     const list = unklarItems.join(', ');
     const msg = `Ein paar Dinge konnte ich nicht zuordnen: ${list}. Wo sollen die hin?`;
-    appendMessage('assistant', msg);
+    appendMessage('assistant', msg, getContextActions('photo_done'));
     Brain.addChatMessage('assistant', msg);
   }
 }

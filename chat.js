@@ -4,13 +4,14 @@ import Brain from './brain.js';
 import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, getErrorWithDebug, buildMessages, resolveContainerFromPath, loadingManager } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog, showView, getNfcContext, ensureRoom, escapeHTML } from './app.js';
-import { renderBrainView, showLightbox, closeLightbox } from './brain-view.js';
+import { renderBrainView, showLightbox, closeLightbox, showSeasonalDetails } from './brain-view.js';
 import { resizeImageForChat, renderRoomDropdown } from './photo-flow.js';
 import { capturePhoto, captureVideo } from './camera.js';
 import { calculateFreedomIndex, getQuickWins } from './organizer.js';
-import { startCleanupQuest, showCurrentStep } from './quest.js';
+import { startCleanupQuest, showCurrentStep, showRoomCheck, showHouseholdCheck } from './quest.js';
 import { startSmartPhotoCapture } from './smart-photo.js';
 import { checkLocalIntent, executeLocalIntent, getSuggestions } from './local-intents.js';
+import { showWarrantyOverview, showExpiryOverview } from './warranty-view.js';
 
 // ── Personality Prompts ───────────────────────────────
 const PERSONALITY_PROMPTS = {
@@ -77,7 +78,7 @@ export function setupChat() {
 
   // Listen for AI action execution events
   Brain.on('actionExecuted', ({ message }) => {
-    if (message) showSystemMessage(message);
+    if (message) showSystemMessage(message, getContextActions('general'));
   });
 }
 
@@ -279,6 +280,146 @@ export function clearChatPhoto() {
   document.getElementById('chat-photo-thumb').src = '';
 }
 
+// ── INLINE ACTION CHIPS ───────────────────────────────
+
+/**
+ * Executes an inline action from a chat action chip.
+ */
+export function executeInlineAction(action) {
+  switch (action.action) {
+    case 'takePhoto':
+      startSmartPhotoCapture();
+      break;
+    case 'takeVideo':
+      captureVideo(300).then(file => { if (file) showView('photo'); });
+      break;
+    case 'startCleanup':
+      startCleanupQuest(15);
+      break;
+    case 'showResults':
+      showView('brain');
+      break;
+    case 'retakePhoto':
+      showView('photo');
+      break;
+    case 'roomCheck':
+      if (action.roomId) showRoomCheck(action.roomId);
+      else showHouseholdCheck();
+      break;
+    case 'householdCheck':
+      showHouseholdCheck();
+      break;
+    case 'showWarranty':
+      showWarrantyOverview();
+      break;
+    case 'showExpiry':
+      showExpiryOverview();
+      break;
+    case 'resumeQuest':
+      showCurrentStep();
+      break;
+    case 'showSeasonal':
+      showSeasonalDetails();
+      break;
+    default:
+      if (action.chatMessage) {
+        const input = document.getElementById('chat-input');
+        if (input) { input.value = action.chatMessage; sendChatMessage(); }
+      }
+      break;
+  }
+}
+
+/**
+ * Computes context-appropriate action buttons for a companion/system message.
+ * @param {string} context - greeting | photo_done | ask_for_photo | quest_step | cleanup_done | offline | error | general
+ * @param {Object} [data] - Extra context data (roomId, containerId, retryAction, etc.)
+ * @returns {Array<{ label: string, icon: string, action: string, primary?: boolean }>}
+ */
+export function getContextActions(context = 'general', data = {}) {
+  const actions = [];
+  const quest = Brain.getQuest ? Brain.getQuest() : null;
+
+  switch (context) {
+    case 'greeting':
+      actions.push({ label: 'Foto', icon: '📷', action: 'takePhoto' });
+      actions.push({ label: 'Film', icon: '🎥', action: 'takeVideo' });
+      if (quest?.active) {
+        actions.push({ label: 'Quest fortsetzen', icon: '🏠', action: 'resumeQuest', primary: true });
+      } else {
+        actions.push({ label: 'Aufräumen', icon: '🧹', action: 'startCleanup' });
+      }
+      break;
+
+    case 'photo_done':
+      actions.push({ label: 'Ergebnis ansehen', icon: '👁️', action: 'showResults', primary: true });
+      actions.push({ label: 'Nochmal fotografieren', icon: '📷', action: 'retakePhoto', roomId: data.roomId, containerId: data.containerId });
+      actions.push({ label: 'Aufräum-Check', icon: '🧹', action: 'roomCheck', roomId: data.roomId });
+      break;
+
+    case 'ask_for_photo':
+      actions.push({ label: 'Foto aufnehmen', icon: '📷', action: 'takePhoto', primary: true });
+      actions.push({ label: 'Video drehen', icon: '🎥', action: 'takeVideo' });
+      break;
+
+    case 'quest_step':
+      // Quest-system provides its own actions
+      break;
+
+    case 'cleanup_done':
+      actions.push({ label: 'Noch eine Runde', icon: '🧹', action: 'startCleanup' });
+      actions.push({ label: 'Foto machen', icon: '📷', action: 'takePhoto' });
+      actions.push({ label: 'Mein Zuhause', icon: '🏠', action: 'showResults' });
+      break;
+
+    case 'offline':
+      actions.push({ label: 'Foto (wird gespeichert)', icon: '📷', action: 'takePhoto' });
+      break;
+
+    case 'error':
+      if (data.retryAction) {
+        actions.push({ label: 'Nochmal versuchen', icon: '🔄', action: data.retryAction });
+      }
+      actions.push({ label: 'Foto stattdessen', icon: '📷', action: 'takePhoto' });
+      break;
+
+    default:
+      actions.push({ label: 'Foto', icon: '📷', action: 'takePhoto' });
+      actions.push({ label: 'Film', icon: '🎥', action: 'takeVideo' });
+      break;
+  }
+
+  return actions.slice(0, 4);
+}
+
+/**
+ * Determines follow-up actions after a function call result.
+ */
+function getFunctionCallFollowUpActions(call) {
+  const name = call.name || call.type;
+  const args = call.args || call;
+
+  switch (name) {
+    case 'add_item':
+      return [
+        { label: 'Weiteres Foto', icon: '📷', action: 'takePhoto' },
+        { label: 'Ansehen', icon: '👁️', action: 'showResults', primary: true },
+      ];
+    case 'move_item':
+      return [
+        { label: 'Aufräum-Check', icon: '🧹', action: 'roomCheck', roomId: args.to_room },
+        { label: 'Foto machen', icon: '📷', action: 'takePhoto' },
+      ];
+    case 'show_found_item':
+      return [
+        { label: 'Neues Foto', icon: '📷', action: 'retakePhoto', roomId: args.room, containerId: args.container_id },
+        { label: 'Verschieben', icon: '📦', action: 'moveItem', chatMessage: `Verschieb ${args.item}` },
+      ];
+    default:
+      return getContextActions('general');
+  }
+}
+
 export function initChat() {
   const messages = document.getElementById('chat-messages');
   const nfcContext = getNfcContext();
@@ -289,24 +430,65 @@ export function initChat() {
       const roomName = room?.name || nfcContext.room;
       const tagName = container?.name || nfcContext.tag || '';
       const loc = tagName ? `${tagName} – ${roomName}` : roomName;
-      appendMessage('assistant', `Du bist jetzt bei: ${loc}`);
+      appendMessage('assistant', `Du bist jetzt bei: ${loc}`, getContextActions('greeting'));
     } else if (Brain.isEmpty()) {
       appendMessage('assistant',
-        'Hmm. Hier ist ja noch nichts. Zeig mir mal einen Raum – ein Foto reicht. Dann weiß ich Bescheid.');
+        'Hmm. Hier ist ja noch nichts. Zeig mir mal einen Raum – ein Foto reicht. Dann weiß ich Bescheid.',
+        getContextActions('ask_for_photo'));
     } else {
-      appendMessage('assistant', 'Moin. Was liegt an?');
+      appendMessage('assistant', 'Moin. Was liegt an?', getContextActions('greeting'));
     }
   }
+  // Hide static photo/video buttons when chat has messages (actions are now inline)
+  updateSecondaryButtons();
+
   renderChatSuggestions();
 }
 
-export function appendMessage(role, text, thinking = false) {
+function updateSecondaryButtons() {
+  const messages = document.getElementById('chat-messages');
+  const secondary = document.getElementById('chat-actions-secondary');
+  if (secondary) {
+    // Show secondary buttons only when chat is empty (no greeting yet)
+    secondary.style.display = (messages && messages.children.length > 0) ? 'none' : '';
+  }
+}
+
+export function appendMessage(role, text, thinkingOrActions = false) {
   const messages = document.getElementById('chat-messages');
   const div = document.createElement('div');
+
+  // thinkingOrActions can be boolean (thinking) or array (actions)
+  const thinking = thinkingOrActions === true;
+  const actions = Array.isArray(thinkingOrActions) ? thinkingOrActions : null;
+
   div.className = `chat-msg chat-msg--${role}${thinking ? ' chat-msg--thinking' : ''}`;
   div.textContent = text;
+
+  // Render action chips inside the bubble (assistant/system only)
+  if (actions && actions.length > 0 && role !== 'user') {
+    const actionsRow = document.createElement('div');
+    actionsRow.classList.add('chat-actions-row');
+
+    for (const action of actions) {
+      const btn = document.createElement('button');
+      btn.classList.add('chat-action-chip');
+      if (action.primary) btn.classList.add('primary');
+      btn.textContent = `${action.icon || ''} ${action.label}`;
+      btn.addEventListener('click', () => {
+        btn.classList.add('activated');
+        btn.closest('.chat-actions-row')?.classList.add('used');
+        executeInlineAction(action);
+      });
+      actionsRow.appendChild(btn);
+    }
+
+    div.appendChild(actionsRow);
+  }
+
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
+  updateSecondaryButtons();
   return div;
 }
 
@@ -339,7 +521,7 @@ export async function sendChatMessage() {
       Brain.addChatMessage('user', text);
       const response = executeLocalIntent(localIntent);
       if (response) {
-        appendMessage('assistant', response);
+        appendMessage('assistant', response, getContextActions('general'));
         Brain.addChatMessage('assistant', response);
       }
       setSendingState(false);
@@ -531,7 +713,18 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
     const allFoundItems = fcFoundItems.length > 0 ? fcFoundItems : markerFoundItems;
 
     if (cleanText) {
-      const msgDiv = appendMessage('assistant', cleanText);
+      // Determine context-appropriate inline actions
+      let inlineActions;
+      if (functionCalls.length > 0 && functionCalls[0]) {
+        inlineActions = getFunctionCallFollowUpActions(functionCalls[0]);
+      } else {
+        const needsPhoto = /foto|bild|zeig|schau|fotografier|scan/i.test(cleanText);
+        inlineActions = needsPhoto
+          ? getContextActions('ask_for_photo')
+          : getContextActions('general');
+      }
+
+      const msgDiv = appendMessage('assistant', cleanText, inlineActions);
       Brain.addChatMessage('assistant', cleanText);
       if (allFoundItems.length > 0) {
         renderFoundPhotoButtons(msgDiv, allFoundItems);
@@ -550,7 +743,7 @@ C) Allgemeine Frage → Beantworte ohne Speichern.`;
     if (hasDebug) {
       showErrorWithDebug(message, details);
     } else {
-      showSystemMessage(message);
+      showSystemMessage(message, getContextActions('error'));
     }
   } finally {
     setSendingState(false);
@@ -614,13 +807,8 @@ function handleSaveResponse(response) {
   msgEl.appendChild(saveBtn);
 }
 
-export function showSystemMessage(text) {
-  const messages = document.getElementById('chat-messages');
-  const div = document.createElement('div');
-  div.className = 'chat-msg chat-msg--system';
-  div.textContent = text;
-  messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
+export function showSystemMessage(text, actions = null) {
+  return appendMessage('system', text, actions);
 }
 
 function showErrorWithDebug(message, details) {
