@@ -44,18 +44,23 @@ export function showInputModal({ title, description, fields }) {
 
     const voiceFields = [];
 
+    let fieldCounter = 0;
     fields.forEach(f => {
+      const fieldId = `ordo-modal-field-${fieldCounter++}`;
+      let labelEl = null;
       if (f.label) {
-        const label = document.createElement('label');
-        label.className = 'ordo-modal-field-label';
-        label.textContent = f.label;
-        fieldsEl.appendChild(label);
+        labelEl = document.createElement('label');
+        labelEl.className = 'ordo-modal-field-label';
+        labelEl.textContent = f.label;
+        labelEl.setAttribute('for', fieldId);
+        fieldsEl.appendChild(labelEl);
       }
 
       // Password fields stay as regular inputs (API keys, etc.)
       if (f.type === 'password') {
         const input = document.createElement('input');
         input.className = 'ordo-modal-input';
+        input.id = fieldId;
         input.type = 'password';
         input.placeholder = f.placeholder || '';
         input.value = f.defaultValue || '';
@@ -76,6 +81,10 @@ export function showInputModal({ title, description, fields }) {
         options: f.options,
         prompt: 'Ich höre zu…',
       });
+
+      // Link label to the input/select element inside the voice field
+      const inputEl = vf.el.querySelector('input, select, textarea');
+      if (inputEl) inputEl.id = fieldId;
 
       fieldsEl.appendChild(vf.el);
       voiceFields.push(vf);
