@@ -25,15 +25,19 @@ function formatDateDE(dateStr) {
   return dateStr;
 }
 
+let _reviewFieldCounter = 0;
 function createReviewField(label, defaultValue, type) {
   const field = document.createElement('div');
   field.className = 'receipt-review-field';
+  const fieldId = `receipt-review-${_reviewFieldCounter++}`;
   const lbl = document.createElement('label');
   lbl.className = 'receipt-review-label';
   lbl.textContent = label;
+  lbl.setAttribute('for', fieldId);
   field.appendChild(lbl);
   const input = document.createElement('input');
   input.className = 'receipt-review-input';
+  input.id = fieldId;
   input.type = type || 'text';
   input.value = defaultValue || '';
   if (type === 'number') input.step = 'any';
