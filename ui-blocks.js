@@ -2,8 +2,13 @@
 // Jeder Block-Typ hat eine Render-Funktion die ein DOM-Element zurückgibt.
 
 import Brain from './brain.js';
-import { escapeHTML } from './app.js';
-import { calculateFreedomIndex } from './organizer.js';
+import { escapeHTML, getRoomEmoji } from './app.js';
+import {
+  calculateFreedomIndex, getQuickDecision, getArchivedByReason,
+  getSellableItems, roomCheck, householdCheck, getImprovementReport,
+  getSeasonalRecommendations, detectLifeEvents, getCurrentSeason,
+} from './organizer.js';
+import { getTodaySummary } from './session-log.js';
 
 // ══════════════════════════════════════
 // BLOCK REGISTRY
@@ -316,7 +321,12 @@ registerBlock('CapabilitiesCard', () => {
     { icon: '\u{1F3E0}', label: 'Wohnung anzeigen', desc: 'Dein Zuhause als Karte', action: 'showHome' },
     { icon: '\u{1F4CB}', label: 'Berichte erstellen', desc: 'Versicherung, Spendenliste, Verkauf', action: 'showReports' },
     { icon: '\u23F0', label: 'Verfallsdaten', desc: 'Was ist abgelaufen?', action: 'showExpiry' },
+    { icon: '\u{1F6E1}\uFE0F', label: 'Garantien', desc: 'Welche laufen bald ab?', action: 'showWarranty' },
+    { icon: '\u{1F5FA}\uFE0F', label: 'Grundriss', desc: 'Dein Zuhause als Karte', action: 'showMap' },
     { icon: '\u{1F4CA}', label: 'Fortschritt', desc: 'Du vor 3 Monaten vs. heute', action: 'showImprovement' },
+    { icon: '\u{1F3A4}', label: 'Live reden', desc: 'Echtzeit-Gespr\u00e4ch mit mir', action: 'startLive' },
+    { icon: '\u{1F4DD}', label: 'Was hab ich geschafft?', desc: 'Heutige Aktivit\u00e4t', action: 'showActivity' },
+    { icon: '\u2753', label: 'Hilfe', desc: 'Frag mich einfach!', action: 'showHelp' },
   ];
 
   el.innerHTML = '<div class="capabilities-title">Das kann ich f\u00fcr dich:</div>';
