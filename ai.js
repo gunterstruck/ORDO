@@ -44,8 +44,8 @@ export { PROVIDERS };
 
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
-  fast: 'gemini-3.1-flash-preview',  // neuestes Flash – Chat & Text
-  pro: 'gemini-3.1-pro-preview',     // neuestes Pro – Foto/Video-Analyse, räumliche Tiefe
+  fast: 'gemini-3-flash-preview',      // neuestes Flash – Chat & Text
+  pro: 'gemini-3.1-pro-preview',       // neuestes Pro – Foto/Video-Analyse, räumliche Tiefe
 };
 
 /**
