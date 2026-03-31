@@ -35,7 +35,8 @@
       <h2 class="onboarding-step-title">Ich brauche einen Gemini API-Key.</h2>
       <p class="onboarding-step-desc">Damit ich deine Fotos verstehen kann. Kostenlos bei Google.</p>
       <a id="onboarding-apikey-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="onboarding-btn-secondary onboarding-apikey-link-btn">Schlüssel erstellen →</a>
-      <input type="text" id="onboarding-apikey-input" class="onboarding-apikey-input" placeholder="Schlüssel hier einfügen…" autocomplete="off">
+      <label for="onboarding-apikey-input" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">API Key</label>
+      <input type="password" id="onboarding-apikey-input" class="onboarding-apikey-input" placeholder="Schlüssel hier einfügen…" autocomplete="off">
       <div id="onboarding-apikey-status" class="onboarding-apikey-status" style="display:none"></div>
       <div class="onboarding-apikey-actions">
         <button id="onboarding-apikey-test" class="onboarding-btn-secondary" disabled>Testen</button>
@@ -327,7 +328,6 @@
           class="settings-input"
           placeholder="AIza…"
           autocomplete="off"
-          aria-label="API Key"
         >
         <button id="settings-api-key-toggle" class="settings-eye-btn" type="button" aria-label="Key anzeigen/verbergen">👁️</button>
       </div>
@@ -344,7 +344,8 @@
             <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600">
               <input type="checkbox" id="fallback-openai-enabled" class="fallback-toggle"> OpenAI
             </label>
-            <input type="password" id="fallback-openai-key" class="settings-input" placeholder="sk-…" autocomplete="off" style="margin-top:6px;font-size:13px" disabled aria-label="OpenAI API Key">
+            <label for="fallback-openai-key" class="settings-label" style="font-size:12px;margin-top:6px">OpenAI API Key</label>
+            <input type="password" id="fallback-openai-key" class="settings-input" placeholder="sk-…" autocomplete="off" style="font-size:13px" disabled>
           </div>
 
           <!-- OpenRouter -->
@@ -352,7 +353,8 @@
             <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600">
               <input type="checkbox" id="fallback-openrouter-enabled" class="fallback-toggle"> OpenRouter
             </label>
-            <input type="password" id="fallback-openrouter-key" class="settings-input" placeholder="sk-or-…" autocomplete="off" style="margin-top:6px;font-size:13px" disabled aria-label="OpenRouter API Key">
+            <label for="fallback-openrouter-key" class="settings-label" style="font-size:12px;margin-top:6px">OpenRouter API Key</label>
+            <input type="password" id="fallback-openrouter-key" class="settings-input" placeholder="sk-or-…" autocomplete="off" style="font-size:13px" disabled>
           </div>
         </div>
 
@@ -374,7 +376,6 @@
           class="settings-input"
           placeholder="Key einfügen…"
           autocomplete="off"
-          aria-label="Marble API Key"
         >
         <button id="settings-marble-key-toggle" class="settings-eye-btn" type="button" aria-label="Key anzeigen/verbergen">👁️</button>
       </div>
@@ -386,7 +387,8 @@
         <label class="settings-label">3D-Scan importieren</label>
         <p class="settings-hint">Importiere einen Raumscan von Scaniverse, Polycam oder KIRI Engine</p>
         <button id="settings-import-3d-scan" class="settings-btn settings-btn--secondary">GLTF/GLB Datei auswählen</button>
-        <input type="file" id="settings-3d-scan-file" accept=".gltf,.glb" style="display:none" aria-label="3D-Scan Datei">
+        <label for="settings-3d-scan-file" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">3D-Scan Datei</label>
+        <input type="file" id="settings-3d-scan-file" accept=".gltf,.glb" style="display:none">
       </div>
     </div>
 
