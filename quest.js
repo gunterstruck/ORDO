@@ -471,14 +471,16 @@ export function confirmBlueprint(confirmedStructure) {
     });
   });
 
-  // Raumfotos in IndexedDB persistieren
-  for (const [idx, p] of (blueprintState?.photos || []).entries()) {
-    try {
-      await Brain.savePhoto(`blueprint_room_${idx}_${Date.now()}`, p.blob);
-    } catch(err) {
-      console.warn('Blueprint-Foto konnte nicht gespeichert werden:', err.message);
+  // Raumfotos in IndexedDB persistieren (async, fire-and-forget)
+  (async () => {
+    for (const [idx, p] of (blueprintState?.photos || []).entries()) {
+      try {
+        await Brain.savePhoto(`blueprint_room_${idx}_${Date.now()}`, p.blob);
+      } catch(err) {
+        console.warn('Blueprint-Foto konnte nicht gespeichert werden:', err.message);
+      }
     }
-  }
+  })();
 
   renderBrainView();
   showToast(`${roomCount} Räume und ${containerCount} Bereiche angelegt ✓`, 'success');
