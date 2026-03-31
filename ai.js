@@ -1754,7 +1754,7 @@ Regeln:
 
 // ── Gemini Multimodal Live API (WebSocket Audio Streaming) ──────
 
-const LIVE_MODEL = 'gemini-2.0-flash-live-001';
+const LIVE_MODEL = 'gemini-live-2.5-flash-native-audio';
 const LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
 /**
