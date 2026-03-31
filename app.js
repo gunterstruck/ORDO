@@ -1,23 +1,17 @@
-// app.js – Bootstrap, Wiring, Init (schlanker Einstiegspunkt)
+// app.js – Bootstrap, Wiring, Init (Generative UI – Phase A)
+// Radikal vereinfacht: Kein View-Switching mehr. Eine Seite. Ein Dialog.
 
 import Brain from './brain.js';
-import { setupChat, initChat, maybeShowChatSuggestions } from './chat.js';
-import { setupPhoto, setupPickingView, setupStagingOverlay, setupReviewOverlay, renderRoomDropdown, applyNfcContextToPhotoView, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay } from './photo-flow.js';
-import { setupBrain, renderBrainView, setupMapViewToggle, setupNfcContextView, renderNfcContextView, setupPhotoTimeline, setupMoveContainerOverlay, checkWarrantyBanner, checkExpiryBanner } from './brain-view.js';
-import { setupOnboarding, showOnboarding } from './onboarding.js';
-import { setupSettings, renderSettings, setupPullToRefresh } from './settings.js';
+import { startOnboarding, showContextGreeting, handleAction, handleUserInput } from './ordo-agent.js';
+import { systemMessage } from './dialog-stream.js';
+import { logAction, touchActivity } from './session-log.js';
+import { setupPickingView, setupStagingOverlay, setupReviewOverlay, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay } from './photo-flow.js';
 import { setupCamera } from './camera.js';
-import { loadQuest, showCurrentStep, pauseQuest } from './quest.js';
+import { loadQuest } from './quest.js';
 import { closeTopOverlay } from './overlay-manager.js';
-import { setupPhotoFAB } from './smart-photo.js';
-import { setupCompanion, updateCompanionContext } from './companion.js';
-
-// ── State ──────────────────────────────────────────────
-let currentView = 'chat';
-let nfcContext = null;
+import { setupPhotoTimeline, setupMoveContainerOverlay } from './brain-view.js';
 
 // ── Constants ──────────────────────────────────────────
-// ── Zentrale Raum-Definitionen ────────────────────────
 const ROOM_TYPES = {
   kueche:        { name: 'Küche',         emoji: '🍳', aliases: ['kitchen'] },
   bad:           { name: 'Bad',           emoji: '🚿', aliases: ['bathroom', 'wc', 'toilette', 'dusche'] },
@@ -55,7 +49,6 @@ function getRoomLabel(type) {
   return ROOM_TYPES[type]?.name || type;
 }
 
-// Legacy ROOM_PRESETS format (backwards compat for modules that use [emoji, name] format)
 const ROOM_PRESETS = {};
 for (const [id, config] of Object.entries(ROOM_TYPES)) {
   ROOM_PRESETS[id] = [config.emoji, config.name];
@@ -75,39 +68,52 @@ function ensureRoom(roomId) {
   }
 }
 
-// isoNow() entfernt – brain.js hat die kanonische Version (ohne Millisekunden).
-// Kein Modul importiert isoNow aus app.js.
-
 function debugLog(msg) {
   const ts = new Date().toLocaleTimeString('de-DE');
-  const line = `[${ts}] ${msg}\n`;
-  for (const id of ['debug-log', 'photo-debug-log', 'onboarding-debug-log']) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    const current = el.textContent === '— noch kein Log —' ? '' : el.textContent;
-    el.textContent = line + current;
-  }
-  for (const panelId of ['photo-debug-panel', 'onboarding-debug-panel']) {
-    const panel = document.getElementById(panelId);
-    if (panel) panel.open = true;
-  }
+  const line = `[${ts}] ${msg}`;
+  console.log(line);
 }
 
-// ── State Getters/Setters ──────────────────────────────
+// ── State (Compat-Shims für bestehende Module) ────────
+let currentView = 'chat';
+let nfcContext = null;
+
 function getNfcContext() { return nfcContext; }
 function setNfcContext(ctx) { nfcContext = ctx; }
 function getCurrentView() { return currentView; }
 
-// ── Service Worker ─────────────────────────────────────
-function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('./service-worker.js').catch(err => { debugLog(`Service Worker Registrierung fehlgeschlagen: ${err.message}`); });
-  let reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading) return;
-    reloading = true;
-    window.location.reload();
+/**
+ * showView — Kompatibilitäts-Shim.
+ * Bestehende Module rufen showView() auf (z.B. nach Quest-Ende).
+ * Im neuen UI leiten wir das an den Agent weiter.
+ */
+function showView(name) {
+  currentView = name;
+  // Overlay-Module erwarten, dass showView Overlays schließt
+  closeAllOverlays();
+}
+
+// ── Overlay Management ────────────────────────────────
+function closeAllOverlays() {
+  const overlayIds = ['camera-overlay', 'staging-overlay', 'review-overlay', 'picking-overlay', 'photo-timeline-overlay', 'move-container-overlay', 'lightbox', 'fullscreen-overlay', 'quest-overlay', 'item-detail-panel'];
+  overlayIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.display = 'none';
+      el.classList.remove('lightbox--visible');
+      el.classList.add('hidden');
+    }
   });
+  const modal = document.getElementById('ordo-modal');
+  if (modal) modal.style.display = 'none';
+
+  const cameraVideo = document.getElementById('camera-video');
+  if (cameraVideo?.srcObject) {
+    cameraVideo.srcObject.getTracks().forEach(t => t.stop());
+    cameraVideo.srcObject = null;
+  }
+
+  cancelVideoAnalysis();
 }
 
 // ── URL / NFC Params ───────────────────────────────────
@@ -120,96 +126,18 @@ function parseNfcParams() {
   }
 }
 
-// ── Navigation ─────────────────────────────────────────
-function setupNavigation() {
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => showView(btn.dataset.view));
+// ── Service Worker ─────────────────────────────────────
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./service-worker.js').catch(err => {
+    debugLog(`Service Worker Registrierung fehlgeschlagen: ${err.message}`);
   });
-  document.getElementById('settings-gear').addEventListener('click', () => showView('settings'));
-
-  // Back button on photo view – clean up state before navigating
-  document.getElementById('photo-back-btn').addEventListener('click', () => {
-    cancelVideoAnalysis();
-    closeStagingOverlay();
-    showView('chat');
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
   });
-}
-
-function closeAllOverlays() {
-  const overlayIds = ['camera-overlay', 'staging-overlay', 'review-overlay', 'picking-overlay', 'photo-timeline-overlay', 'move-container-overlay', 'lightbox', 'quest-overlay', 'item-detail-panel'];
-  overlayIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.style.display = 'none';
-      el.classList.remove('lightbox--visible');
-    }
-  });
-  // Ensure modal backdrop is also closed
-  const modal = document.getElementById('ordo-modal');
-  if (modal) modal.style.display = 'none';
-
-  // Stop any active camera streams to prevent frozen state
-  const cameraVideo = document.getElementById('camera-video');
-  if (cameraVideo?.srcObject) {
-    cameraVideo.srcObject.getTracks().forEach(t => t.stop());
-    cameraVideo.srcObject = null;
-  }
-
-  // Restore nav bar visibility (may have been hidden by camera overlay)
-  const nav = document.getElementById('nav');
-  if (nav) nav.style.display = 'flex';
-
-  // Cancel any in-progress video analysis
-  cancelVideoAnalysis();
-}
-
-function pushHistoryState(state) {
-  if (typeof globalThis.history?.pushState === 'function') {
-    globalThis.history.pushState(state, '');
-  }
-}
-
-function showView(name) {
-  closeAllOverlays();
-  const previousView = currentView;
-  currentView = name;
-
-  // Push history state for view navigation (enables back button between views)
-  if (previousView !== name) {
-    pushHistoryState({ view: name });
-  }
-  // Clear inline display styles so CSS .view / .view.active rules take effect
-  document.querySelectorAll('.view').forEach(v => {
-    v.classList.remove('active');
-    v.style.display = '';
-  });
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-
-  // Keep onboarding hidden (it uses inline display managed by showOnboarding)
-  const onb = document.getElementById('view-onboarding');
-  if (onb) onb.style.display = 'none';
-
-  // Show nav (may have been hidden by onboarding)
-  const nav = document.getElementById('nav');
-  if (nav) nav.style.display = 'flex';
-
-  const view = document.getElementById(`view-${name}`);
-  if (view) view.classList.add('active');
-
-  const navBtn = document.querySelector(`.nav-btn[data-view="${name}"]`);
-  if (navBtn) navBtn.classList.add('active');
-
-  // Update contextual companion with current view
-  updateCompanionContext(name);
-
-  if (name === 'chat') { initChat(); maybeShowChatSuggestions(); }
-  if (name === 'brain') renderBrainView();
-  if (name === 'settings') renderSettings();
-  if (name === 'nfc-context') renderNfcContextView();
-  if (name === 'photo') {
-    renderRoomDropdown('photo-room-select');
-    applyNfcContextToPhotoView();
-  }
 }
 
 // ── localStorage Migration ─────────────────────────────
@@ -230,105 +158,214 @@ function migrateLocalStorageKeys() {
   migrateStorageKey('last_warranty_hint_shown', 'ordo_warranty_hint_shown');
 }
 
-// ── Init ───────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  // Critical init – must succeed for app to work
-  migrateLocalStorageKeys();
-  Brain.init();
-  parseNfcParams();
-
-  // Safe setup – each function is wrapped so a single failure
-  // does not prevent the rest of the app from initializing.
-  const safeSetup = [
-    ['registerServiceWorker', registerServiceWorker],
-    ['setupNavigation', setupNavigation],
-    ['setupChat', setupChat],
-    ['setupPhoto', setupPhoto],
-    ['setupBrain', setupBrain],
-    ['setupSettings', setupSettings],
-    ['setupPickingView', setupPickingView],
-    ['setupStagingOverlay', setupStagingOverlay],
-    ['setupReviewOverlay', setupReviewOverlay],
-    ['setupPullToRefresh', setupPullToRefresh],
-    ['setupOnboarding', setupOnboarding],
-    ['setupPhotoTimeline', setupPhotoTimeline],
-    ['setupMoveContainerOverlay', setupMoveContainerOverlay],
-    ['setupNfcContextView', setupNfcContextView],
-    ['setupCamera', setupCamera],
-    ['setupOfflineQueue', setupOfflineQueue],
-    ['loadQuest', loadQuest],
-    ['setupGlobalKeyboardHandling', setupGlobalKeyboardHandling],
-    ['setupPhotoFAB', setupPhotoFAB],
-    ['setupCompanion', setupCompanion],
-  ];
-  for (const [name, fn] of safeSetup) {
-    try { fn(); } catch (err) { console.error(`[ORDO] ${name} fehlgeschlagen:`, err); }
-  }
-
-  // Determine initial view – always runs even if setup partially failed
-  if (!localStorage.getItem('ordo_onboarding_completed') && Brain.isEmpty()) {
-    showOnboarding();
-  } else if (nfcContext && nfcContext.tag) {
-    showView('nfc-context');
-  } else {
-    showView('chat');
-  }
-
-  try {
-    const activeQuest = Brain.getQuest();
-    if (activeQuest?.active) {
-      const questLabel = activeQuest.type === 'cleanup' ? 'Aufräum-Quest' : 'Inventar-Quest';
-      const doneInfo = activeQuest.type === 'cleanup'
-        ? `${activeQuest.progress?.containers_done || 0} von ${activeQuest.progress?.containers_total || 0} Schritten erledigt`
-        : `${activeQuest.progress?.percent || 0}% geschafft`;
-      setTimeout(() => {
-        const shouldContinue = window.confirm(`Du hast eine ${questLabel} die noch läuft.\n${doneInfo}.\n\nWeitermachen?`);
-        if (shouldContinue) showCurrentStep();
-        else pauseQuest();
-      }, 250);
-    }
-  } catch (err) { console.error('[ORDO] Quest-Check fehlgeschlagen:', err); }
-
-  // Check for expiring warranties and show banner
-  try { checkWarrantyBanner(); } catch (err) { console.error('[ORDO] Warranty-Check fehlgeschlagen:', err); }
-  try { checkExpiryBanner(); } catch (err) { console.error('[ORDO] Expiry-Check fehlgeschlagen:', err); }
-});
-
-// ── Global Keyboard Handling ──────────────────────────
-function setupGlobalKeyboardHandling() {
-  // Scroll inputs into view when soft keyboard opens (for modals, overlays, etc.)
-  // Chat has its own more specific handler via visualViewport
-  document.addEventListener('focusin', (e) => {
-    if (e.target.matches('.ordo-modal-input, .ordo-modal-select, .picking-panel-input, .onboarding-apikey-input')) {
-      setTimeout(() => {
-        e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
+// ── Input Bar ──────────────────────────────────────────
+function setupInputBar() {
+  // Voice
+  document.getElementById('voice-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('voice-btn');
+    btn?.classList.add('listening');
+    try {
+      const text = await listenForSpeech();
+      if (text) handleUserInput(text);
+    } finally {
+      btn?.classList.remove('listening');
     }
   });
 
-  // Escape closes top overlay
+  // Photo
+  document.getElementById('photo-btn')?.addEventListener('click', () => {
+    handleAction({ action: 'takePhoto' });
+  });
+
+  // Video
+  document.getElementById('video-btn')?.addEventListener('click', () => {
+    handleAction({ action: 'takeVideo' });
+  });
+
+  // Text-Input
+  const wrapper = document.getElementById('text-input-wrapper');
+  const input = document.getElementById('text-input');
+  const sendBtn = document.getElementById('send-btn');
+
+  // Tap auf den collapsed wrapper öffnet ihn
+  wrapper?.addEventListener('click', (e) => {
+    if (wrapper.classList.contains('collapsed')) {
+      wrapper.classList.remove('collapsed');
+      input?.focus();
+      e.stopPropagation();
+    }
+  });
+
+  sendBtn?.addEventListener('click', () => {
+    const text = input?.value.trim();
+    if (text) {
+      handleUserInput(text);
+      input.value = '';
+      wrapper?.classList.add('collapsed');
+    }
+  });
+
+  input?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendBtn?.click();
+    }
+  });
+
+  // Collapse wenn Fokus verloren geht und leer
+  input?.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (!input.value.trim()) {
+        wrapper?.classList.add('collapsed');
+      }
+    }, 200);
+  });
+}
+
+// ── Voice Input (Web Speech API) ───────────────────────
+function listenForSpeech() {
+  return new Promise((resolve) => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      // Kein Speech API → Text-Input öffnen
+      const wrapper = document.getElementById('text-input-wrapper');
+      const input = document.getElementById('text-input');
+      if (wrapper && input) {
+        wrapper.classList.remove('collapsed');
+        input.focus();
+      }
+      resolve(null);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'de-DE';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    let resolved = false;
+    const done = (text) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(text);
+    };
+
+    recognition.onresult = (event) => {
+      const text = event.results[0]?.[0]?.transcript;
+      done(text || null);
+    };
+
+    recognition.onerror = () => done(null);
+    recognition.onend = () => done(null);
+
+    // Timeout nach 10 Sekunden
+    setTimeout(() => {
+      if (!resolved) {
+        recognition.stop();
+        done(null);
+      }
+    }, 10000);
+
+    try {
+      recognition.start();
+    } catch {
+      done(null);
+    }
+  });
+}
+
+// ── Global Keyboard Handling ──────────────────────────
+function setupGlobalKeyboardHandling() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeTopOverlay();
     }
   });
 
-  // Mobile back button: close top overlay or navigate back to previous view
-  window.addEventListener('popstate', (e) => {
+  window.addEventListener('popstate', () => {
     if (closeTopOverlay()) {
-      pushHistoryState(null);
-      return;
-    }
-    // No overlay open → navigate between views
-    if (currentView === 'photo' || currentView === 'settings' || currentView === 'nfc-context') {
-      pushHistoryState(null);
-      showView('chat');
-    } else if (currentView === 'brain') {
-      pushHistoryState(null);
-      showView('chat');
+      if (typeof globalThis.history?.pushState === 'function') {
+        globalThis.history.pushState(null, '');
+      }
     }
   });
 }
 
+// ── Visibility Change ──────────────────────────────────
+let lastVisible = Date.now();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    const away = (Date.now() - lastVisible) / 60000;
+    if (away > 5) {
+      showContextGreeting();
+    }
+    lastVisible = Date.now();
+  } else {
+    lastVisible = Date.now();
+  }
+});
+
+// ── Online/Offline ─────────────────────────────────────
+window.addEventListener('offline', () => {
+  systemMessage('📶 Offline — Fotos werden lokal gespeichert');
+});
+
+window.addEventListener('online', () => {
+  systemMessage('📶 Wieder online');
+});
+
+// ── Init ───────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Kritische Init
+  migrateLocalStorageKeys();
+  Brain.init();
+  parseNfcParams();
+
+  // Safe Setup — jede Funktion einzeln abgesichert
+  const safeSetup = [
+    ['registerServiceWorker', registerServiceWorker],
+    ['setupInputBar', setupInputBar],
+    ['setupGlobalKeyboardHandling', setupGlobalKeyboardHandling],
+    ['setupPickingView', setupPickingView],
+    ['setupStagingOverlay', setupStagingOverlay],
+    ['setupReviewOverlay', setupReviewOverlay],
+    ['setupCamera', setupCamera],
+    ['setupOfflineQueue', setupOfflineQueue],
+    ['loadQuest', loadQuest],
+    ['setupPhotoTimeline', setupPhotoTimeline],
+    ['setupMoveContainerOverlay', setupMoveContainerOverlay],
+  ];
+  for (const [name, fn] of safeSetup) {
+    try { fn(); } catch (err) { console.error(`[ORDO] ${name} fehlgeschlagen:`, err); }
+  }
+
+  // Header-Buttons
+  document.getElementById('ordo-home-btn')?.addEventListener('click', () => {
+    handleAction({ action: 'showHome' });
+  });
+  document.getElementById('ordo-settings-btn')?.addEventListener('click', () => {
+    handleAction({ action: 'showSettings' });
+  });
+
+  // Entscheidung: Onboarding oder Begrüßung
+  const hasApiKey = !!localStorage.getItem('ordo_api_key');
+
+  if (!hasApiKey && !localStorage.getItem('ordo_onboarding_completed')) {
+    startOnboarding();
+  } else {
+    showContextGreeting();
+  }
+
+  logAction('App gestartet', null, 'system');
+  touchActivity();
+});
+
 // ── Exports für andere Module ──────────────────────────
-export { currentView, nfcContext, ROOM_PRESETS, ROOM_TYPES, normalizeRoomType, getRoomEmoji, getRoomLabel, escapeHTML, debugLog, ensureRoom, showView, getNfcContext, setNfcContext, getCurrentView };
+export {
+  currentView, nfcContext,
+  ROOM_PRESETS, ROOM_TYPES,
+  normalizeRoomType, getRoomEmoji, getRoomLabel,
+  escapeHTML, debugLog, ensureRoom,
+  showView, getNfcContext, setNfcContext, getCurrentView,
+};
