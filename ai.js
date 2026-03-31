@@ -44,8 +44,8 @@ export { PROVIDERS };
 
 // ── Model Routing ─────────────────────────────────────
 const MODELS = {
-  fast: 'gemini-2.5-flash',  // neuestes Flash – Chat & Text
-  pro: 'gemini-2.5-pro',     // neuestes Pro – Foto/Video-Analyse, räumliche Tiefe
+  fast: 'gemini-3-flash-preview',      // neuestes Flash – Chat & Text
+  pro: 'gemini-3.1-pro-preview',       // neuestes Pro – Foto/Video-Analyse, räumliche Tiefe
 };
 
 /**
@@ -1754,7 +1754,7 @@ Regeln:
 
 // ── Gemini Multimodal Live API (WebSocket Audio Streaming) ──────
 
-const LIVE_MODEL = 'gemini-live-2.5-flash-native-audio';
+const LIVE_MODEL = 'gemini-3.1-flash-live-preview';
 const LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
 /**
