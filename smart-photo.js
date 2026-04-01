@@ -2,8 +2,8 @@
 // Foto von überall: KI erkennt Raum, Container und Items automatisch
 
 import Brain from './brain.js';
-import { callGemini, loadingManager, getErrorMessage } from './ai.js';
-import { capturePhoto } from './camera.js';
+import { callGemini, loadingManager, getErrorMessage, uploadVideoToGemini, deleteGeminiFile, MAX_VIDEO_SIZE_MB } from './ai.js';
+import { capturePhoto, captureVideo } from './camera.js';
 import { blobToBase64, resizeImage } from './photo-flow.js';
 import { showToast } from './modal.js';
 import { ROOM_TYPES, ensureRoom, debugLog, escapeHTML } from './app.js';
@@ -290,6 +290,79 @@ function hideSmartPhotoOverlay() {
   if (overlay) {
     overlay.style.display = 'none';
     if (overlay._cleanupListeners) overlay._cleanupListeners();
+  }
+}
+
+// ── Smart Video Capture Flow ───────────────────────
+export async function startSmartVideoCapture() {
+  const apiKey = Brain.getApiKey();
+  if (!apiKey) {
+    showToast('API Key nicht gesetzt. Bitte in den Einstellungen eintragen.', 'warning');
+    return;
+  }
+
+  // 1. Video aufnehmen
+  let file;
+  try {
+    file = await captureVideo(300);
+  } catch { /* cancelled */ }
+  if (!file) return;
+
+  const sizeMB = file.size / (1024 * 1024);
+  if (sizeMB > MAX_VIDEO_SIZE_MB) {
+    showToast(`Video zu groß (${Math.round(sizeMB)} MB). Maximum: ${MAX_VIDEO_SIZE_MB} MB.`, 'error');
+    return;
+  }
+
+  // 2. Loading anzeigen
+  showSmartPhotoLoading();
+  const statusEl = document.getElementById('smart-photo-status');
+  if (statusEl) statusEl.textContent = 'Video wird hochgeladen...';
+
+  let uploadedFile = null;
+  try {
+    // 3. Upload zu Gemini File API
+    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
+      if (statusEl) {
+        if (phase === 'uploading') statusEl.textContent = `Video wird hochgeladen... ${Math.round(pct)}%`;
+        else if (phase === 'processing') statusEl.textContent = 'Video wird verarbeitet...';
+      }
+    });
+
+    if (statusEl) statusEl.textContent = 'Video wird analysiert...';
+
+    // 4. AI-Analyse mit Smart-Photo-Prompt (erkennt Raum + Container + Items)
+    const prompt = buildSmartPhotoPrompt();
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'file', source: { type: 'uri', uri: uploadedFile.fileUri, mimeType: uploadedFile.mimeType } },
+        { type: 'text', text: 'Analysiere dieses Video. Erkenne Raum, Möbelstück und Gegenstände. Nutze alle Frames für eine vollständige Erfassung.' }
+      ]
+    }];
+
+    const raw = await callGemini(apiKey, prompt, messages, {
+      taskType: 'videoAnalysis',
+      hasVideo: true
+    });
+
+    const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
+
+    const analysis = JSON.parse(jsonMatch[0]);
+
+    // 5. Ergebnis-UI anzeigen (gleiche UI wie Smart Photo)
+    showSmartPhotoResult(analysis, file, null, file.type || 'video/webm');
+
+  } catch (err) {
+    hideSmartPhotoOverlay();
+    debugLog(`Smart Video Fehler: ${err.message}`);
+    showToast('Video konnte nicht analysiert werden: ' + getErrorMessage(err), 'error');
+  } finally {
+    if (uploadedFile?.fileName) {
+      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(() => {});
+    }
   }
 }
 
