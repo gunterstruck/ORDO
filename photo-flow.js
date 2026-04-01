@@ -71,7 +71,7 @@ function setupPhoto() {
   document.getElementById('photo-camera-btn').addEventListener('click', async () => {
     const roomId = document.getElementById('photo-room-select').value;
     if (!roomId) { showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error'); return; }
-    const customName = document.getElementById('photo-custom-name').value.trim();
+    const customName = document.getElementById('photo-custom-name')?.value?.trim() || '';
     const containerId = customName ? Brain.slugify(customName) : 'inhalt';
     stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
     const file = await capturePhoto();
@@ -88,7 +88,7 @@ function setupPhoto() {
   document.getElementById('photo-gallery-btn').addEventListener('click', () => {
     const roomId = document.getElementById('photo-room-select').value;
     if (!roomId) { showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error'); return; }
-    const customName = document.getElementById('photo-custom-name').value.trim();
+    const customName = document.getElementById('photo-custom-name')?.value?.trim() || '';
     const containerId = customName ? Brain.slugify(customName) : 'inhalt';
     stagingTarget = { roomId, containerId, containerName: customName, mode: 'add' };
     document.getElementById('photo-input-gallery').click();
@@ -634,7 +634,7 @@ async function handleVideoFile(file) {
     return;
   }
 
-  const roomId = document.getElementById('photo-room-select').value;
+  const roomId = document.getElementById('photo-room-select')?.value;
   if (!roomId) {
     showPhotoStatus('Bitte zuerst einen Raum wählen.', 'error');
     return;
@@ -661,7 +661,7 @@ async function handleVideoFile(file) {
     if (videoAbortController?.signal.aborted) throw new Error('aborted');
 
     // Build system prompt for container-level video analysis
-    const customName = document.getElementById('photo-custom-name').value.trim();
+    const customName = document.getElementById('photo-custom-name')?.value?.trim() || '';
     const systemPrompt = `Du bist ein Raumerkennungs-Assistent. Analysiere dieses Video eines Raums.
 Erkenne alle sichtbaren Aufbewahrungsmöbel und deren Inhalte.
 
@@ -752,6 +752,7 @@ function cancelVideoAnalysis() {
 
 function showPhotoStatus(msg, type) {
   const el = document.getElementById('photo-status');
+  if (!el) return;
   el.textContent = msg;
   el.className = `photo-status photo-status--${type}`;
   el.style.display = 'block';
@@ -761,6 +762,7 @@ function showPhotoStatus(msg, type) {
 function startAnalysisAnimation(taskType = 'analyzePhoto') {
   stopAnalysisAnimation();
   const el = document.getElementById('photo-status');
+  if (!el) return;
   el.className = 'photo-status photo-status--loading';
   el.style.display = 'block';
   loadingManager.start(taskType, el);
@@ -1936,9 +1938,10 @@ function confirmReview() {
     // Normal mode (first scan)
     if (mode === 'replace') {
       const data = Brain.getData();
-      if (data.rooms?.[roomId]?.containers?.[containerId]) {
-        data.rooms[roomId].containers[containerId].items = [];
-        data.rooms[roomId].containers[containerId].quantities = {};
+      const container = Brain._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+      if (container) {
+        container.items = [];
+        container.quantities = {};
         Brain.save(data);
       }
     }
