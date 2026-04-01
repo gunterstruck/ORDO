@@ -375,14 +375,10 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
       // Ensure room exists
       ensureRoom(roomId);
 
-      // Build container context for dedup (Mechanism C)
-      let containerContextBlock = '';
-      if (targetContainerId) {
-        const existingItems = Brain.getContainerItemNames(roomId, targetContainerId);
-        if (existingItems.length > 0) {
-          containerContextBlock = `\nDieser Behälter enthält bereits folgende Gegenstände: ${existingItems.join(', ')}. Wenn du einen dieser Gegenstände wiedererkennst, liste ihn NICHT erneut auf. Liste NUR neue Gegenstände, die noch nicht in der Liste stehen.`;
-        }
-      }
+      // Check if container already has items → Delta mode (wie Staging-Flow)
+      const existingContainer = targetContainerId ? Brain.getContainer(roomId, targetContainerId) : null;
+      const existingActiveItems = existingContainer ? Brain.getActiveItems(roomId, targetContainerId) : [];
+      const isDeltaMode = existingActiveItems.length > 0;
 
       // Build infrastructure ignore list for this container
       let infrastructureBlock = '';
@@ -395,7 +391,49 @@ async function handlePhotoFile(file, targetRoomId = null, targetContainerId = nu
         }
       }
 
-      const systemPrompt = `GRUNDREGEL – Was ist ein Gegenstand?
+      let systemPrompt;
+
+      if (isDeltaMode) {
+        // Delta mode: compare photo with known contents
+        const knownItemsList = existingActiveItems.map(item => {
+          const name = Brain.getItemName(item);
+          const menge = item.menge || 1;
+          return menge > 1 ? `${menge}x ${name}` : name;
+        }).join(', ');
+
+        systemPrompt = `Analysiere dieses Foto.
+Vergleiche das Foto mit dem bekannten Inhalt dieses Behälters.
+Bekannter Inhalt (aus der Datenbank): ${knownItemsList}${infrastructureBlock}
+
+Antworte NUR mit diesem JSON:
+{
+  "bestaetigt": [
+    {"name": "Schere", "menge": 1}
+  ],
+  "nicht_gesehen": [
+    {"name": "Alter Adapter", "vermutung": "nicht mehr sichtbar"}
+  ],
+  "neu_erkannt": [
+    {"name": "Taschenlampe", "menge": 1}
+  ],
+  "hinweis": "optionaler Kommentar (sonst leer lassen)"
+}
+Regeln:
+- "bestaetigt": Dinge die du auf dem Foto siehst UND die im bekannten Inhalt stehen
+- "nicht_gesehen": Dinge aus dem bekannten Inhalt die du auf dem Foto NICHT sehen kannst
+- "neu_erkannt": Dinge die du auf dem Foto siehst aber die NICHT im bekannten Inhalt stehen
+- Sei ehrlich: Wenn etwas verdeckt sein könnte, sage das in der "vermutung"
+- Mengen aktualisieren wenn sich die Anzahl geändert hat
+- Jede Variante (Farbe, Muster, Größe) ist ein separater Eintrag
+
+VERFALLSDATEN:
+Wenn du auf dem Foto Verfallsdaten erkennst (MHD/Mindesthaltbarkeitsdatum auf Lebensmitteln, Ablaufdatum auf Medikamenten, PAO-Symbol auf Kosmetik), gib sie pro Gegenstand als "expiry" Feld zurück:
+"expiry": { "date": "2026-09-15", "type": "lebensmittel" }
+Typen: "lebensmittel", "medikament", "kosmetik", "sonstiges"
+Datumsformat: YYYY-MM-DD oder YYYY-MM. Wenn kein Verfallsdatum sichtbar ist, lasse das Feld weg.`;
+      } else {
+        // New container: full analysis with behaelter structure
+        systemPrompt = `GRUNDREGEL – Was ist ein Gegenstand?
 Inventarisiere ausschließlich lose Gegenstände, also Dinge, die ein Mensch ohne Werkzeug aufheben und woanders hinlegen kann. Stell dir die Umzugskarton-Faustregel vor: Wenn du es beim Umzug nicht in eine Kiste packen würdest, ist es kein Gegenstand – dann ignoriere es.
 
 Möbelstücke erkennst du als Behälter (Schrank, Regal, Kommode usw.), aber ihre fest verbauten Bestandteile sind keine eigenständigen Gegenstände. Griffe, Scharniere, Führungsschienen und Beschläge gehören zum Möbel selbst und werden nicht aufgelistet. Prüfe bei Zweifeln: Besteht das Objekt aus demselben Material wie das Möbelstück und ist nahtlos damit verbunden? Dann ist es ein Teil davon, kein eigener Gegenstand.
@@ -404,7 +442,7 @@ Ignoriere grundsätzlich fest installierte Infrastruktur, zum Beispiel: Griffe u
 
 Analysiere dieses Foto eines Raums oder Möbelstücks.
 Wenn du ein Möbelstück mit erkennbaren Unterteilungen siehst (Türen, Schubladen, Fächer, Regalböden), bilde die Hierarchie im JSON ab.
-Ein Behälter kann Unterbehälter haben. Nutze das Feld "behaelter" rekursiv.${containerContextBlock}
+Ein Behälter kann Unterbehälter haben. Nutze das Feld "behaelter" rekursiv.
 Antworte NUR mit diesem JSON, nichts anderes:
 {
   "behaelter": [
@@ -445,6 +483,7 @@ Regeln:
 - Im Zweifel flach lassen
 - Maximal 3 Ebenen tief
 - Jeder Behälter braucht eine eindeutige ID`;
+      }
 
       const messages = [{
         role: 'user',
@@ -468,62 +507,109 @@ Regeln:
 
       const analysis = JSON.parse(jsonMatch[0]);
 
-      // If targeting a specific container, force its name/id
-      if (targetContainerId && analysis.behaelter?.length > 0) {
-        const c = Brain.getContainer(roomId, targetContainerId);
-        if (c) {
-          analysis.behaelter[0].name = c.name;
-          analysis.behaelter[0].id = targetContainerId;
-        }
-      } else if (customName && analysis.behaelter?.length > 0) {
-        analysis.behaelter[0].name = customName;
-        analysis.behaelter[0].id = Brain.slugify(customName);
-      }
+      if (isDeltaMode) {
+        // ── Delta-Modus: Review-Popup mit bestaetigt/nicht_gesehen/neu_erkannt ──
+        const bestaetigt = (analysis.bestaetigt || []).map((item, i) => ({
+          id: `confirmed_${i}`,
+          name: typeof item === 'string' ? item : (item.name || ''),
+          menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+          checked: true,
+          section: 'bestaetigt',
+          ...(item.expiry?.date ? { expiry: item.expiry } : {})
+        })).filter(item => item.name.trim());
 
-      const count = Brain.applyPhotoAnalysis(roomId, analysis);
+        const nichtGesehen = (analysis.nicht_gesehen || []).map((item, i) => ({
+          id: `missing_${i}`,
+          name: typeof item === 'string' ? item : (item.name || ''),
+          vermutung: typeof item === 'string' ? '' : (item.vermutung || ''),
+          action: 'nichts',
+          section: 'nicht_gesehen'
+        })).filter(item => item.name.trim());
 
-      // Determine primary container ID for photo saving and picking view
-      let primaryContainerId = targetContainerId;
-      if (!primaryContainerId && analysis.behaelter?.length > 0) {
-        primaryContainerId = Brain.slugify(analysis.behaelter[0].id || analysis.behaelter[0].name);
-      } else if (!primaryContainerId && customName) {
-        primaryContainerId = Brain.slugify(customName);
-      } else if (!primaryContainerId) {
-        primaryContainerId = 'inhalt';
-      }
+        const neuErkannt = (analysis.neu_erkannt || []).map((item, i) => ({
+          id: `new_${i}`,
+          name: typeof item === 'string' ? item : (item.name || ''),
+          menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+          checked: true,
+          section: 'neu_erkannt',
+          ...(item.expiry?.date ? { expiry: item.expiry } : {})
+        })).filter(item => item.name.trim());
 
-      // Save resized photo to IndexedDB with history
-      try {
-        const resized = await resizeImage(file, 1200);
-        await Brain.savePhotoWithHistory(roomId, primaryContainerId, resized);
-        Brain.setContainerHasPhoto(roomId, primaryContainerId, true);
-      } catch(err) { console.warn('Foto konnte nicht gespeichert werden:', err.message); }
+        const items = [...bestaetigt, ...neuErkannt];
+        const deltaData = { bestaetigt, nichtGesehen, neuErkannt };
+        const containerName = existingContainer?.name || customName || targetContainerId;
 
-      // New flow (main photo view only): hotspot picking view
-      if (!targetRoomId) {
-        const photoDataUrl = e.target.result;
-        showPhotoStatus('Erkenne Gegenstände im Foto…', 'loading');
+        // Save photo
         try {
-          const hotspotsData = await analyzeHotspots(apiKey, base64, mimeType, roomId, primaryContainerId);
-          // Ensure container exists for items to be saved into
-          if (!Brain.getContainer(roomId, primaryContainerId)) {
-            const containerName = customName || analysis.behaelter?.[0]?.name || 'Inhalt';
-            Brain.addContainer(roomId, primaryContainerId, containerName, 'sonstiges', [], true);
+          const resized = await resizeImage(file, 1200);
+          await Brain.savePhotoWithHistory(roomId, targetContainerId, resized);
+          Brain.setContainerHasPhoto(roomId, targetContainerId, true);
+        } catch(err) { console.warn('Foto konnte nicht gespeichert werden:', err.message); }
+
+        stopAnalysisAnimation();
+        const hint = (analysis.hinweis || '').trim();
+        showReviewPopup(roomId, targetContainerId, containerName, items, 'delta', hint || null, false, deltaData);
+
+      } else {
+        // ── Neuer Container: altes Verhalten mit applyPhotoAnalysis ──
+
+        // If targeting a specific container, force its name/id
+        if (targetContainerId && analysis.behaelter?.length > 0) {
+          const c = Brain.getContainer(roomId, targetContainerId);
+          if (c) {
+            analysis.behaelter[0].name = c.name;
+            analysis.behaelter[0].id = targetContainerId;
           }
-          showPickingView(roomId, primaryContainerId, photoDataUrl, hotspotsData);
+        } else if (customName && analysis.behaelter?.length > 0) {
+          analysis.behaelter[0].name = customName;
+          analysis.behaelter[0].id = Brain.slugify(customName);
+        }
+
+        const count = Brain.applyPhotoAnalysis(roomId, analysis);
+
+        // Determine primary container ID for photo saving and picking view
+        let primaryContainerId = targetContainerId;
+        if (!primaryContainerId && analysis.behaelter?.length > 0) {
+          primaryContainerId = Brain.slugify(analysis.behaelter[0].id || analysis.behaelter[0].name);
+        } else if (!primaryContainerId && customName) {
+          primaryContainerId = Brain.slugify(customName);
+        } else if (!primaryContainerId) {
+          primaryContainerId = 'inhalt';
+        }
+
+        // Save resized photo to IndexedDB with history
+        try {
+          const resized = await resizeImage(file, 1200);
+          await Brain.savePhotoWithHistory(roomId, primaryContainerId, resized);
+          Brain.setContainerHasPhoto(roomId, primaryContainerId, true);
+        } catch(err) { console.warn('Foto konnte nicht gespeichert werden:', err.message); }
+
+        // New flow (main photo view only): hotspot picking view
+        if (!targetRoomId) {
+          const photoDataUrl = e.target.result;
+          showPhotoStatus('Erkenne Gegenstände im Foto…', 'loading');
+          try {
+            const hotspotsData = await analyzeHotspots(apiKey, base64, mimeType, roomId, primaryContainerId);
+            // Ensure container exists for items to be saved into
+            if (!Brain.getContainer(roomId, primaryContainerId)) {
+              const containerName = customName || analysis.behaelter?.[0]?.name || 'Inhalt';
+              Brain.addContainer(roomId, primaryContainerId, containerName, 'sonstiges', [], true);
+            }
+            showPickingView(roomId, primaryContainerId, photoDataUrl, hotspotsData);
+            stopAnalysisAnimation();
+            document.getElementById('photo-status').style.display = 'none';
+          } catch {
+            // Fallback: old behavior with chat follow-up questions
+            stopAnalysisAnimation();
+            processPhotoAnalysisResult(roomId, analysis);
+            showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
+            renderBrainView();
+          }
+        } else {
           stopAnalysisAnimation();
-          document.getElementById('photo-status').style.display = 'none';
-        } catch {
-          // Fallback: old behavior with chat follow-up questions
-          stopAnalysisAnimation();
-          processPhotoAnalysisResult(roomId, analysis);
           showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
           renderBrainView();
         }
-      } else {
-        stopAnalysisAnimation();
-        showPhotoStatus(`Ich habe ${count} Bereiche gelernt.`, 'success');
-        renderBrainView();
       }
     } catch (err) {
       stopAnalysisAnimation();
