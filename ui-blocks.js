@@ -2,11 +2,10 @@
 // Jeder Block-Typ hat eine Render-Funktion die ein DOM-Element zurückgibt.
 
 import Brain from './brain.js';
-import { escapeHTML, getRoomEmoji } from './app.js';
+import { escapeHTML } from './app.js';
 import {
   calculateFreedomIndex, getQuickDecision, getArchivedByReason,
-  getSellableItems, roomCheck, householdCheck, getImprovementReport,
-  getSeasonalRecommendations, detectLifeEvents, getCurrentSeason,
+  getImprovementReport, getSeasonalRecommendations, detectLifeEvents,
 } from './organizer.js';
 import { getTodaySummary } from './session-log.js';
 
@@ -407,8 +406,8 @@ registerBlock('ExpiryList', (props) => {
 
   const maxItems = props.compact ? (props.maxItems || 3) : items.length;
   const expired = items.filter(e => e.isExpired);
-  const soon = items.filter(e => !e.isExpired && e.daysLeft <= 30);
-  const ok = items.filter(e => !e.isExpired && e.daysLeft > 30);
+  const soon = items.filter(e => !e.isExpired && (e.isExpiringSoon || e.daysUntilExpiry <= 30));
+  const ok = items.filter(e => !e.isExpired && !e.isExpiringSoon && e.daysUntilExpiry > 30);
 
   function addSection(title, list, icon) {
     if (list.length === 0) return;
@@ -417,14 +416,18 @@ registerBlock('ExpiryList', (props) => {
     titleEl.textContent = title;
     el.appendChild(titleEl);
 
+    const itemName = (item) => item.item?.name || item.itemName || '';
+    const location = (item) => [item.roomName, item.containerName].filter(Boolean).join(' \u203A ');
+
     for (const item of list.slice(0, maxItems)) {
+      const days = Math.abs(item.daysUntilExpiry || 0);
       const row = document.createElement('div');
       row.className = 'expiry-row';
       row.innerHTML = `
         <span class="expiry-icon">${icon}</span>
         <div class="expiry-info">
-          <div class="expiry-name">${escapeHTML(item.itemName || item.name || '')}</div>
-          <div class="expiry-meta">${escapeHTML(item.location || '')} \u00b7 ${item.isExpired ? `${Math.abs(item.daysLeft || 0)} Tage abgelaufen` : `${item.daysLeft || '?'} Tage`}</div>
+          <div class="expiry-name">${escapeHTML(itemName(item))}</div>
+          <div class="expiry-meta">${escapeHTML(location(item))} \u00b7 ${item.isExpired ? `${days} Tage abgelaufen` : `${days} Tage`}</div>
         </div>
       `;
       if (item.isExpired) {
@@ -433,7 +436,7 @@ registerBlock('ExpiryList', (props) => {
         btn.textContent = '\u{1F5D1}\uFE0F Entsorgen';
         btn.addEventListener('click', async () => {
           const { handleAction } = await import('./ordo-agent.js');
-          handleAction({ action: 'archiveItem', itemName: item.itemName || item.name, roomId: item.roomId, containerId: item.containerId });
+          handleAction({ action: 'archiveItem', itemName: itemName(item), roomId: item.roomId, containerId: item.containerId });
         });
         row.appendChild(btn);
       }
@@ -553,10 +556,14 @@ registerBlock('SalesCard', (props) => {
     const copyBtn = document.createElement('button');
     copyBtn.className = 'sales-copy-btn';
     copyBtn.textContent = '\u{1F4CB} Kopieren';
-    copyBtn.addEventListener('click', () => {
+    copyBtn.addEventListener('click', async () => {
       const text = `${item.title || item.name}\n${item.description}\nPreis: ${item.price || 'VB'}\u20AC`;
-      navigator.clipboard?.writeText(text);
-      copyBtn.textContent = '\u2705 Kopiert!';
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = '\u2705 Kopiert!';
+      } catch {
+        copyBtn.textContent = '\u274C Fehler';
+      }
       setTimeout(() => { copyBtn.textContent = '\u{1F4CB} Kopieren'; }, 2000);
     });
     card.appendChild(copyBtn);
@@ -673,7 +680,9 @@ registerBlock('QuickDecision', (props) => {
       if (b.reason === 'behalten') {
         handleAction({ action: 'showHome' });
       } else {
-        Brain.removeItem(decision.roomId, decision.containerId, decision.itemName);
+        if (decision.roomId && decision.containerId) {
+          Brain.removeItem(decision.roomId, decision.containerId, decision.itemName);
+        }
         handleAction({ action: 'quickDecision' }); // nächste Entscheidung
       }
     });
@@ -1143,7 +1152,7 @@ registerBlock('ActivityLog', () => {
   const el = document.createElement('div');
   el.classList.add('block-activity-log');
 
-  const summary = getTodaySummary();
+  const summary = getTodaySummary() || { actions: 0, photos: 0, chats: 0 };
 
   el.innerHTML = `
     <div class="activity-header">Heute:</div>

@@ -266,6 +266,20 @@ export async function handleAction(action) {
       break;
     }
 
+    case 'continueQuest': {
+      const { showCurrentStep } = await import('./quest.js');
+      showCurrentStep();
+      break;
+    }
+
+    case 'searchItem':
+      agentMessage(companionSays({
+        sachlich: 'Was suchst du?',
+        freundlich: 'Was suchst du? Tippe den Namen ein!',
+        kauzig: 'Was ist weg? Raus damit.',
+      }));
+      break;
+
     // --- BERICHTE ---
 
     case 'showExpiry': {
