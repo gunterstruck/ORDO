@@ -650,6 +650,8 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
         clearTimeout(timeoutId);
         clearTimeout(slowTimer);
       } catch (fetchErr) {
+        clearTimeout(timeoutId);
+        clearTimeout(slowTimer);
         const isTimeout = fetchErr.name === 'AbortError';
         debugLog(isTimeout
           ? `TIMEOUT nach ${REQUEST_TIMEOUT_MS / 1000}s (Modell: ${currentModel})`
@@ -1016,7 +1018,11 @@ export function buildMessages(history, newUserText) {
   const msgs = [];
   let lastRole = null;
   for (const m of history) {
-    if (m.role !== lastRole) {
+    if (m.role === lastRole && msgs.length > 0) {
+      // Merge consecutive same-role messages instead of dropping
+      const last = msgs[msgs.length - 1];
+      last.content = last.content + '\n' + m.content;
+    } else {
       msgs.push({ role: m.role, content: m.content });
       lastRole = m.role;
     }
@@ -1291,7 +1297,9 @@ export function executeOrdoAction(action) {
         const c = Brain.getContainer(action.room, containerId);
         const r = Brain.getRoom(action.room);
         const data = Brain.getData();
-        const cont = Brain._findContainerInTree(data.rooms[action.room].containers, containerId);
+        const roomData = data.rooms?.[action.room];
+        if (!roomData) return;
+        const cont = Brain._findContainerInTree(roomData.containers, containerId);
         if (cont) {
           cont.items = (action.items || []).map(i => {
             const name = typeof i === 'string' ? i : i.name;
@@ -2036,7 +2044,10 @@ export class GeminiLiveSession {
       });
 
       // 5. Nachrichten-Handler einrichten
-      this.ws.onmessage = (event) => this._handleMessage(event);
+      this.ws.onmessage = (event) => this._handleMessage(event).catch(err => {
+        debugLog(`[Live] Nachrichten-Verarbeitung fehlgeschlagen: ${err.message}`);
+        this.onError?.('Nachrichtenfehler: ' + err.message);
+      });
       this.ws.onclose = (event) => {
         debugLog(`[Live] WebSocket geschlossen: code=${event.code} reason=${event.reason || 'keine'}`);
         if (this.state !== 'disconnected') {
@@ -2054,7 +2065,7 @@ export class GeminiLiveSession {
       };
 
       // 6. Audio-Capture starten
-      this._startAudioCapture();
+      await this._startAudioCapture();
 
       // 7. Playback-Context erstellen und sicherstellen dass er läuft
       this.playbackContext = new AudioContext({ sampleRate: 24000 });
