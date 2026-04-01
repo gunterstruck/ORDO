@@ -16,7 +16,7 @@ const localStorage = {
 
 const context = vm.createContext({
   localStorage,
-  window: { localStorage },
+  window: { localStorage, addEventListener() {}, removeEventListener() {} },
   document: { addEventListener() {}, querySelectorAll: () => [], getElementById: () => null },
   console,
   Date,

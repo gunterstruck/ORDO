@@ -310,6 +310,12 @@ export async function handleAction(action) {
       showReportsMenu();
       break;
 
+    case 'generateInsuranceReport': {
+      const { showReportDialog } = await import('./report.js');
+      showReportDialog();
+      break;
+    }
+
     // --- SETTINGS ---
 
     case 'showSettings':

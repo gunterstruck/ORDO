@@ -3,7 +3,7 @@
 
 import Brain from './brain.js';
 import { startOnboarding, showContextGreeting, handleAction, handleUserInput } from './ordo-agent.js';
-import { systemMessage } from './dialog-stream.js';
+import { systemMessage, clearStream } from './dialog-stream.js';
 import { logAction, touchActivity } from './session-log.js';
 import { setupPickingView, setupStagingOverlay, setupReviewOverlay, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay } from './photo-flow.js';
 import { setupCamera } from './camera.js';
@@ -342,6 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Header-Buttons
   document.getElementById('ordo-home-btn')?.addEventListener('click', () => {
+    clearStream();
     handleAction({ action: 'showHome' });
   });
   document.getElementById('ordo-settings-btn')?.addEventListener('click', () => {

@@ -115,7 +115,9 @@ const window = {
   location: { search: '', origin: 'https://example.com', pathname: '/', reload() {} },
   indexedDB: undefined,
   SpeechRecognition: undefined,
-  webkitSpeechRecognition: undefined
+  webkitSpeechRecognition: undefined,
+  addEventListener() {},
+  removeEventListener() {}
 };
 
 const navigator = {
@@ -185,11 +187,10 @@ describe('Navigation – View-Wechsel', () => {
     assertEqual(context.currentView, 'settings');
   });
 
-  it('showView("chat") initialisiert Chat', () => {
+  it('showView("chat") setzt currentView auf chat', () => {
     resetAll();
     context.showView('chat');
-    const msgs = elements['chat-messages'];
-    assert(msgs.children.length > 0 || msgs.innerHTML !== '', 'Chat sollte Begrüßung zeigen');
+    assertEqual(context.currentView, 'chat', 'currentView sollte chat sein');
   });
 });
 

@@ -85,7 +85,9 @@ const window = {
   location: { search: '', origin: 'https://example.com', pathname: '/', reload() {} },
   indexedDB: undefined,
   SpeechRecognition: undefined,
-  webkitSpeechRecognition: undefined
+  webkitSpeechRecognition: undefined,
+  addEventListener() {},
+  removeEventListener() {}
 };
 
 const navigator = { onLine: true, serviceWorker: { register() { return Promise.resolve(); }, addEventListener() {} }, clipboard: { writeText() { return Promise.resolve(); } } };
