@@ -6,7 +6,7 @@ import {
   agentMessage, userMessage, systemMessage,
   showStreamLoading, hideStreamLoading, clearStream,
 } from './dialog-stream.js';
-import { calculateFreedomIndex, getQuickWins } from './organizer.js';
+import { calculateFreedomIndex, getQuickWins, getSeasonalRecommendations } from './organizer.js';
 import { checkLocalIntent, executeLocalIntent } from './local-intents.js';
 import { getPersonality, getPersonalityPrompt } from './chat.js';
 import {
@@ -268,11 +268,17 @@ export async function handleAction(action) {
       break;
     }
 
-    case 'showImprovement': {
-      agentMessage('Fortschritt wird berechnet...');
-      // Phase B: ImprovementChart-Block
+    case 'showImprovement':
+      agentMessage(companionSays({
+        sachlich: 'Dein Fortschritt:',
+        freundlich: 'Schau mal wie du dich verbessert hast!',
+        kauzig: 'Ob sich was getan hat...',
+      }), [
+        { type: 'ImprovementReport', props: {} },
+      ], [
+        { icon: '🏠', label: 'Zurück', action: 'showHome' },
+      ]);
       break;
-    }
 
     case 'showReports':
       showReportsMenu();
@@ -392,6 +398,198 @@ export async function handleAction(action) {
       }), [], getSmartActions('general'));
       break;
 
+    // --- BERICHTE (Phase B) ---
+
+    case 'generateInsuranceReport': {
+      const { showReportDialog } = await import('./report.js');
+      showReportDialog();
+      break;
+    }
+
+    case 'generateDonationPDF': {
+      const { generateDonationListPDF } = await import('./report.js');
+      await generateDonationListPDF();
+      agentMessage('Spendenliste als PDF erstellt.', [], [
+        { icon: '📋', label: 'Nochmal', action: 'generateDonationPDF' },
+        { icon: '🏠', label: 'Zurück', action: 'showHome' },
+      ]);
+      break;
+    }
+
+    case 'showSalesView': {
+      agentMessage('Erstelle Verkaufs-Entwürfe...', []);
+      try {
+        const { getSellableItems } = await import('./organizer.js');
+        const { generateSalesTexts } = await import('./ai.js');
+        const items = getSellableItems();
+        if (items.length === 0) {
+          agentMessage(companionSays({
+            sachlich: 'Keine verkaufbaren Items gefunden.',
+            freundlich: 'Ich finde gerade nichts zum Verkaufen.',
+            kauzig: 'Nichts da. Erst aussortieren, dann verkaufen.',
+          }));
+          break;
+        }
+        const texts = await generateSalesTexts(items);
+        agentMessage('Verkaufs-Entwürfe:', [
+          { type: 'SalesCard', props: { items: texts } },
+        ]);
+      } catch {
+        agentMessage('Verkaufs-Entwürfe konnten nicht erstellt werden.');
+      }
+      break;
+    }
+
+    case 'showDonationList':
+      agentMessage('Spendenliste:', [
+        { type: 'DonationList', props: {} },
+      ], [
+        { icon: '📄', label: 'Als PDF', action: 'generateDonationPDF' },
+        { icon: '🏠', label: 'Zurück', action: 'showHome' },
+      ]);
+      break;
+
+    // --- AUFRÄUMEN (Phase B) ---
+
+    case 'startCleanupQuest': {
+      const { startCleanupQuest: startQuest } = await import('./quest.js');
+      startQuest(action.minutes || 15);
+      break;
+    }
+
+    case 'quickDecision':
+      agentMessage(companionSays({
+        sachlich: 'Eine Entscheidung:',
+        freundlich: 'Was meinst du zu diesem Teil?',
+        kauzig: 'Behalten oder weg?',
+      }), [
+        { type: 'QuickDecision', props: {} },
+      ]);
+      break;
+
+    case 'roomCheck': {
+      const { roomCheck: doRoomCheck } = await import('./organizer.js');
+      const check = doRoomCheck(action.roomId);
+      if (check) {
+        agentMessage(`Raum-Check: ${check.roomName}`, [
+          { type: 'RoomCheckCard', props: { data: check } },
+        ], [
+          { icon: '🧹', label: 'Aufräumen', action: 'startCleanup', primary: true },
+          { icon: '🏠', label: 'Zurück', action: 'showHome' },
+        ]);
+      } else {
+        agentMessage('Diesen Raum kenne ich nicht.');
+      }
+      break;
+    }
+
+    case 'householdCheck': {
+      const { householdCheck: doHouseholdCheck } = await import('./organizer.js');
+      const hCheck = doHouseholdCheck();
+      agentMessage('Haushalts-Check:', [
+        { type: 'HouseholdCheckCard', props: { data: hCheck } },
+      ], [
+        { icon: '🧹', label: 'Aufräumen', action: 'startCleanup', primary: true },
+        { icon: '📋', label: 'Spendenliste', action: 'showDonationList' },
+      ]);
+      break;
+    }
+
+    // --- VERBESSERUNG & SAISON (Phase B) ---
+
+    case 'showSeasonalDetails':
+    case 'showSeasonal':
+      agentMessage(companionSays({
+        sachlich: 'Saisonale Empfehlungen:',
+        freundlich: 'Hier ein paar saisonale Tipps!',
+        kauzig: 'Was die Saison so verlangt:',
+      }), [
+        { type: 'SeasonalCard', props: {} },
+      ], [
+        { icon: '🏠', label: 'Zurück', action: 'showHome' },
+      ]);
+      break;
+
+    // --- SPATIAL (Phase B) ---
+
+    case 'showMap':
+      agentMessage(companionSays({
+        sachlich: 'Dein Zuhause:',
+        freundlich: 'Hier ist dein Zuhause als Karte!',
+        kauzig: 'Da wohnst du also.',
+      }), [
+        { type: 'SpatialMap', props: {} },
+      ], [
+        { icon: '🏠', label: 'Zurück', action: 'showHome' },
+      ]);
+      break;
+
+    // --- AKTIVITÄT (Phase B) ---
+
+    case 'showActivity':
+    case 'showSessionSummary':
+      agentMessage(companionSays({
+        sachlich: 'Heutige Aktivität:',
+        freundlich: 'Das hast du heute geschafft!',
+        kauzig: 'Was du so getrieben hast:',
+      }), [
+        { type: 'ActivityLog', props: {} },
+      ], [
+        { icon: '🏠', label: 'Zurück', action: 'showHome' },
+      ]);
+      break;
+
+    // --- LIVE DIALOG (Phase B) ---
+
+    case 'startLive':
+    case 'liveDialog':
+      agentMessage(companionSays({
+        sachlich: 'Live-Modus. Sprich einfach.',
+        freundlich: 'Live-Modus! Lass uns quatschen.',
+        kauzig: 'Na gut. Reden wir. Aber fass dich kurz.',
+      }), [
+        { type: 'LiveDialogCard', props: {} },
+      ]);
+      break;
+
+    case 'endLive':
+      agentMessage(companionSays({
+        sachlich: 'Live-Dialog beendet.',
+        freundlich: 'Gutes Gespräch! Hier was wir besprochen haben:',
+        kauzig: 'So. Genug geredet.',
+      }), [
+        { type: 'ActivityLog', props: { sessionOnly: true } },
+      ], [
+        { icon: '📷', label: 'Foto', action: 'takePhoto' },
+        { icon: '🏠', label: 'Mein Zuhause', action: 'showHome' },
+      ]);
+      break;
+
+    // --- ARCHIVIEREN (Phase B) ---
+
+    case 'archiveItem':
+      agentMessage(`${action.itemName || 'Item'} — was soll damit passieren?`, [
+        { type: 'QuickDecision', props: {
+          itemName: action.itemName,
+          roomId: action.roomId,
+          containerId: action.containerId,
+          mode: 'archive',
+        }},
+      ]);
+      break;
+
+    // --- HILFE (Phase B) ---
+
+    case 'showHelp':
+      agentMessage(companionSays({
+        sachlich: 'Frag mich einfach was du brauchst.',
+        freundlich: 'Ich bin für dich da! Frag mich einfach.',
+        kauzig: 'Frag. Aber kurz.',
+      }), [
+        { type: 'CapabilitiesCard', props: {} },
+      ]);
+      break;
+
     // --- FALLBACK ---
 
     default:
@@ -420,6 +618,22 @@ function showHome() {
     blocks.push({ type: 'RoomGrid', props: {} });
   }
 
+  // Dringende Warnungen
+  try {
+    const expired = (Brain.getExpiringItems?.(0) || []).filter(e => e.isExpired);
+    if (expired.length > 0) {
+      blocks.push({ type: 'ExpiryList', props: { compact: true, maxItems: 3 } });
+    }
+  } catch { /* ok */ }
+
+  // Saisonale Empfehlung
+  try {
+    const seasonal = getSeasonalRecommendations();
+    if (seasonal && (seasonal.storeAway.length + seasonal.bringOut.length) > 0) {
+      blocks.push({ type: 'SeasonalCard', props: { compact: true } });
+    }
+  } catch { /* ok */ }
+
   const actions = [
     { icon: '\u{1F4F7}', label: 'Foto', action: 'takePhoto' },
     { icon: '\u{1F3A5}', label: 'Film', action: 'takeVideo' },
@@ -432,7 +646,7 @@ function showHome() {
   agentMessage(
     roomCount === 0
       ? 'Dein Zuhause ist noch leer. Mach ein Foto von einem Raum!'
-      : `${roomCount} R\u00e4ume, Score ${percent}%.`,
+      : `${roomCount} R\u00e4ume, ${percent}% frei.`,
     blocks,
     actions,
   );
@@ -484,14 +698,11 @@ function showContainer(roomId, containerId) {
  */
 function showReportsMenu() {
   agentMessage(companionSays({
-    sachlich: 'Verf\u00fcgbare Berichte:',
+    sachlich: 'Verfügbare Berichte:',
     freundlich: 'Welchen Bericht brauchst du?',
     kauzig: 'Berichte. Bitte sehr.',
-  }), [], [
-    { icon: '\u{1F4C4}', label: 'Versicherung', action: 'generateInsuranceReport' },
-    { icon: '\u{1F6E1}\uFE0F', label: 'Garantien', action: 'showWarranty' },
-    { icon: '\u23F0', label: 'Verfallsdaten', action: 'showExpiry' },
-    { icon: '\u{1F4CA}', label: 'Fortschritt', action: 'showImprovement' },
+  }), [
+    { type: 'ReportMenu', props: {} },
   ]);
 }
 

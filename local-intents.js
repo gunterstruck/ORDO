@@ -2,13 +2,7 @@
 // Kein API-Call nötig für einfache Befehle
 
 import Brain from './brain.js';
-import { showView } from './app.js';
 import { calculateFreedomIndex } from './organizer.js';
-import { showWarrantyOverview, showExpiryOverview } from './warranty-view.js';
-import { startSmartPhotoCapture } from './smart-photo.js';
-import { showRoomCheck, showHouseholdCheck, showSalesView } from './quest.js';
-import { generateDonationListPDF } from './report.js';
-import { showSeasonalDetails, showImprovementReport, show3DRoom } from './brain-view.js';
 
 /**
  * Check if a voice/text command can be handled locally without API call.
@@ -24,7 +18,7 @@ export function checkLocalIntent(text) {
     const name = room.name.toLowerCase();
     const pattern = new RegExp(`(zeig|öffne|geh|gehe).*(${name}|${id})`, 'i');
     if (pattern.test(lower)) {
-      return { action: 'navigateRoom', room: id, roomName: room.name };
+      return { action: 'showRoom', roomId: id, roomName: room.name };
     }
   }
 
@@ -40,12 +34,12 @@ export function checkLocalIntent(text) {
 
   // Expiry / Verfallsdaten
   if (/verfallsdatum|ablaufdatum|mhd|haltbar|abgelaufen|expiry|verfallsdaten/i.test(lower)) {
-    return { action: 'showExpiryOverview' };
+    return { action: 'showExpiry' };
   }
 
   // Report / Versicherungsbericht
   if (/bericht|versicherung|pdf|report/i.test(lower)) {
-    return { action: 'showReport' };
+    return { action: 'showReports' };
   }
 
   // Settings
@@ -55,7 +49,7 @@ export function checkLocalIntent(text) {
 
   // Show brain / household
   if (/mein zuhause|haushalt|übersicht|überblick/i.test(lower)) {
-    return { action: 'showBrain' };
+    return { action: 'showHome' };
   }
 
   // Photo
@@ -79,20 +73,20 @@ export function checkLocalIntent(text) {
     const rooms = Brain.getRooms();
     for (const [id, room] of Object.entries(rooms)) {
       if (lower.includes(room.name.toLowerCase())) {
-        return { action: 'showRoomCheck', roomId: id, roomName: room.name };
+        return { action: 'roomCheck', roomId: id, roomName: room.name };
       }
     }
-    return { action: 'showRoomCheck' };
+    return { action: 'roomCheck' };
   }
 
   // Haushalts-Check
   if (/haushalts.?check|gesamt.*check|alles.*prüf|wie steht.*haushalt/i.test(lower)) {
-    return { action: 'showHouseholdCheck' };
+    return { action: 'householdCheck' };
   }
 
   // Verbesserungs-Report / Fortschritt
   if (/verbessert|fortschritt|entwicklung|vergleich|vor.*monat|besser geworden/i.test(lower)) {
-    return { action: 'showImprovementReport' };
+    return { action: 'showImprovement' };
   }
 
   // Saisonale Empfehlungen
@@ -112,89 +106,37 @@ export function checkLocalIntent(text) {
     return { action: 'show3DRoom' };
   }
 
+  // Capabilities / Help
+  if (/was kannst du|hilfe|funktionen|features/i.test(lower))
+    return { action: 'showCapabilities' };
+
+  // Live Dialog
+  if (/live|lass uns reden|echtzeit|reden wir|sprich mit mir/i.test(lower))
+    return { action: 'startLive' };
+
+  // Activity
+  if (/was hab ich|was haben wir|zusammenfassung|geschafft/i.test(lower))
+    return { action: 'showActivity' };
+
+  // Map / Grundriss
+  if (/karte|grundriss|plan(?!e)|map\b/i.test(lower))
+    return { action: 'showMap' };
+
   return null;
 }
 
 /**
  * Execute a locally recognized intent.
- * Returns a response string for the chat.
+ * Phase B: dispatch all intents through handleAction
+ * This ensures everything renders in the dialog stream.
  */
 export function executeLocalIntent(intent) {
-  switch (intent.action) {
-    case 'navigateRoom':
-      showView('brain');
-      return `Hier ist ${intent.roomName}.`;
+  import('./ordo-agent.js').then(({ handleAction }) => {
+    handleAction(intent);
+  });
 
-    case 'startCleanup': {
-      const score = calculateFreedomIndex();
-      return `Dein Kopf ist zu ${score.percent}% frei. ${score.totalDebt} offene Entscheidungen. Ich stelle dir eine Aufräum-Quest zusammen.`;
-    }
-
-    case 'showWarranty':
-      showWarrantyOverview();
-      return 'Hier ist die Garantie-Übersicht.';
-
-    case 'showExpiryOverview':
-      showExpiryOverview();
-      return 'Hier ist die Verfallsdaten-Übersicht.';
-
-    case 'showReport':
-      showView('settings');
-      return 'Öffne die Einstellungen für den Versicherungsbericht.';
-
-    case 'showSettings':
-      showView('settings');
-      return 'Einstellungen geöffnet.';
-
-    case 'showBrain':
-      showView('brain');
-      return 'Hier ist dein Zuhause.';
-
-    case 'takePhoto':
-      startSmartPhotoCapture();
-      return null; // No chat response needed
-
-    case 'generateDonationPDF':
-      generateDonationListPDF();
-      return 'Spendenliste wird erstellt...';
-
-    case 'showSalesView':
-      showSalesView();
-      return 'Erstelle Verkaufs-Entwürfe...';
-
-    case 'showRoomCheck':
-      if (intent.roomId) {
-        showRoomCheck(intent.roomId);
-        return `Raum-Check für ${intent.roomName} wird gestartet.`;
-      }
-      // No specific room → show household check instead
-      showHouseholdCheck();
-      return 'Hier ist der Haushalts-Check.';
-
-    case 'showHouseholdCheck':
-      showHouseholdCheck();
-      return 'Hier ist der Haushalts-Check.';
-
-    case 'showImprovementReport':
-      showImprovementReport();
-      return 'Hier ist dein Fortschritts-Report.';
-
-    case 'showSeasonalDetails':
-      showSeasonalDetails();
-      return 'Hier sind die saisonalen Empfehlungen.';
-
-    case 'show3DRoom':
-      if (intent.roomId) {
-        show3DRoom(intent.roomId);
-        return `Öffne ${intent.roomName} in 3D...`;
-      }
-      // No specific room → show brain view and let user pick
-      showView('brain');
-      return 'Wähle einen Raum in der Kartenansicht und tippe auf "🔮 3D".';
-
-    default:
-      return null;
-  }
+  // Return null — the agent message is handled by handleAction
+  return null;
 }
 
 /**

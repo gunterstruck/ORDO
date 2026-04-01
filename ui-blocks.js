@@ -387,3 +387,887 @@ registerBlock('OnboardingKeyInput', () => {
 
   return el;
 });
+
+// ══════════════════════════════════════
+// PHASE B: 21 KOMPONENTEN
+// ══════════════════════════════════════
+
+// 11. ExpiryList — Verfallsdaten-Übersicht
+registerBlock('ExpiryList', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-expiry-list');
+
+  let items = [];
+  try { items = Brain.getExpiringItems?.(30) || []; } catch { /* ok */ }
+
+  if (items.length === 0) {
+    el.innerHTML = '<div class="block-empty">Keine Verfallsdaten vorhanden.</div>';
+    return el;
+  }
+
+  const maxItems = props.compact ? (props.maxItems || 3) : items.length;
+  const expired = items.filter(e => e.isExpired);
+  const soon = items.filter(e => !e.isExpired && e.daysLeft <= 30);
+  const ok = items.filter(e => !e.isExpired && e.daysLeft > 30);
+
+  function addSection(title, list, icon) {
+    if (list.length === 0) return;
+    const titleEl = document.createElement('div');
+    titleEl.className = 'expiry-section-title';
+    titleEl.textContent = title;
+    el.appendChild(titleEl);
+
+    for (const item of list.slice(0, maxItems)) {
+      const row = document.createElement('div');
+      row.className = 'expiry-row';
+      row.innerHTML = `
+        <span class="expiry-icon">${icon}</span>
+        <div class="expiry-info">
+          <div class="expiry-name">${escapeHTML(item.itemName || item.name || '')}</div>
+          <div class="expiry-meta">${escapeHTML(item.location || '')} \u00b7 ${item.isExpired ? `${Math.abs(item.daysLeft || 0)} Tage abgelaufen` : `${item.daysLeft || '?'} Tage`}</div>
+        </div>
+      `;
+      if (item.isExpired) {
+        const btn = document.createElement('button');
+        btn.className = 'expiry-action';
+        btn.textContent = '\u{1F5D1}\uFE0F Entsorgen';
+        btn.addEventListener('click', async () => {
+          const { handleAction } = await import('./ordo-agent.js');
+          handleAction({ action: 'archiveItem', itemName: item.itemName || item.name, roomId: item.roomId, containerId: item.containerId });
+        });
+        row.appendChild(btn);
+      }
+      el.appendChild(row);
+    }
+  }
+
+  addSection('Abgelaufen', expired, '\u{1F534}');
+  addSection('Bald ablaufend', soon, '\u{1F7E1}');
+  if (!props.compact) addSection('OK', ok, '\u{1F7E2}');
+
+  return el;
+});
+
+// 12. WarrantyList — Garantie-Übersicht
+registerBlock('WarrantyList', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-warranty-list');
+
+  const data = Brain.getData();
+  const warranties = [];
+
+  for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    for (const [cId, container] of Object.entries(room.containers || {})) {
+      for (const item of (container.items || [])) {
+        const obj = typeof item === 'string' ? null : item;
+        if (!obj || obj.status === 'archiviert' || !obj.warranty) continue;
+        const expiryDate = new Date(obj.warranty.expires || obj.warranty.end || obj.warranty);
+        if (isNaN(expiryDate.getTime())) continue;
+        const daysLeft = Math.ceil((expiryDate - Date.now()) / 86400000);
+        warranties.push({
+          name: obj.name, roomName: room.name, containerName: container.name,
+          expiryDate, daysLeft, isExpired: daysLeft < 0,
+        });
+      }
+    }
+  }
+
+  if (warranties.length === 0) {
+    el.innerHTML = '<div class="block-empty">Keine Garantien erfasst.</div>';
+    return el;
+  }
+
+  warranties.sort((a, b) => a.daysLeft - b.daysLeft);
+
+  for (const w of warranties) {
+    const row = document.createElement('div');
+    row.className = 'warranty-row';
+    const statusClass = w.isExpired ? 'expired' : w.daysLeft <= 30 ? 'warning' : 'active';
+    const statusText = w.isExpired ? 'Abgelaufen' : w.daysLeft <= 30 ? `${w.daysLeft} Tage` : 'Aktiv';
+    row.innerHTML = `
+      <div class="warranty-info">
+        <div class="warranty-name">${escapeHTML(w.name)}</div>
+        <div class="warranty-meta">${escapeHTML(w.roomName)} \u00b7 bis ${w.expiryDate.toLocaleDateString('de-DE')}</div>
+      </div>
+      <span class="warranty-status ${statusClass}">${statusText}</span>
+    `;
+    el.appendChild(row);
+  }
+
+  return el;
+});
+
+// 13. DonationList — Spendenliste
+registerBlock('DonationList', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-donation-list');
+
+  const { donated } = getArchivedByReason();
+
+  if (donated.length === 0) {
+    el.innerHTML = '<div class="block-empty">Keine Spenden bisher.</div>';
+    return el;
+  }
+
+  let totalValue = 0;
+  for (const item of donated) {
+    const row = document.createElement('div');
+    row.className = 'donation-row';
+    const val = item.value || 0;
+    totalValue += val;
+    row.innerHTML = `
+      <span class="donation-name">${escapeHTML(item.name)}</span>
+      ${val ? `<span class="donation-value">${val}\u20AC</span>` : ''}
+      <span class="donation-origin">${escapeHTML(item.roomName || '')}</span>
+    `;
+    el.appendChild(row);
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'donation-total';
+  footer.textContent = `Gesamt: ${donated.length} Gegenst\u00e4nde` + (totalValue > 0 ? ` \u00b7 ca. ${totalValue}\u20AC` : '');
+  el.appendChild(footer);
+
+  return el;
+});
+
+// 14. SalesCard — Verkaufs-Entwürfe
+registerBlock('SalesCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-sales-card');
+
+  const items = props.items || [];
+  if (items.length === 0) {
+    el.innerHTML = '<div class="block-empty">Keine Verkaufs-Entwürfe.</div>';
+    return el;
+  }
+
+  for (const item of items) {
+    const card = document.createElement('div');
+    card.className = 'sales-item';
+    card.innerHTML = `
+      <div class="sales-title">${escapeHTML(item.title || item.name || '')}</div>
+      <div class="sales-desc">${escapeHTML(item.description || '')}</div>
+      ${item.price ? `<div class="sales-price">ca. ${item.price}\u20AC</div>` : ''}
+    `;
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'sales-copy-btn';
+    copyBtn.textContent = '\u{1F4CB} Kopieren';
+    copyBtn.addEventListener('click', () => {
+      const text = `${item.title || item.name}\n${item.description}\nPreis: ${item.price || 'VB'}\u20AC`;
+      navigator.clipboard?.writeText(text);
+      copyBtn.textContent = '\u2705 Kopiert!';
+      setTimeout(() => { copyBtn.textContent = '\u{1F4CB} Kopieren'; }, 2000);
+    });
+    card.appendChild(copyBtn);
+    el.appendChild(card);
+  }
+
+  return el;
+});
+
+// 15. ReportMenu — Berichte-Übersicht
+registerBlock('ReportMenu', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-report-menu');
+
+  const options = [
+    { icon: '\u{1F4CA}', label: 'Versicherungsbericht', action: 'generateInsuranceReport' },
+    { icon: '\u{1F4CB}', label: 'Spendenliste', action: 'generateDonationPDF' },
+    { icon: '\u{1F4B0}', label: 'Verkaufs-Entw\u00fcrfe', action: 'showSalesView' },
+    { icon: '\u{1F4C8}', label: 'Verbesserungs-Report', action: 'showImprovement' },
+  ];
+
+  for (const opt of options) {
+    const row = document.createElement('div');
+    row.className = 'report-option';
+    row.innerHTML = `
+      <span class="report-icon">${opt.icon}</span>
+      <span class="report-label">${opt.label}</span>
+    `;
+    row.addEventListener('click', async () => {
+      const { handleAction } = await import('./ordo-agent.js');
+      handleAction({ action: opt.action });
+    });
+    el.appendChild(row);
+  }
+
+  return el;
+});
+
+// 16. CleanupOptions — Session-Auswahl
+registerBlock('CleanupOptions', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-cleanup-options');
+
+  const { percent } = calculateFreedomIndex();
+  const scoreEl = document.createElement('div');
+  scoreEl.className = 'cleanup-score';
+  scoreEl.textContent = `Dein Score: ${percent}%`;
+  el.appendChild(scoreEl);
+
+  const options = [
+    { icon: '\u26A1', label: '2 Minuten', desc: 'Eine Entscheidung', minutes: 2 },
+    { icon: '\u2615', label: '5 Minuten', desc: 'Quick Wins', minutes: 5 },
+    { icon: '\u{1F9F9}', label: '15 Minuten', desc: 'Einen Container', minutes: 15 },
+    { icon: '\u{1F3E0}', label: '30 Minuten', desc: 'Richtig aufr\u00e4umen', minutes: 30 },
+  ];
+
+  for (const opt of options) {
+    const row = document.createElement('div');
+    row.className = 'cleanup-option';
+    row.innerHTML = `
+      <span class="cleanup-option-icon">${opt.icon}</span>
+      <div class="cleanup-option-text">
+        <div class="cleanup-option-label">${opt.label}</div>
+        <div class="cleanup-option-desc">${opt.desc}</div>
+      </div>
+    `;
+    row.addEventListener('click', async () => {
+      const { handleAction } = await import('./ordo-agent.js');
+      handleAction({ action: 'startCleanupQuest', minutes: opt.minutes });
+    });
+    el.appendChild(row);
+  }
+
+  return el;
+});
+
+// 17. QuickDecision — Eine einzelne Entscheidung
+registerBlock('QuickDecision', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-quick-decision');
+
+  const decision = props.itemName
+    ? { itemName: props.itemName, roomName: props.roomName || '', containerName: props.containerName || '', monthsAgo: props.monthsAgo, value: props.value, roomId: props.roomId, containerId: props.containerId }
+    : getQuickDecision();
+
+  if (!decision) {
+    el.innerHTML = '<div class="block-empty">Alles in Ordnung \u2014 keine offenen Entscheidungen!</div>';
+    return el;
+  }
+
+  el.innerHTML = `
+    <div class="qd-item-name">${escapeHTML(decision.itemName)}</div>
+    <div class="qd-location">${escapeHTML(decision.roomName || '')} \u203A ${escapeHTML(decision.containerName || '')}</div>
+    ${decision.monthsAgo ? `<div class="qd-detail">Seit ${decision.monthsAgo} Monaten nicht bewegt</div>` : ''}
+    ${decision.value ? `<div class="qd-value">Gesch\u00e4tzter Wert: ca. ${decision.value}\u20AC</div>` : ''}
+  `;
+
+  const actions = document.createElement('div');
+  actions.className = 'qd-actions';
+
+  const buttons = [
+    { icon: '\u{1F5D1}\uFE0F', label: 'Entsorgen', reason: 'entsorgt' },
+    { icon: '\u{1F381}', label: 'Spenden', reason: 'gespendet' },
+    { icon: '\u{1F4B0}', label: 'Verkaufen', reason: 'verkauft' },
+    { icon: '\u{1F4E6}', label: 'Behalten', reason: 'behalten' },
+  ];
+
+  for (const b of buttons) {
+    const btn = document.createElement('button');
+    btn.className = 'qd-btn';
+    btn.textContent = `${b.icon} ${b.label}`;
+    btn.addEventListener('click', async () => {
+      const { handleAction } = await import('./ordo-agent.js');
+      if (b.reason === 'behalten') {
+        handleAction({ action: 'showHome' });
+      } else {
+        Brain.removeItem(decision.roomId, decision.containerId, decision.itemName);
+        handleAction({ action: 'quickDecision' }); // nächste Entscheidung
+      }
+    });
+    actions.appendChild(btn);
+  }
+
+  el.appendChild(actions);
+  return el;
+});
+
+// 18. QuestSummary — Quest-Abschluss
+registerBlock('QuestSummary', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-quest-summary');
+
+  const stats = props.stats || {};
+  const scoreDelta = (stats.scoreAfter || 0) - (stats.scoreBefore || 0);
+
+  el.innerHTML = `
+    <div class="quest-complete-emoji">\u{1F389}</div>
+    <div class="quest-stats">
+      ${stats.moved ? `<div>\u{1F504} ${stats.moved} umger\u00e4umt</div>` : ''}
+      ${stats.discarded ? `<div>\u{1F5D1}\uFE0F ${stats.discarded} entsorgt</div>` : ''}
+      ${stats.donated ? `<div>\u{1F381} ${stats.donated} gespendet</div>` : ''}
+    </div>
+    ${scoreDelta !== 0 ? `<div class="quest-score-delta">${stats.scoreBefore}% \u2192 ${stats.scoreAfter}% (${scoreDelta > 0 ? '+' : ''}${scoreDelta})</div>` : ''}
+    ${props.quote ? `<div class="quest-quote">${escapeHTML(props.quote)}</div>` : ''}
+  `;
+
+  return el;
+});
+
+// 19. RoomCheckCard — Raum-Analyse
+registerBlock('RoomCheckCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-room-check');
+
+  const data = props.data;
+  if (!data) { el.innerHTML = '<div class="block-empty">Keine Raum-Daten.</div>'; return el; }
+
+  el.innerHTML = `
+    <div class="room-check-header">
+      <span class="room-check-name">${escapeHTML(data.roomName || '')}</span>
+      <span class="room-check-score">${data.roomScore}%</span>
+    </div>
+  `;
+
+  const issues = document.createElement('div');
+  issues.className = 'room-check-issues';
+
+  if (data.wrongItems?.length > 0) {
+    issues.innerHTML += `<div class="room-check-issue">\u26A0\uFE0F ${data.wrongItems.length} Dinge am falschen Ort</div>`;
+  }
+  if (data.duplicates?.length > 0) {
+    issues.innerHTML += `<div class="room-check-issue">\u{1F503} ${data.duplicates.length} Duplikate</div>`;
+  }
+  if (data.staleItems?.length > 0) {
+    issues.innerHTML += `<div class="room-check-issue">\u{1F4A4} ${data.staleItems.length} lange nicht gesehen</div>`;
+  }
+  if (data.overfilled?.length > 0) {
+    issues.innerHTML += `<div class="room-check-issue">\u{1F4E6} ${data.overfilled.length} Container \u00fcberf\u00fcllt</div>`;
+  }
+
+  el.appendChild(issues);
+
+  // Container fill levels
+  if (data.containerScores?.length > 0) {
+    const containers = document.createElement('div');
+    containers.className = 'room-check-containers';
+    for (const c of data.containerScores.slice(0, 5)) {
+      const fillPct = c.capacity ? Math.min(100, Math.round((c.capacity.count / Math.max(c.capacity.maxCount || 20, 1)) * 100)) : 50;
+      containers.innerHTML += `
+        <div class="room-check-container-row">
+          <span>${escapeHTML(c.containerName)}</span>
+          <div class="room-check-fill-bar"><div class="room-check-fill" style="width:${fillPct}%"></div></div>
+        </div>
+      `;
+    }
+    el.appendChild(containers);
+  }
+
+  return el;
+});
+
+// 20. HouseholdCheckCard — Haushalts-Analyse
+registerBlock('HouseholdCheckCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-household-check');
+
+  const data = props.data;
+  if (!data) { el.innerHTML = '<div class="block-empty">Keine Daten.</div>'; return el; }
+
+  el.innerHTML = `
+    <div class="hc-overall">
+      <div class="hc-overall-score">${data.overallScore}%</div>
+      <div class="hc-overall-label">Gesamt-Score \u00b7 ${data.totalItems || 0} Gegenst\u00e4nde</div>
+    </div>
+  `;
+
+  if (data.roomScores?.length > 0) {
+    const bars = document.createElement('div');
+    bars.className = 'hc-room-bars';
+    for (const r of data.roomScores) {
+      bars.innerHTML += `
+        <div class="hc-room-row">
+          <span class="hc-room-name">${escapeHTML(r.roomName || '')}</span>
+          <div class="hc-room-bar"><div class="hc-room-bar-fill" style="width:${r.roomScore}%"></div></div>
+          <span class="hc-room-score">${r.roomScore}%</span>
+        </div>
+      `;
+    }
+    el.appendChild(bars);
+  }
+
+  const issuesParts = [];
+  if (data.totalWrongPlace > 0) issuesParts.push(`${data.totalWrongPlace} falsch platziert`);
+  if (data.totalStale > 0) issuesParts.push(`${data.totalStale} lange nicht gesehen`);
+  if (data.pendingDonations > 0) issuesParts.push(`${data.pendingDonations} Spenden`);
+  if (data.pendingSales > 0) issuesParts.push(`${data.pendingSales} Verk\u00e4ufe`);
+
+  if (issuesParts.length > 0) {
+    const issuesEl = document.createElement('div');
+    issuesEl.className = 'hc-issues';
+    issuesEl.textContent = issuesParts.join(' \u00b7 ');
+    el.appendChild(issuesEl);
+  }
+
+  return el;
+});
+
+// 21. ImprovementReport — Verbesserungs-Report
+registerBlock('ImprovementReport', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-improvement');
+
+  const report = getImprovementReport();
+
+  const trendIcon = report.trend === 'aufwärts' ? '\u2191' : report.trend === 'abwärts' ? '\u2193' : '\u2192';
+  const trendText = report.trend === 'aufwärts' ? 'Aufwärts!' : report.trend === 'abwärts' ? 'Abwärts' : 'Stabil';
+
+  el.innerHTML = `<div class="improvement-trend">${trendIcon} ${trendText}</div>`;
+
+  const bars = [
+    { label: 'Heute', value: report.current },
+    { label: 'Vor 1 Woche', value: report.weekAgo },
+    { label: 'Vor 1 Monat', value: report.monthAgo },
+    { label: 'Vor 3 Monaten', value: report.threeMonthsAgo },
+  ];
+
+  for (const bar of bars) {
+    if (bar.value === null) continue;
+    el.innerHTML += `
+      <div class="improvement-bar-row">
+        <span class="improvement-bar-label">${bar.label}</span>
+        <div class="improvement-bar"><div class="improvement-bar-fill" style="width:${bar.value}%"></div></div>
+        <span class="improvement-bar-value">${bar.value}%</span>
+      </div>
+    `;
+  }
+
+  if (report.milestones?.length > 0) {
+    const ms = document.createElement('div');
+    ms.className = 'improvement-milestones';
+    for (const m of report.milestones) {
+      ms.innerHTML += `<div>${m.emoji} ${escapeHTML(m.label)}</div>`;
+    }
+    el.appendChild(ms);
+  }
+
+  return el;
+});
+
+// 22. SeasonalCard — Saisonale Empfehlung
+registerBlock('SeasonalCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-seasonal');
+
+  const rec = getSeasonalRecommendations();
+  if (!rec) { el.innerHTML = '<div class="block-empty">Keine saisonalen Tipps.</div>'; return el; }
+
+  el.innerHTML = `<div class="seasonal-header">${rec.season.emoji} ${escapeHTML(rec.season.label)}</div>`;
+
+  const maxItems = props.compact ? 3 : 20;
+
+  function addSection(title, items, btnLabel, btnIcon) {
+    if (items.length === 0) return;
+    const section = document.createElement('div');
+    section.className = 'seasonal-section';
+    section.innerHTML = `<div class="seasonal-section-title">${title}</div>`;
+
+    for (const item of items.slice(0, maxItems)) {
+      const row = document.createElement('div');
+      row.className = 'seasonal-item';
+      row.innerHTML = `
+        <span class="seasonal-item-name">${escapeHTML(item.itemName)}</span>
+        <span class="seasonal-item-reason">${escapeHTML(item.reason)}</span>
+      `;
+      const btn = document.createElement('button');
+      btn.className = 'seasonal-item-btn';
+      btn.textContent = `${btnIcon} ${btnLabel}`;
+      btn.addEventListener('click', async () => {
+        const { handleAction } = await import('./ordo-agent.js');
+        handleAction({ action: 'archiveItem', itemName: item.itemName, roomId: item.roomId, containerId: item.containerId });
+      });
+      row.appendChild(btn);
+      section.appendChild(row);
+    }
+    el.appendChild(section);
+  }
+
+  addSection('Einlagern', rec.storeAway, 'Einlagern', '\u{1F4E6}');
+  addSection('Rausholen', rec.bringOut, 'Rausholen', '\u2600\uFE0F');
+
+  if (rec.tip) {
+    const tip = document.createElement('div');
+    tip.className = 'seasonal-tip';
+    tip.textContent = rec.tip;
+    el.appendChild(tip);
+  }
+
+  return el;
+});
+
+// 23. LifeEventBanner — Lebensereignis-Meldung
+registerBlock('LifeEventBanner', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-life-event');
+
+  const events = detectLifeEvents();
+  if (events.length === 0) {
+    el.innerHTML = '<div class="block-empty">Keine besonderen Ereignisse erkannt.</div>';
+    return el;
+  }
+
+  const event = events[0];
+  el.innerHTML = `
+    <div class="life-event-header">${event.emoji} ${escapeHTML(event.message)}</div>
+    <div class="life-event-body">${escapeHTML(event.suggestion || '')}</div>
+    <div class="life-event-actions">
+      <button class="life-event-btn primary" data-action="${escapeHTML(event.action || 'showHome')}">${escapeHTML(event.suggestion ? 'Ja, los!' : 'OK')}</button>
+      <button class="life-event-dismiss">\u2715 Nicht relevant</button>
+    </div>
+  `;
+
+  el.querySelector('.life-event-btn').addEventListener('click', async () => {
+    const { handleAction } = await import('./ordo-agent.js');
+    handleAction({ action: event.action || 'showHome' });
+  });
+
+  el.querySelector('.life-event-dismiss').addEventListener('click', () => {
+    el.style.display = 'none';
+  });
+
+  return el;
+});
+
+// 24. SpatialMap — 2D-Grundriss
+registerBlock('SpatialMap', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-spatial-map');
+
+  const data = Brain.getData();
+  const rooms = Object.entries(data.rooms || {});
+
+  if (rooms.length === 0) {
+    el.innerHTML = '<div class="block-empty">Noch keine R\u00e4ume erfasst.</div>';
+    return el;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'spatial-map-grid';
+
+  const colors = ['#E8A87C', '#85CDCA', '#D8A7CA', '#C9B1FF', '#A8D8A8', '#FFD6A5', '#FFB3B3', '#B5EAD7'];
+
+  for (const [roomId, room] of rooms) {
+    const itemCount = countItemsInRoom(room);
+    const colorIdx = rooms.indexOf(rooms.find(([id]) => id === roomId)) % colors.length;
+
+    const cell = document.createElement('div');
+    cell.className = 'spatial-map-cell';
+    cell.style.borderColor = colors[colorIdx];
+    cell.style.background = colors[colorIdx] + '15';
+    cell.innerHTML = `
+      <span class="spatial-map-emoji">${escapeHTML(room.emoji || '\u{1F3E0}')}</span>
+      <span class="spatial-map-name">${escapeHTML(room.name)}</span>
+      <span class="spatial-map-count">${itemCount} Items</span>
+    `;
+    cell.addEventListener('click', async () => {
+      const { handleAction } = await import('./ordo-agent.js');
+      handleAction({ action: 'showRoom', roomId });
+    });
+    grid.appendChild(cell);
+  }
+
+  el.appendChild(grid);
+  return el;
+});
+
+// 25. PhotoResult — Foto-Analyse-Ergebnis
+registerBlock('PhotoResult', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-photo-result');
+
+  const result = props.result || {};
+  const items = result.items || [];
+  const roomName = result.roomName || props.roomName || '';
+  const containerName = result.containerName || props.containerName || '';
+
+  if (props.photoUrl) {
+    const img = document.createElement('img');
+    img.className = 'photo-result-preview';
+    img.src = props.photoUrl;
+    img.alt = 'Foto';
+    el.appendChild(img);
+  }
+
+  if (roomName || containerName) {
+    const loc = document.createElement('div');
+    loc.className = 'photo-result-location';
+    loc.textContent = `\u{1F4CD} ${roomName}${containerName ? ' \u203A ' + containerName : ''}`;
+    el.appendChild(loc);
+  }
+
+  if (items.length > 0) {
+    const list = document.createElement('div');
+    list.className = 'photo-result-items';
+    for (const item of items) {
+      const name = typeof item === 'string' ? item : item.name || '';
+      const menge = typeof item === 'object' ? item.menge : 1;
+      const row = document.createElement('div');
+      row.className = 'photo-result-item';
+      row.textContent = `\u2705 ${menge > 1 ? menge + '\u00d7 ' : ''}${name}`;
+      list.appendChild(row);
+    }
+    el.appendChild(list);
+  } else {
+    el.innerHTML += '<div class="block-empty">Keine Gegenst\u00e4nde erkannt.</div>';
+  }
+
+  return el;
+});
+
+// 26. SmartPhotoResult — Smart-Foto-Ergebnis
+registerBlock('SmartPhotoResult', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-photo-result');
+
+  const result = props.result || {};
+  const isNew = props.isNew;
+
+  if (props.photoUrl) {
+    const img = document.createElement('img');
+    img.className = 'photo-result-preview';
+    img.src = props.photoUrl;
+    img.alt = 'Smart Foto';
+    el.appendChild(img);
+  }
+
+  const loc = document.createElement('div');
+  loc.className = 'photo-result-location';
+  loc.textContent = `\u{1F4CD} ${escapeHTML(result.roomName || '')} \u203A ${escapeHTML(result.containerName || '')}${isNew ? ' (neu)' : ''}`;
+  el.appendChild(loc);
+
+  const items = result.items || [];
+  if (items.length > 0) {
+    const list = document.createElement('div');
+    list.className = 'photo-result-items';
+    for (const item of items) {
+      const name = typeof item === 'string' ? item : item.name || '';
+      const row = document.createElement('div');
+      row.className = 'photo-result-item';
+      row.textContent = `\u2705 ${name}`;
+      list.appendChild(row);
+    }
+    el.appendChild(list);
+  }
+
+  return el;
+});
+
+// 27. ItemDetailCard — Gegenstand im Detail
+registerBlock('ItemDetailCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-item-detail');
+
+  const room = Brain.getRoom(props.roomId);
+  const container = room ? (room.containers || {})[props.containerId] : null;
+  if (!container) { el.innerHTML = '<div class="block-empty">Item nicht gefunden.</div>'; return el; }
+
+  const items = container.items || [];
+  const itemObj = items.find(i => {
+    const name = typeof i === 'string' ? i : i.name;
+    return name === props.itemName;
+  });
+
+  const item = typeof itemObj === 'string' ? { name: itemObj } : (itemObj || { name: props.itemName });
+
+  el.innerHTML = `<div class="item-detail-name">${escapeHTML(item.name)}</div>`;
+  el.innerHTML += `<div class="item-detail-location">${escapeHTML(room?.name || '')} \u203A ${escapeHTML(container.name)}</div>`;
+
+  // Status & Freshness
+  if (item.last_seen) {
+    const days = Math.round((Date.now() - new Date(item.last_seen).getTime()) / 86400000);
+    el.innerHTML += `<div class="item-detail-section"><span class="item-detail-label">Zuletzt gesehen</span><div class="item-detail-value">vor ${days} Tagen</div></div>`;
+  }
+
+  // Purchase
+  if (item.purchase) {
+    const parts = [];
+    if (item.purchase.price) parts.push(`${item.purchase.price}\u20AC`);
+    if (item.purchase.store) parts.push(escapeHTML(item.purchase.store));
+    if (item.purchase.date) parts.push(escapeHTML(item.purchase.date));
+    if (parts.length) {
+      el.innerHTML += `<div class="item-detail-section"><span class="item-detail-label">Kauf</span><div class="item-detail-value">${parts.join(' \u00b7 ')}</div></div>`;
+    }
+  }
+
+  // Warranty
+  if (item.warranty) {
+    const exp = item.warranty.expires || item.warranty.end || item.warranty;
+    el.innerHTML += `<div class="item-detail-section"><span class="item-detail-label">Garantie</span><div class="item-detail-value">bis ${escapeHTML(String(exp))}</div></div>`;
+  }
+
+  // Expiry
+  if (item.expiry_date) {
+    el.innerHTML += `<div class="item-detail-section"><span class="item-detail-label">Verfallsdatum</span><div class="item-detail-value">${escapeHTML(String(item.expiry_date))}</div></div>`;
+  }
+
+  // Valuation
+  if (item.valuation?.replacement_value) {
+    el.innerHTML += `<div class="item-detail-section"><span class="item-detail-label">Wert</span><div class="item-detail-value">ca. ${item.valuation.replacement_value}\u20AC</div></div>`;
+  }
+
+  return el;
+});
+
+// 28. SearchResults — Suchergebnisse
+registerBlock('SearchResults', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-search-results');
+
+  el.innerHTML = `
+    <div class="search-found">\u{1F50D} ${escapeHTML(props.itemName || 'Item')} gefunden!</div>
+    <div class="search-location">${escapeHTML(props.roomName || '')} \u203A ${escapeHTML(props.containerName || '')}</div>
+    ${props.lastSeen ? `<div class="search-last-seen">Zuletzt gesehen: ${escapeHTML(props.lastSeen)}</div>` : ''}
+  `;
+
+  return el;
+});
+
+// 29. OfflineNotice — Offline-Hinweis
+registerBlock('OfflineNotice', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-offline');
+
+  el.innerHTML = `
+    <div class="offline-title">\u{1F4F6} Du bist offline</div>
+    <div class="offline-desc">Fotos werden gespeichert und sp\u00e4ter analysiert.</div>
+    <div class="offline-queue">\u{1F4F7} Warteschlange: 0 Fotos</div>
+  `;
+
+  return el;
+});
+
+// 30. ActivityLog — Heutige Aktivität
+registerBlock('ActivityLog', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-activity-log');
+
+  const summary = getTodaySummary();
+
+  el.innerHTML = `
+    <div class="activity-header">Heute:</div>
+    <div class="activity-stat">\u{1F4CB} ${summary.actions} Aktionen</div>
+    <div class="activity-stat">\u{1F4F7} ${summary.photos} Fotos</div>
+    <div class="activity-stat">\u{1F4AC} ${summary.chats} Nachrichten</div>
+  `;
+
+  if (summary.actions === 0) {
+    el.innerHTML += '<div class="activity-comment">Noch nichts passiert heute. Los geht\'s!</div>';
+  } else if (summary.actions > 10) {
+    el.innerHTML += '<div class="activity-comment">Produktiver Tag!</div>';
+  }
+
+  return el;
+});
+
+// 31. LiveDialogCard — Echtzeit-Gespräch via Gemini Live API
+registerBlock('LiveDialogCard', () => {
+  const el = document.createElement('div');
+  el.classList.add('block-live-dialog');
+
+  let session = null;
+  let isActive = false;
+
+  el.innerHTML = `
+    <div class="live-orb" id="live-orb">\u{1F3A4}</div>
+    <div class="live-status" id="live-status">Bereit</div>
+    <div class="live-transcript" id="live-transcript"></div>
+    <div class="live-controls">
+      <button class="live-btn live-btn-start" id="live-start">\u{1F3A4} Live starten</button>
+      <button class="live-btn live-btn-stop" id="live-stop">\u23F9\uFE0F Beenden</button>
+    </div>
+  `;
+
+  const orb = el.querySelector('#live-orb');
+  const statusEl = el.querySelector('#live-status');
+  const transcript = el.querySelector('#live-transcript');
+  const startBtn = el.querySelector('#live-start');
+  const stopBtn = el.querySelector('#live-stop');
+
+  function addTranscriptLine(text, role) {
+    const line = document.createElement('div');
+    line.className = 'live-transcript-line' + (role === 'agent' ? ' agent' : '');
+    line.textContent = text;
+    transcript.appendChild(line);
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+
+  function updateState(state) {
+    statusEl.textContent = {
+      connecting: 'Verbinde...',
+      connected: 'Verbunden',
+      listening: 'H\u00f6re zu...',
+      responding: 'ORDO spricht...',
+      disconnected: 'Beendet',
+    }[state] || state;
+
+    orb.className = 'live-orb';
+    if (state === 'listening') orb.classList.add('listening');
+    if (state === 'responding') orb.classList.add('speaking');
+  }
+
+  startBtn.addEventListener('click', async () => {
+    if (isActive) return;
+    isActive = true;
+    startBtn.style.display = 'none';
+    stopBtn.style.display = '';
+
+    try {
+      const { GeminiLiveSession } = await import('./ai.js');
+      const apiKey = Brain.getApiKey();
+      if (!apiKey) {
+        statusEl.textContent = 'Kein API-Key!';
+        return;
+      }
+
+      session = new GeminiLiveSession();
+      session.onStateChange = updateState;
+      session.onTranscript = (text, role) => addTranscriptLine(text, role === 'model' ? 'agent' : 'user');
+      session.onError = (msg) => {
+        addTranscriptLine('\u26A0\uFE0F ' + msg, 'agent');
+        updateState('disconnected');
+      };
+
+      const data = Brain.getData();
+      const rooms = Object.keys(data.rooms || {});
+      const { percent } = calculateFreedomIndex();
+      const personality = localStorage.getItem('ordo_personality') || 'kauzig';
+
+      const contextPrompt = `Du bist ORDO, ein Haushaltsassistent.
+Der Nutzer spricht live mit dir \u00fcber sein Zuhause.
+
+AKTUELLER ZUSTAND:
+- ${rooms.length} R\u00e4ume: ${rooms.map(r => (data.rooms[r]?.name || r)).join(', ')}
+- Kopf-Freiheits-Index: ${percent}%
+- Pers\u00f6nlichkeit: ${personality}
+
+Antworte kurz und nat\u00fcrlich. Du bist der ${personality}e Hausmeister.`;
+
+      await session.connect(apiKey, contextPrompt);
+      addTranscriptLine('Live-Session gestartet. Sprich einfach!', 'agent');
+    } catch (err) {
+      statusEl.textContent = 'Fehler: ' + (err.message || 'Verbindung fehlgeschlagen');
+      isActive = false;
+      startBtn.style.display = '';
+      stopBtn.style.display = 'none';
+    }
+  });
+
+  stopBtn.addEventListener('click', async () => {
+    if (session) {
+      session.disconnect();
+      session = null;
+    }
+    isActive = false;
+    startBtn.style.display = '';
+    stopBtn.style.display = 'none';
+    updateState('disconnected');
+    addTranscriptLine('Session beendet.', 'agent');
+
+    const { handleAction } = await import('./ordo-agent.js');
+    handleAction({ action: 'endLive' });
+  });
+
+  return el;
+});
