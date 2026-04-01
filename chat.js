@@ -344,6 +344,7 @@ export function getContextActions(context = 'general', data = {}) {
     case 'greeting':
       actions.push({ label: 'Foto', icon: '📷', action: 'takePhoto' });
       actions.push({ label: 'Film', icon: '🎥', action: 'takeVideo' });
+      actions.push({ label: 'Live reden', icon: '🎤', action: 'startLive' });
       if (quest?.active) {
         actions.push({ label: 'Quest fortsetzen', icon: '🏠', action: 'resumeQuest', primary: true });
       } else {
@@ -386,6 +387,7 @@ export function getContextActions(context = 'general', data = {}) {
     default:
       actions.push({ label: 'Foto', icon: '📷', action: 'takePhoto' });
       actions.push({ label: 'Film', icon: '🎥', action: 'takeVideo' });
+      actions.push({ label: 'Live reden', icon: '🎤', action: 'startLive' });
       break;
   }
 

@@ -226,11 +226,12 @@ describe('getContextActions() – Kontext-Logik', () => {
     assert(retry !== undefined, 'Sollte Nochmal versuchen enthalten');
   });
 
-  it('general (default) enthält Foto + Film', () => {
+  it('general (default) enthält Foto + Film + Live reden', () => {
     const actions = ctx.getContextActions('general');
-    assertEqual(actions.length, 2);
+    assertEqual(actions.length, 3);
     assertEqual(actions[0].action, 'takePhoto');
     assertEqual(actions[1].action, 'takeVideo');
+    assertEqual(actions[2].action, 'startLive');
   });
 
   it('jede Action hat label, icon und action', () => {

@@ -675,6 +675,7 @@ function showHome() {
   const actions = [
     { icon: '\u{1F4F7}', label: 'Foto', action: 'takePhoto' },
     { icon: '\u{1F3A5}', label: 'Film', action: 'takeVideo' },
+    { icon: '\u{1F3A4}', label: 'Live reden', action: 'startLive' },
   ];
 
   if (roomCount > 0) {
@@ -922,6 +923,7 @@ export function showContextGreeting() {
   const actions = [
     { icon: '\u{1F4F7}', label: 'Foto', action: 'takePhoto' },
     { icon: '\u{1F3A5}', label: 'Film', action: 'takeVideo' },
+    { icon: '\u{1F3A4}', label: 'Live reden', action: 'startLive' },
   ];
 
   if (quest?.active) {
