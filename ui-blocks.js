@@ -1223,7 +1223,7 @@ registerBlock('LiveDialogCard', () => {
     stopBtn.style.display = '';
 
     try {
-      const { GeminiLiveSession } = await import('./ai.js');
+      const { GeminiLiveSession, ORDO_FUNCTIONS, functionCallToAction, executeOrdoAction } = await import('./ai.js');
       const apiKey = Brain.getApiKey();
       if (!apiKey) {
         statusEl.textContent = 'Kein API-Key!';
@@ -1238,22 +1238,47 @@ registerBlock('LiveDialogCard', () => {
         updateState('disconnected');
       };
 
+      // Function Calls ausführen und Ergebnis im Transcript anzeigen
+      session.onFunctionCall = (call) => {
+        const action = functionCallToAction(call);
+        if (action && action.type !== 'found') {
+          executeOrdoAction(action);
+          addTranscriptLine(`\u2705 ${call.name}`, 'agent');
+          return { success: true };
+        }
+        return { error: 'Unbekannte Aktion' };
+      };
+
       const data = Brain.getData();
       const rooms = Object.keys(data.rooms || {});
       const { percent } = calculateFreedomIndex();
       const personality = localStorage.getItem('ordo_personality') || 'kauzig';
 
+      const roomDetails = rooms.map(r => {
+        const room = data.rooms[r];
+        const containers = Object.keys(room?.containers || {}).map(cId => {
+          const c = room.containers[cId];
+          const itemCount = c?.items?.length || 0;
+          return `  - ${c?.name || cId} (${itemCount} Items)`;
+        });
+        return `${room?.name || r}:\n${containers.join('\n') || '  (leer)'}`;
+      });
+
       const contextPrompt = `Du bist ORDO, ein Haushaltsassistent.
 Der Nutzer spricht live mit dir \u00fcber sein Zuhause.
+Du kannst Aktionen ausf\u00fchren: R\u00e4ume anlegen, Container erstellen, Items hinzuf\u00fcgen/entfernen etc.
+Nutze die verf\u00fcgbaren Functions um \u00c4nderungen wirklich durchzuf\u00fchren!
 
 AKTUELLER ZUSTAND:
-- ${rooms.length} R\u00e4ume: ${rooms.map(r => (data.rooms[r]?.name || r)).join(', ')}
+- ${rooms.length} R\u00e4ume:
+${roomDetails.join('\n') || '(keine R\u00e4ume)'}
 - Kopf-Freiheits-Index: ${percent}%
 - Pers\u00f6nlichkeit: ${personality}
 
-Antworte kurz und nat\u00fcrlich. Du bist der ${personality}e Hausmeister.`;
+Antworte kurz und nat\u00fcrlich. Du bist der ${personality}e Hausmeister.
+Wenn der Nutzer einen Raum oder Container anlegen will, nutze die passende Function.`;
 
-      await session.connect(apiKey, contextPrompt);
+      await session.connect(apiKey, contextPrompt, { tools: ORDO_FUNCTIONS });
       addTranscriptLine('Live-Session gestartet. Sprich einfach!', 'agent');
     } catch (err) {
       statusEl.textContent = 'Fehler: ' + (err.message || 'Verbindung fehlgeschlagen');
