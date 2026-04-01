@@ -51,10 +51,10 @@ function ensureModal() {
 
   // ── Events ──
   setupDrag(modalEl, modalEl.querySelector('#live-modal-drag'));
+  setupFabDrag(fab, expand);
 
   modalEl.querySelector('#live-modal-minimize').addEventListener('click', minimize);
   modalEl.querySelector('#live-modal-close').addEventListener('click', close);
-  fab.addEventListener('click', expand);
 
   modalEl.querySelector('#lm-start').addEventListener('click', startSession);
   modalEl.querySelector('#lm-stop').addEventListener('click', stopSession);
@@ -93,6 +93,42 @@ function setupDrag(el, handle) {
   handle.addEventListener('pointerup', () => {
     isDragging = false;
     el.style.transition = '';
+  });
+}
+
+function setupFabDrag(fab, onTap) {
+  let isDragging = false;
+  let didMove = false;
+  let startX, startY, origX, origY;
+
+  fab.addEventListener('pointerdown', (e) => {
+    isDragging = true;
+    didMove = false;
+    fab.setPointerCapture(e.pointerId);
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = fab.getBoundingClientRect();
+    origX = rect.left;
+    origY = rect.top;
+    fab.style.transition = 'none';
+  });
+
+  fab.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) didMove = true;
+    if (!didMove) return;
+    fab.style.left = `${origX + dx}px`;
+    fab.style.top = `${origY + dy}px`;
+    fab.style.right = 'auto';
+    fab.style.bottom = 'auto';
+  });
+
+  fab.addEventListener('pointerup', () => {
+    isDragging = false;
+    fab.style.transition = '';
+    if (!didMove) onTap();
   });
 }
 
