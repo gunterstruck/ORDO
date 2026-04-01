@@ -2,7 +2,7 @@
 const BASE_URL = new URL('./', self.location.href).href;
 
 // Version hochzählen bei jedem Deploy → löscht automatisch alten Cache
-const CACHE_VERSION = 'v38';
+const CACHE_VERSION = 'v39';
 const CACHE_NAME = `ordo-${CACHE_VERSION}`;
 
 // App-Shell-Dateien
@@ -37,6 +37,7 @@ const APP_SHELL = [
   BASE_URL + 'ui-blocks.js',
   BASE_URL + 'ordo-agent.js',
   BASE_URL + 'session-log.js',
+  BASE_URL + 'live-modal.js',
   BASE_URL + 'manifest.json',
   BASE_URL + 'icon-192.png',
   BASE_URL + 'icon-512.png',

@@ -580,15 +580,11 @@ export async function handleAction(action) {
     // --- LIVE DIALOG (Phase B) ---
 
     case 'startLive':
-    case 'liveDialog':
-      agentMessage(companionSays({
-        sachlich: 'Live-Modus. Sprich einfach.',
-        freundlich: 'Live-Modus! Lass uns quatschen.',
-        kauzig: 'Na gut. Reden wir. Aber fass dich kurz.',
-      }), [
-        { type: 'LiveDialogCard', props: {} },
-      ]);
+    case 'liveDialog': {
+      const { openLiveModal } = await import('./live-modal.js');
+      openLiveModal();
       break;
+    }
 
     case 'endLive':
       agentMessage(companionSays({

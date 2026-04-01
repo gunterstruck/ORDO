@@ -7039,6 +7039,141 @@ select.settings-input { appearance: none; }
   display: none;
 }
 
+/* ─── LIVE CHAT FLOATING MODAL ─── */
+.live-modal {
+  position: fixed;
+  right: 12px;
+  bottom: 80px;
+  width: 320px;
+  max-height: 480px;
+  background: var(--bg);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1);
+  z-index: 450;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.live-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--accent);
+  color: white;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  border-radius: 16px 16px 0 0;
+}
+
+.live-modal-header:active { cursor: grabbing; }
+
+.live-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.live-modal-header-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.live-modal-minimize,
+.live-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.live-modal-minimize:hover,
+.live-modal-close:hover {
+  background: rgba(255,255,255,0.35);
+}
+
+.live-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.live-modal-body .live-orb {
+  width: 80px;
+  height: 80px;
+  font-size: 26px;
+}
+
+.live-modal-body .live-transcript {
+  max-height: 140px;
+  width: 100%;
+}
+
+.live-modal-body .live-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+/* ─── LIVE FAB (minimierter Knopf) ─── */
+.live-fab {
+  position: fixed;
+  right: 16px;
+  bottom: 80px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 22px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  cursor: pointer;
+  z-index: 450;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+
+.live-fab:hover { transform: scale(1.08); }
+
+.live-fab--active {
+  animation: live-fab-glow 2s ease-in-out infinite;
+}
+
+.live-fab--pulse {
+  animation: live-fab-bounce 0.5s ease-in-out;
+}
+
+@keyframes live-fab-glow {
+  0%, 100% { box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+  50% { box-shadow: 0 4px 16px rgba(232,168,124,0.6), 0 0 20px rgba(232,168,124,0.3); }
+}
+
+@keyframes live-fab-bounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+@media (max-width: 400px) {
+  .live-modal { width: calc(100vw - 24px); right: 12px; left: 12px; }
+}
+
 /* Fullscreen Overlay */
 .fullscreen-overlay { position: fixed; inset: 0; z-index: 500; background: var(--bg); }
 .fullscreen-overlay.hidden { display: none; }
