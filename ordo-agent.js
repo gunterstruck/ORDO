@@ -556,6 +556,12 @@ export async function handleAction(action) {
       ]);
       break;
 
+    case 'show3DRoom': {
+      const { show3DRoom: render3D } = await import('./brain-view.js');
+      render3D(action.roomId);
+      break;
+    }
+
     // --- AKTIVITÄT (Phase B) ---
 
     case 'showActivity':

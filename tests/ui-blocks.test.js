@@ -124,6 +124,16 @@ function loadModules() {
     requestAnimationFrame: (fn) => fn(),
   });
 
+  // Helper: strip multi-line imports that stripModuleSyntax misses
+  function stripAllImports(code) {
+    // Multi-line: import { ... } from '...'
+    code = code.replace(/import\s+(?:\{[\s\S]*?\}|[\w]+)\s+from\s*['"][^'"]*['"];?/g, '');
+    // Dynamic import() → stub
+    code = code.replace(/await import\(['"]\.\/([^'"]+)['"]\)/g,
+      '({ handleAction: typeof handleAction === "function" ? handleAction : function(){} })');
+    return stripModuleSyntax(code);
+  }
+
   // Load brain.js
   let brainCode = fs.readFileSync(path.join(rootDir, 'brain.js'), 'utf8');
   brainCode = stripModuleSyntax(brainCode);
@@ -132,19 +142,25 @@ function loadModules() {
 
   // Load app.js (for escapeHTML)
   let appCode = fs.readFileSync(path.join(rootDir, 'app.js'), 'utf8');
-  appCode = stripModuleSyntax(appCode);
+  appCode = stripAllImports(appCode);
   appCode = appCode.replace(/^(const|let) /gm, 'var ');
   vm.runInContext(appCode, context);
 
   // Load organizer.js (for calculateFreedomIndex)
   let orgCode = fs.readFileSync(path.join(rootDir, 'organizer.js'), 'utf8');
-  orgCode = stripModuleSyntax(orgCode);
+  orgCode = stripAllImports(orgCode);
   orgCode = orgCode.replace(/^(const|let) /gm, 'var ');
   vm.runInContext(orgCode, context);
 
+  // Load session-log.js (for getTodaySummary)
+  let logCode = fs.readFileSync(path.join(rootDir, 'session-log.js'), 'utf8');
+  logCode = stripAllImports(logCode);
+  logCode = logCode.replace(/^(const|let) /gm, 'var ');
+  vm.runInContext(logCode, context);
+
   // Load ui-blocks.js
   let uiCode = fs.readFileSync(path.join(rootDir, 'ui-blocks.js'), 'utf8');
-  uiCode = stripModuleSyntax(uiCode);
+  uiCode = stripAllImports(uiCode);
   uiCode = uiCode.replace(/^(const|let) /gm, 'var ');
   vm.runInContext(uiCode, context);
 
@@ -268,17 +284,30 @@ describe('SettingsPanel', () => {
 });
 
 describe('Block Registry', () => {
-  it('has all expected block types registered', () => {
+  it('has all 31 block types registered', () => {
+    seedData();
     const expectedTypes = [
+      // Phase A (10)
       'ScoreCard', 'RoomGrid', 'ContainerList', 'ItemList',
       'PhotoButton', 'VideoButton', 'QuestStep', 'SettingsPanel',
       'CapabilitiesCard', 'OnboardingKeyInput',
+      // Phase B (21)
+      'ExpiryList', 'WarrantyList', 'ImprovementReport', 'SeasonalCard',
+      'ReportMenu', 'QuickDecision', 'CleanupOptions', 'QuestSummary',
+      'SearchResults', 'PhotoResult', 'SmartPhotoResult', 'ItemDetailCard',
+      'SalesCard', 'DonationList', 'RoomCheckCard', 'HouseholdCheckCard',
+      'LifeEventBanner', 'ActivityLog', 'LiveDialogCard', 'SpatialMap',
+      'OfflineNotice',
     ];
+    assertEqual(expectedTypes.length, 31, 'Should expect 31 block types');
+    // Verify each type is registered (renderBlock does not log "Unbekannter Block")
     for (const type of expectedTypes) {
-      const result = ctx.renderBlock({ type, props: { roomId: 'kueche', containerId: 'schrank' } });
-      // Some blocks may return null without data, but the renderer should exist (not console.warn unknown)
-      // We test that renderBlock doesn't log "unknown" for these types
-      assert(true, `Block type ${type} should be registered`);
+      // We can't easily test render output for all, but we verify the registry has them
+      // by checking renderBlock doesn't return null with the warn (which means unregistered)
+      const consoleWarnCalls = [];
+      const origWarn = ctx.console?.warn;
+      // Just verify the type string is known
+      assert(ctx.BLOCK_REGISTRY[type], `Block type '${type}' should be registered`);
     }
   });
 });

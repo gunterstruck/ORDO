@@ -785,8 +785,8 @@ describe('checkLocalIntent() – Lokale Erkennung', () => {
     context.Brain.addRoom('kueche', 'Küche', '🍳');
     const intent = context.checkLocalIntent('Zeig mir die Küche');
     assert(intent !== null, 'Sollte einen Intent erkennen');
-    assertEqual(intent.action, 'navigateRoom');
-    assertEqual(intent.room, 'kueche');
+    assertEqual(intent.action, 'showRoom');
+    assertEqual(intent.roomId, 'kueche');
   });
 
   it('erkennt Aufräum-Intent', () => {
