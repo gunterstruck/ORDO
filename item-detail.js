@@ -318,9 +318,10 @@ async function aiEstimateItemValue(roomId, containerId, itemName, panel) {
     if (photoKey) {
       const blob = await Brain.getPhoto(photoKey);
       if (blob) {
-        const base64 = await new Promise((resolve) => {
+        const base64 = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = () => reject(new Error('Foto konnte nicht gelesen werden'));
           reader.readAsDataURL(blob);
         });
         result = await estimateSingleItemValue(apiKey, base64, itemName);
@@ -558,7 +559,7 @@ function showReceiptReviewForm(roomId, containerId, itemName, aiResult, photoFil
 
   const overlay = document.createElement('div');
   overlay.className = 'item-detail-overlay';
-  overlay.addEventListener('click', () => panel.remove());
+  overlay.addEventListener('click', () => { panel.remove(); releaseOverlay('item-detail'); });
 
   const sheet = document.createElement('div');
   sheet.className = 'item-detail-sheet';
@@ -633,7 +634,7 @@ function showReceiptReviewForm(roomId, containerId, itemName, aiResult, photoFil
   const cancelBtn = document.createElement('button');
   cancelBtn.className = 'item-detail-action-btn';
   cancelBtn.textContent = 'Abbrechen';
-  cancelBtn.addEventListener('click', () => panel.remove());
+  cancelBtn.addEventListener('click', () => { panel.remove(); releaseOverlay('item-detail'); });
   btnRow.appendChild(cancelBtn);
 
   const saveBtn = document.createElement('button');
@@ -679,7 +680,7 @@ function showManualPurchaseForm(roomId, containerId, itemName, existingPurchase,
 
   const overlay = document.createElement('div');
   overlay.className = 'item-detail-overlay';
-  overlay.addEventListener('click', () => panel.remove());
+  overlay.addEventListener('click', () => { panel.remove(); releaseOverlay('item-detail'); });
 
   const sheet = document.createElement('div');
   sheet.className = 'item-detail-sheet';
@@ -735,7 +736,7 @@ function showManualPurchaseForm(roomId, containerId, itemName, existingPurchase,
   const cancelBtn = document.createElement('button');
   cancelBtn.className = 'item-detail-action-btn';
   cancelBtn.textContent = 'Abbrechen';
-  cancelBtn.addEventListener('click', () => panel.remove());
+  cancelBtn.addEventListener('click', () => { panel.remove(); releaseOverlay('item-detail'); });
   btnRow.appendChild(cancelBtn);
 
   const saveBtn = document.createElement('button');
@@ -886,7 +887,7 @@ async function editExpiryDate(roomId, containerId, itemName, panel) {
     setTimeout(() => { if (input.parentNode) input.remove(); }, 300);
   });
 
-  input.showPicker?.() || input.click();
+  if (input.showPicker) { try { input.showPicker(); } catch { input.click(); } } else { input.click(); }
 }
 
 function listenForExpiryDate() {

@@ -903,6 +903,7 @@ function showProofLightbox(blob, timestamp, roomId, containerId, itemName) {
   let proofDate = lb.querySelector('.lightbox-proof-date');
   if (proofDate) proofDate.remove();
 
+  if (img.src && img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
   const url = URL.createObjectURL(blob);
   img.src = url;
 

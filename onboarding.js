@@ -83,7 +83,8 @@ function setupFirstPhotoStep() {
       }];
 
       const raw = await callGemini(apiKey, prompt, messages, { taskType: 'analyzePhoto', hasImage: true });
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('Kein JSON in Antwort');
 
       const result = JSON.parse(jsonMatch[0]);
@@ -489,7 +490,8 @@ export async function analyzeRoomScanPhotos(photos) {
     }];
 
     const raw = await callGemini(apiKey, prompt, messages, { taskType: 'analyzePhoto', hasImage: true });
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('Kein JSON in Antwort');
 
     mergeDetectedRoom(JSON.parse(jsonMatch[0]));
@@ -572,8 +574,9 @@ async function onRoomScanVideo(file) {
 
     if (abortSignal.signal.aborted) throw new Error('aborted');
 
-    debugLog(`Gemini-Antwort erhalten (${raw.length} Zeichen)`);
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
+    debugLog(`Gemini-Antwort erhalten (${responseText.length} Zeichen)`);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       debugLog(`FEHLER: Kein JSON in Antwort. Rohe Antwort: ${raw.slice(0, 500)}`);
       throw new Error('Kein JSON in Antwort');

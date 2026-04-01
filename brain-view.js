@@ -423,12 +423,11 @@ function showSeasonalDetails() {
   const seasonal = getSeasonalRecommendations();
   if (!seasonal) return;
 
-  const overlayId = requestOverlay('seasonal-details');
-  if (!overlayId) return;
+  if (!requestOverlay('seasonal-details')) return;
 
   const overlay = document.createElement('div');
   overlay.className = 'quest-overlay';
-  overlay.id = overlayId;
+  overlay.id = 'seasonal-details';
 
   let html = `<div class="quest-header">
     <span>${seasonal.season.emoji} ${escapeHTML(seasonal.season.label)}</span>
@@ -472,7 +471,7 @@ function showSeasonalDetails() {
     const closeBtn = e.target.closest('[data-action="close-seasonal"]');
     if (closeBtn) {
       overlay.remove();
-      releaseOverlay(overlayId);
+      releaseOverlay('seasonal-details');
       return;
     }
 
@@ -504,7 +503,7 @@ function showSeasonalDetails() {
       }
       showToast(`${moved} Dinge eingelagert`);
       overlay.remove();
-      releaseOverlay(overlayId);
+      releaseOverlay('seasonal-details');
       renderBrainView();
     }
   });
@@ -1339,7 +1338,9 @@ async function handleDragEnd() {
       });
 
       if (ok) {
-        const success = Brain.moveItem(fromRoom, fromContainer, targetContainerId, itemName);
+        const success = targetRoomId !== fromRoom
+          ? Brain.moveItemAcrossRooms(fromRoom, fromContainer, targetRoomId, targetContainerId, itemName)
+          : Brain.moveItem(fromRoom, fromContainer, targetContainerId, itemName);
         if (success) {
           if (typeof navigator.vibrate === 'function') navigator.vibrate([30, 50, 30]);
           lastSpatialAction = {
@@ -1699,7 +1700,7 @@ function getRoomTypeClass(roomId, roomName) {
   if (n.includes('bad') || n.includes('bath') || n.includes('wc') || n.includes('dusche')) return 'bad';
   if (n.includes('schlaf') || n.includes('bedroom')) return 'schlafzimmer';
   if (n.includes('wohn') || n.includes('living')) return 'wohnzimmer';
-  if (n.includes('buero') || n.includes('büro') || n.includes('arbeit') || n.includes('office')) return 'buero';
+  if (n.includes('buero') || n.includes('büro') || n.includes('arbeit') || n.includes('office')) return 'arbeitszimmer';
   if (n.includes('flur') || n.includes('diele') || n.includes('hall')) return 'flur';
   if (n.includes('keller') || n.includes('basement')) return 'keller';
   if (n.includes('garage')) return 'garage';
@@ -2191,21 +2192,25 @@ function showRoomContextMenu(roomId) {
   if (!room) return;
 
   const actions = [
-    { label: '✏️ Raum umbenennen', action: () => {
-      showInputModal('Raum umbenennen', room.name, (newName) => {
-        if (newName && newName.trim()) {
-          Brain.renameRoom(roomId, newName.trim());
-          renderMapView();
-        }
+    { label: '✏️ Raum umbenennen', action: async () => {
+      const result = await showInputModal({
+        title: 'Raum umbenennen',
+        fields: [{ name: 'name', label: 'Name', value: room.name }]
       });
+      if (result?.name?.trim()) {
+        Brain.renameRoom(roomId, result.name.trim());
+        renderMapView();
+      }
     }},
-    { label: '😀 Emoji ändern', action: () => {
-      showInputModal('Emoji wählen', room.emoji || '🏠', (newEmoji) => {
-        if (newEmoji && newEmoji.trim()) {
-          Brain.renameRoom(roomId, room.name, newEmoji.trim());
-          renderMapView();
-        }
+    { label: '😀 Emoji ändern', action: async () => {
+      const result = await showInputModal({
+        title: 'Emoji wählen',
+        fields: [{ name: 'emoji', label: 'Emoji', value: room.emoji || '🏠' }]
       });
+      if (result?.emoji?.trim()) {
+        Brain.renameRoom(roomId, room.name, result.emoji.trim());
+        renderMapView();
+      }
     }},
     { label: '📷 Raum fotografieren', action: () => {
       const containers = Brain.getOrderedContainers(roomId);
