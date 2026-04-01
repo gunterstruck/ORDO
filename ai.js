@@ -22,7 +22,7 @@ const PROVIDERS = {
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
     format: 'openai',
-    models: { fast: 'google/gemini-2.5-flash-preview', pro: 'google/gemini-2.5-pro-preview' },
+    models: { fast: 'google/gemini-2.5-flash-preview', pro: 'google/gemini-2.5-pro-preview', lite: 'google/gemini-2.5-flash-lite' },
   },
 };
 
@@ -43,11 +43,32 @@ export function setProviderConfig(config) {
 export { PROVIDERS };
 
 // ── Model Routing ─────────────────────────────────────
+// Verfügbare Gemini-Modelle (Google AI Studio / gen-lang-client Projekt):
+//
+// 3.x  : gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-3.1-flash-lite-preview
+// 2.5  : gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite
+//         gemini-2.5-pro-preview-tts, gemini-2.5-flash-preview-tts
+// 2.0  : gemini-2.0-flash, gemini-2.0-flash-lite
+// Alias: gemini-pro-latest, gemini-flash-latest, gemini-flash-lite-latest
+// Spezial (nicht genutzt): gemini-robotics-er-1.5-preview, nano-banana, nano-banana-2, nano-banana-pro
+
 const MODELS = {
-  fast: 'gemini-3-flash-preview',      // neuestes Flash – Chat & Text
-  pro: 'gemini-3.1-pro-preview',       // neuestes Pro – Foto/Video-Analyse, räumliche Tiefe
-  stableFast: 'gemini-2.5-flash',      // stabiles Flash – Fallback bei Überlastung
-  stablePro: 'gemini-2.5-pro',         // stabiles Pro – Fallback bei Überlastung
+  // ── Preview (neueste Generation) ──
+  fast: 'gemini-3-flash-preview',           // neuestes Flash – Chat & Text
+  pro: 'gemini-3.1-pro-preview',            // neuestes Pro – Foto/Video-Analyse, räumliche Tiefe
+  lite: 'gemini-3.1-flash-lite-preview',    // neuestes Lite – einfache/schnelle Aufgaben, günstigster Preview
+
+  // ── Stabil (GA-Modelle, zuverlässig) ──
+  stableFast: 'gemini-2.5-flash',           // stabiles Flash – Fallback bei Überlastung
+  stablePro: 'gemini-2.5-pro',              // stabiles Pro – Fallback bei Überlastung
+  stableLite: 'gemini-2.5-flash-lite',      // stabiles Lite – günstigster Fallback
+
+  // ── Legacy (bewährt, letzter Fallback) ──
+  legacyFast: 'gemini-2.0-flash',           // 2.0 Flash – letzter Fallback, sehr stabil
+
+  // ── TTS (Text-to-Speech) ──
+  tts: 'gemini-2.5-flash-preview-tts',      // TTS Flash – Sprachausgabe (schnell, günstig)
+  ttsPro: 'gemini-2.5-pro-preview-tts',     // TTS Pro – Sprachausgabe (höhere Qualität)
 };
 
 // Timeout für einzelne API-Requests (ms) – kurz genug um schnell zu fallbacken
@@ -97,7 +118,12 @@ function determineModel({ hasImage = false, hasVideo = false, taskType = 'chat' 
     'householdCheck',
   ];
   if (PRO_TASKS.includes(taskType)) return MODELS.pro;
-  // Chat & einfache Textaufgaben → Gemini 2.5 Flash
+
+  // Einfache/kurze Aufgaben → Lite (günstigster, schnellster)
+  const LITE_TASKS = ['analyzeHotspots', 'test'];
+  if (LITE_TASKS.includes(taskType)) return MODELS.lite;
+
+  // Chat & mittlere Textaufgaben → Flash
   return MODELS.fast;
 }
 
@@ -580,11 +606,13 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
   // Retry with exponential backoff for 5xx/429 errors + model fallback
   const MAX_RETRIES = 2;
   const modelsToTry = [model];
-  // Fallback-Kette: Preview → anderes Preview → stabiles Modell
+  // Fallback-Kette: Preview → stabiles Modell → Legacy
   if (model === MODELS.pro) {
-    modelsToTry.push(MODELS.fast, MODELS.stableFast);
+    modelsToTry.push(MODELS.fast, MODELS.stablePro, MODELS.stableFast);
   } else if (model === MODELS.fast) {
-    modelsToTry.push(MODELS.stableFast);
+    modelsToTry.push(MODELS.stableFast, MODELS.legacyFast);
+  } else if (model === MODELS.lite) {
+    modelsToTry.push(MODELS.stableLite, MODELS.legacyFast);
   }
 
   for (const currentModel of modelsToTry) {
