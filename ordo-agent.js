@@ -310,6 +310,12 @@ export async function handleAction(action) {
       showReportsMenu();
       break;
 
+    case 'generateInsuranceReport': {
+      const { showReportDialog } = await import('./report.js');
+      showReportDialog();
+      break;
+    }
+
     // --- SETTINGS ---
 
     case 'showSettings':
@@ -549,6 +555,12 @@ export async function handleAction(action) {
         { icon: '🏠', label: 'Zurück', action: 'showHome' },
       ]);
       break;
+
+    case 'show3DRoom': {
+      const { show3DRoom: render3D } = await import('./brain-view.js');
+      render3D(action.roomId);
+      break;
+    }
 
     // --- AKTIVITÄT (Phase B) ---
 

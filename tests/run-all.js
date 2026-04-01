@@ -11,7 +11,10 @@ const testFiles = [
   'quest.test.js',
   'app-logic.test.js',
   'ux-flows.test.js',
-  'chat-actions.test.js'
+  'chat-actions.test.js',
+  'dialog-stream.test.js',
+  'ui-blocks.test.js',
+  'ordo-agent.test.js'
 ];
 
 let allPassed = true;

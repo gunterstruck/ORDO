@@ -60,7 +60,7 @@ function loadOrganizer(Brain) {
   const context = vm.createContext({
     Brain,
     localStorage,
-    window: { localStorage },
+    window: { localStorage, addEventListener() {}, removeEventListener() {} },
     document: { addEventListener() {}, querySelectorAll: () => [], getElementById: () => null },
     Date, JSON, Object, Array, Math, parseInt, console, Error, Promise, String,
     setTimeout: (fn) => fn(),
