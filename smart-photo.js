@@ -14,8 +14,10 @@ function buildSmartPhotoPrompt() {
   const rooms = data?.rooms || {};
   const existingRooms = Object.entries(rooms)
     .map(([id, r]) => {
-      const containerNames = Object.values(r.containers || {}).map(c => c.name).join(', ');
-      return `${id}: ${r.name} (Container: ${containerNames || 'keine'})`;
+      const containerList = Object.entries(r.containers || {})
+        .map(([cId, c]) => `${cId} ("${c.name}")`)
+        .join(', ');
+      return `${id}: ${r.name} (Container: ${containerList || 'keine'})`;
     })
     .join('\n');
 
@@ -25,10 +27,11 @@ function buildSmartPhotoPrompt() {
 2. WELCHER CONTAINER/MÖBEL ist das? (Schrank, Regal, Schublade, etc.)
 3. WELCHE GEGENSTÄNDE sind sichtbar?
 
-BESTEHENDE RÄUME IM HAUSHALT:
+BESTEHENDE RÄUME UND CONTAINER IM HAUSHALT:
 ${existingRooms || '(noch keine Räume angelegt)'}
 
 Falls du einen bestehenden Raum erkennst, nutze dessen ID.
+Falls du einen bestehenden Container erkennst, nutze dessen ID.
 Falls es ein neuer Raum ist, schlage einen passenden Slug als ID vor (z.B. "kueche", "bad", "arbeitszimmer").
 
 RAUM-TYPEN (verwende diese IDs): kueche, bad, schlafzimmer, wohnzimmer, arbeitszimmer, kinderzimmer, flur, keller, abstellraum, garage, esszimmer, ankleide, dachboden, garten, gaestezimmer, sonstiges
@@ -220,19 +223,33 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
         Brain.addRoom(room.id, room.name || room.id, emoji);
       }
 
-      // Build container ID
-      const containerId = container.id || (container.name || 'container').toLowerCase()
+      // Build container ID — mit Fuzzy-Match gegen existierende Container
+      let containerId = container.id || (container.name || 'container').toLowerCase()
         .replace(/[äÄ]/g, 'ae').replace(/[öÖ]/g, 'oe').replace(/[üÜ]/g, 'ue').replace(/ß/g, 'ss')
         .replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
 
-      // Add container if new
+      // Fuzzy-Match: Prüfe ob ein Container mit ähnlichem Namen schon existiert
+      if (!Brain.getContainer(room.id, containerId)) {
+        const roomData = Brain.getRoom(room.id);
+        if (roomData?.containers) {
+          const fuzzyMatch = Brain._findFuzzyContainer(roomData.containers, container.name);
+          if (fuzzyMatch) {
+            containerId = fuzzyMatch[0]; // Verwende die existierende ID
+          }
+        }
+      }
+
+      // Add container if still new after fuzzy check
       if (!Brain.getContainer(room.id, containerId)) {
         Brain.addContainer(room.id, containerId, container.name || containerId, container.typ || 'sonstiges', [], false);
       }
 
-      // Add items
+      // Add items (mit Fuzzy-Dedup gegen existierende Items)
+      const existingItems = Brain.getContainerItemNames(room.id, containerId);
       for (const item of items) {
-        Brain.addItem(room.id, containerId, item.name, item.menge || 1);
+        if (!existingItems.some(n => Brain.isFuzzyMatch(n, item.name))) {
+          Brain.addItem(room.id, containerId, item.name, item.menge || 1);
+        }
       }
 
       // Save photo to IndexedDB
