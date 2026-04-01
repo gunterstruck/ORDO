@@ -1907,7 +1907,7 @@ export class GeminiLiveSession {
         setup: {
           model: `models/${LIVE_MODEL}`,
           generationConfig: {
-            responseModalities: ['AUDIO', 'TEXT'],
+            responseModalities: ['AUDIO'],
             speechConfig: {
               voiceConfig: {
                 prebuiltVoiceConfig: { voiceName: 'Aoede' }
@@ -1921,10 +1921,15 @@ export class GeminiLiveSession {
       };
 
       // Tools für Function Calling (z.B. Räume anlegen, Items verwalten)
+      // HINWEIS: outputAudioTranscription und Tools zusammen verursachen
+      // 1011-Fehler (bekannter Gemini-Bug). Daher nur eins von beiden.
       if (this._tools && this._tools.length > 0) {
         setupPayload.setup.tools = [{
           functionDeclarations: this._tools
         }];
+      } else {
+        // Transkription nur ohne Tools aktivieren
+        setupPayload.setup.outputAudioTranscription = {};
       }
 
       this.ws.send(JSON.stringify(setupPayload));
@@ -2211,7 +2216,6 @@ export class GeminiLiveSession {
         }
         responses.push({
           id: fc.id,
-          name: fc.name,
           response: result
         });
       }
@@ -2252,6 +2256,16 @@ export class GeminiLiveSession {
           this.onTranscript?.(part.text, 'assistant');
         }
       }
+    }
+
+    // Output-Transkript (wenn outputAudioTranscription aktiv)
+    if (serverContent.outputTranscription?.text) {
+      this.onTranscript?.(serverContent.outputTranscription.text, 'assistant');
+    }
+
+    // Input-Transkript (Nutzer-Sprache als Text)
+    if (serverContent.inputTranscription?.text) {
+      this.onTranscript?.(serverContent.inputTranscription.text, 'user');
     }
 
     // Turn abgeschlossen
