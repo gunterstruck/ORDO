@@ -1220,7 +1220,7 @@ registerBlock('LiveDialogCard', () => {
     if (isActive) return;
     isActive = true;
     startBtn.style.display = 'none';
-    stopBtn.style.display = '';
+    stopBtn.style.display = 'inline-block';
 
     try {
       const { GeminiLiveSession, ORDO_FUNCTIONS, functionCallToAction, executeOrdoAction } = await import('./ai.js');
@@ -1283,7 +1283,7 @@ Wenn der Nutzer einen Raum oder Container anlegen will, nutze die passende Funct
     } catch (err) {
       statusEl.textContent = 'Fehler: ' + (err.message || 'Verbindung fehlgeschlagen');
       isActive = false;
-      startBtn.style.display = '';
+      startBtn.style.display = 'inline-block';
       stopBtn.style.display = 'none';
     }
   });
@@ -1294,7 +1294,7 @@ Wenn der Nutzer einen Raum oder Container anlegen will, nutze die passende Funct
       session = null;
     }
     isActive = false;
-    startBtn.style.display = '';
+    startBtn.style.display = 'inline-block';
     stopBtn.style.display = 'none';
     updateState('disconnected');
     addTranscriptLine('Session beendet.', 'agent');
