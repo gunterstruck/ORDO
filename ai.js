@@ -1907,7 +1907,7 @@ export class GeminiLiveSession {
         setup: {
           model: `models/${LIVE_MODEL}`,
           generationConfig: {
-            responseModalities: ['AUDIO', 'TEXT'],
+            responseModalities: ['AUDIO'],
             speechConfig: {
               voiceConfig: {
                 prebuiltVoiceConfig: { voiceName: 'Aoede' }
@@ -2211,7 +2211,6 @@ export class GeminiLiveSession {
         }
         responses.push({
           id: fc.id,
-          name: fc.name,
           response: result
         });
       }
