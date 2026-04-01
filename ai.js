@@ -1916,16 +1916,20 @@ export class GeminiLiveSession {
           },
           systemInstruction: {
             parts: [{ text: systemPrompt }]
-          },
-          outputAudioTranscription: {}
+          }
         }
       };
 
       // Tools für Function Calling (z.B. Räume anlegen, Items verwalten)
+      // HINWEIS: outputAudioTranscription und Tools zusammen verursachen
+      // 1011-Fehler (bekannter Gemini-Bug). Daher nur eins von beiden.
       if (this._tools && this._tools.length > 0) {
         setupPayload.setup.tools = [{
           functionDeclarations: this._tools
         }];
+      } else {
+        // Transkription nur ohne Tools aktivieren
+        setupPayload.setup.outputAudioTranscription = {};
       }
 
       this.ws.send(JSON.stringify(setupPayload));
