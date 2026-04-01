@@ -228,8 +228,8 @@ export async function handleAction(action) {
     }
 
     case 'takeVideo': {
-      const { captureVideo } = await import('./camera.js');
-      captureVideo();
+      const { startSmartVideoCapture } = await import('./smart-photo.js');
+      startSmartVideoCapture();
       break;
     }
 
