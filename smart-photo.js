@@ -178,6 +178,7 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
   const isNewContainer = container.is_new !== false;
 
   const photoUrl = URL.createObjectURL(photoBlob);
+  const isVideo = mimeType && mimeType.startsWith('video/');
 
   const itemsHtml = items.map(i =>
     `<div class="smart-photo-item">✅ ${i.menge > 1 ? i.menge + '× ' : ''}${i.name}</div>`
@@ -187,10 +188,12 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
     <div class="smart-photo-modal">
       <div class="smart-photo-header">
         <button class="smart-photo-close" id="smart-photo-close" aria-label="Schließen">✕</button>
-        <span class="smart-photo-title">📷 Erkannt</span>
+        <span class="smart-photo-title">${isVideo ? '🎬' : '📷'} Erkannt</span>
       </div>
       <div class="smart-photo-content">
-        <img src="${photoUrl}" class="smart-photo-preview" alt="Foto-Vorschau">
+        ${isVideo
+          ? `<video src="${photoUrl}" class="smart-photo-preview" controls muted playsinline style="max-height:200px;border-radius:12px;"></video>`
+          : `<img src="${photoUrl}" class="smart-photo-preview" alt="Foto-Vorschau">`}
         <div class="smart-photo-location">
           📍 ${roomEmoji} ${escapeHTML(room.name || 'Raum')}${isNewRoom ? ' (neu)' : ''} › ${escapeHTML(container.name || 'Container')}${isNewContainer ? ' (neu)' : ''}
         </div>

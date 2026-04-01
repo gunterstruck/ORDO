@@ -681,7 +681,7 @@ registerBlock('QuickDecision', (props) => {
         handleAction({ action: 'showHome' });
       } else {
         if (decision.roomId && decision.containerId) {
-          Brain.removeItem(decision.roomId, decision.containerId, decision.itemName);
+          Brain.archiveItem(decision.roomId, decision.containerId, decision.itemName, b.reason);
         }
         handleAction({ action: 'quickDecision' }); // nächste Entscheidung
       }
@@ -753,7 +753,7 @@ registerBlock('RoomCheckCard', (props) => {
     const containers = document.createElement('div');
     containers.className = 'room-check-containers';
     for (const c of data.containerScores.slice(0, 5)) {
-      const fillPct = c.capacity ? Math.min(100, Math.round((c.capacity.count / Math.max(c.capacity.maxCount || 20, 1)) * 100)) : 50;
+      const fillPct = c.capacity ? Math.min(100, Math.round((c.capacity.count / Math.max(c.capacity.capacity || 20, 1)) * 100)) : 50;
       containers.innerHTML += `
         <div class="room-check-container-row">
           <span>${escapeHTML(c.containerName)}</span>

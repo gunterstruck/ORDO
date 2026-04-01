@@ -254,7 +254,7 @@ describe('buildMessages()', () => {
     assertEqual(result[0].content, 'Erste Nachricht');
   });
 
-  it('dedupliziert aufeinanderfolgende gleiche Rollen', () => {
+  it('mergt aufeinanderfolgende gleiche Rollen', () => {
     const history = [
       { role: 'user', content: 'A' },
       { role: 'user', content: 'B' },
@@ -262,7 +262,7 @@ describe('buildMessages()', () => {
     ];
     const result = buildMessages(history, 'D');
     assertEqual(result[0].role, 'user');
-    assertEqual(result[0].content, 'A');
+    assertEqual(result[0].content, 'A\nB');
     assertEqual(result[1].role, 'assistant');
     assertEqual(result[1].content, 'C');
     assertEqual(result[2].role, 'user');

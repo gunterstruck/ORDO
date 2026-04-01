@@ -86,7 +86,7 @@ self.addEventListener('fetch', event => {
         }).catch(() => null);
 
         // Sofort aus Cache liefern, falls vorhanden – sonst auf Netzwerk warten
-        return cached || networkFetch;
+        return cached || await networkFetch || new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
       })
     );
   } else {

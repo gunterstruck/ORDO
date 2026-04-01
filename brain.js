@@ -377,7 +377,13 @@ const Brain = {
               pending--;
               if (pending === 0) resolve();
             };
-            reader.readAsDataURL(entry.blob);
+            try {
+              reader.readAsDataURL(entry.blob);
+            } catch (e) {
+              console.warn(`Export-Foto lesen fehlgeschlagen: ${entry.id}`, e);
+              pending--;
+              if (pending === 0) resolve();
+            }
           });
         };
         req.onerror = () => resolve();
@@ -758,6 +764,11 @@ const Brain = {
     delete currentParent[containerId];
 
     if (newParentId) {
+      // Prevent moving a container into itself or its own descendant
+      if (newParentId === containerId || (containerData.containers && this._findContainerInTree(containerData.containers, newParentId))) {
+        currentParent[containerId] = containerData;
+        return false;
+      }
       // Move under new parent
       const newParent = this._findContainerInTree(data.rooms[roomId].containers, newParentId);
       if (!newParent) {
@@ -864,8 +875,8 @@ const Brain = {
       status: opts.status || 'aktiv',
       first_seen: opts.first_seen !== undefined ? opts.first_seen : now,
       last_seen: opts.last_seen !== undefined ? opts.last_seen : now,
-      seen_count: opts.seen_count || 1,
-      menge: opts.menge || 1
+      seen_count: opts.seen_count ?? 1,
+      menge: opts.menge ?? 1
     };
     if (opts.spatial) item.spatial = opts.spatial;
     if (opts.object_id) item.object_id = opts.object_id;
@@ -1108,7 +1119,10 @@ const Brain = {
         const mergedItems = [...(existing.items || [])];
         const itemNames = mergedItems.map(i => this.getItemName(i));
         sicherItems.forEach(item => {
-          if (!itemNames.some(n => this.isFuzzyMatch(n, item))) mergedItems.push(item);
+          const itemName = typeof item === 'string' ? item : item;
+          if (!itemNames.some(n => this.isFuzzyMatch(n, typeof itemName === 'string' ? itemName : this.getItemName(itemName)))) {
+            mergedItems.push(typeof itemName === 'string' ? this.createItemObject(itemName) : itemName);
+          }
         });
         const mergedUncertain = [...(existing.uncertain_items || [])];
         unsicherItems.forEach(item => {
@@ -1125,7 +1139,7 @@ const Brain = {
         targetContainers[cId] = {
           name: b.name,
           typ: b.typ || 'sonstiges',
-          items: sicherItems,
+          items: sicherItems.map(i => typeof i === 'string' ? this.createItemObject(i) : i),
           uncertain_items: unsicherItems,
           last_updated: Date.now(),
           photo_analyzed: true
@@ -1173,7 +1187,10 @@ const Brain = {
         const mergedItems = [...(existing.items || [])];
         const itemNames = mergedItems.map(i => this.getItemName(i));
         sicherItems.forEach(item => {
-          if (!itemNames.some(n => this.isFuzzyMatch(n, item))) mergedItems.push(item);
+          const itemName = typeof item === 'string' ? item : this.getItemName(item);
+          if (!itemNames.some(n => this.isFuzzyMatch(n, itemName))) {
+            mergedItems.push(typeof item === 'string' ? this.createItemObject(item) : item);
+          }
         });
         const mergedUncertain = [...(existing.uncertain_items || [])];
         unsicherItems.forEach(item => {
@@ -1190,7 +1207,7 @@ const Brain = {
         parentContainer.containers[cId] = {
           name: b.name,
           typ: b.typ || 'sonstiges',
-          items: sicherItems,
+          items: sicherItems.map(i => typeof i === 'string' ? this.createItemObject(i) : i),
           uncertain_items: unsicherItems,
           last_updated: Date.now(),
           photo_analyzed: true
@@ -1405,6 +1422,8 @@ const Brain = {
 
   addChatMessage(role, content) {
     const data = this.getData();
+    if (!data) return;
+    if (!data.chat_history) data.chat_history = [];
     data.chat_history.push({ role, content, ts: Date.now() });
     // keep last 100 messages
     if (data.chat_history.length > 100) {
@@ -2208,6 +2227,7 @@ const Brain = {
     const data = this.getData();
     if (data?.quest && !data.quest.type) {
       data.quest.type = 'inventory'; // Legacy backwards-compat
+      this.save(data);
     }
     return data?.quest || null;
   },

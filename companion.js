@@ -566,8 +566,11 @@ async function startLiveMode() {
   // Function Calls ausführen
   liveSession.onFunctionCall = (call) => {
     const action = functionCallToAction(call);
-    if (action && action.type !== 'found') {
-      executeOrdoAction(action);
+    if (action) {
+      if (action.type !== 'found') {
+        const normalized = normalizeOrdoAction(action);
+        if (normalized) executeOrdoAction(normalized);
+      }
       appendCompanionMessage('assistant', `\u2705 ${call.name}`);
       return { success: true };
     }
