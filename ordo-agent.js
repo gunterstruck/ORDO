@@ -254,6 +254,18 @@ export async function handleAction(action) {
       break;
     }
 
+    case 'questStepDone': {
+      const { completeCurrentStep } = await import('./quest.js');
+      completeCurrentStep(0);
+      break;
+    }
+
+    case 'questStepSkip': {
+      const { skipCurrentStep } = await import('./quest.js');
+      skipCurrentStep('Via Dialog \u00fcbersprungen');
+      break;
+    }
+
     // --- BERICHTE ---
 
     case 'showExpiry': {

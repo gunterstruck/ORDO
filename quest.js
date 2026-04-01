@@ -10,6 +10,7 @@ import { requestOverlay, releaseOverlay, isOverlayActive } from './overlay-manag
 import { capturePhoto, captureVideo } from './camera.js';
 import { buildCleanupPlan, calculateFreedomIndex, getDisposalGuide, roomCheck, householdCheck, getArchivedByReason, getSellableItems, findStorageRoom, getQuickWins } from './organizer.js';
 import { getPersonality } from './chat.js';
+import { agentMessage } from './dialog-stream.js';
 
 // Analysis messages now handled by LoadingManager in ai.js
 
@@ -847,6 +848,23 @@ function showQuestCompleted() {
     if (reportBtn) reportBtn.click();
   });
   updateMiniBadge();
+
+  // Phase B: Quest-Abschluss auch im Dialog-Stream zeigen
+  const scoreNow = calculateFreedomIndex().percent;
+  agentMessage(
+    '\u{1F389} Quest abgeschlossen!',
+    [{ type: 'QuestSummary', props: { stats: {
+      moved: quest.progress?.items_moved || 0,
+      discarded: quest.progress?.items_archived || 0,
+      donated: 0,
+      scoreBefore: quest.progress?.score_start || 0,
+      scoreAfter: scoreNow,
+    }}}],
+    [
+      { icon: '\u{1F9F9}', label: 'Noch eine Runde', action: 'startCleanup' },
+      { icon: '\u{1F3E0}', label: 'Mein Zuhause', action: 'showHome' },
+    ],
+  );
 }
 
 export function skipCurrentStep(reason) {
@@ -922,6 +940,9 @@ export function startCleanupQuest(minutes) {
 
   if (plan.length === 0) {
     showToast('Keine offenen Aufgaben gefunden! \u{1F389}', 'success');
+    agentMessage('Alles in Ordnung \u2014 keine offenen Aufgaben! \u{1F389}', [], [
+      { icon: '\u{1F3E0}', label: 'Mein Zuhause', action: 'showHome' },
+    ]);
     return;
   }
 
@@ -1004,6 +1025,17 @@ function showCleanupStep(q) {
   overlay.querySelector('#cleanup-pause')?.addEventListener('click', () => pauseCleanupQuest());
 
   updateMiniBadge();
+
+  // Phase B: Quest-Schritt auch im Dialog-Stream zeigen
+  const stepLabel = { move: '\u{1F504} Umr\u00e4umen', decide: '\u{1F914} Entscheiden', consolidate: '\u{1F4E6} Zusammenlegen', optimize: '\u{1F4A1} Tipp' }[currentStep.action_type] || '\u{1F4CB} Schritt';
+  agentMessage(
+    `${stepLabel}: ${currentStep.item_name || 'N\u00e4chster Schritt'} (${stepNum}/${total})`,
+    [{ type: 'QuestStep', props: {} }],
+    [
+      { icon: '\u2705', label: 'Erledigt', action: 'questStepDone', primary: true },
+      { icon: '\u23ED\uFE0F', label: '\u00dcberspringen', action: 'questStepSkip' },
+    ],
+  );
 }
 
 function renderMoveStep(step) {
@@ -1365,6 +1397,22 @@ function showCleanupCompleted(q) {
     renderBrainView();
     showView('brain');
   });
+
+  // Phase B: Cleanup-Abschluss auch im Dialog-Stream zeigen
+  agentMessage(
+    `\u{1F389} Aufr\u00e4um-Quest geschafft! "${escapeHTML(message)}"`,
+    [{ type: 'QuestSummary', props: { stats: {
+      moved: summary.itemsMoved,
+      discarded: summary.itemsArchived,
+      donated: summary.itemsDonated,
+      scoreBefore: summary.scoreStart,
+      scoreAfter: summary.scoreEnd,
+    }, quote: message }}],
+    [
+      { icon: '\u{1F9F9}', label: 'Noch eine Runde', action: 'startCleanup' },
+      { icon: '\u{1F3E0}', label: 'Mein Zuhause', action: 'showHome' },
+    ],
+  );
 }
 
 function animateScoreChange(oldPercent, newPercent) {
