@@ -1916,7 +1916,8 @@ export class GeminiLiveSession {
           },
           systemInstruction: {
             parts: [{ text: systemPrompt }]
-          }
+          },
+          outputAudioTranscription: {}
         }
       };
 
@@ -2251,6 +2252,16 @@ export class GeminiLiveSession {
           this.onTranscript?.(part.text, 'assistant');
         }
       }
+    }
+
+    // Output-Transkript (wenn outputAudioTranscription aktiv)
+    if (serverContent.outputTranscription?.text) {
+      this.onTranscript?.(serverContent.outputTranscription.text, 'assistant');
+    }
+
+    // Input-Transkript (Nutzer-Sprache als Text)
+    if (serverContent.inputTranscription?.text) {
+      this.onTranscript?.(serverContent.inputTranscription.text, 'user');
     }
 
     // Turn abgeschlossen
