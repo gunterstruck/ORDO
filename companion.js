@@ -563,12 +563,23 @@ async function startLiveMode() {
     resetIdleTimer();
   };
 
+  // Function Calls ausführen
+  liveSession.onFunctionCall = (call) => {
+    const action = functionCallToAction(call);
+    if (action && action.type !== 'found') {
+      executeOrdoAction(action);
+      appendCompanionMessage('assistant', `\u2705 ${call.name}`);
+      return { success: true };
+    }
+    return { error: 'Unbekannte Aktion' };
+  };
+
   // System-Prompt mit Live-Regeln
   const systemPrompt = buildLiveSystemPrompt();
 
   // Verbinden – Fehler explizit abfangen und im Chat anzeigen
   try {
-    await liveSession.connect(apiKey, systemPrompt);
+    await liveSession.connect(apiKey, systemPrompt, { tools: ORDO_FUNCTIONS });
   } catch (err) {
     const detail = err?.message || String(err);
     appendCompanionMessage('assistant', `Live-Fehler: ${detail}`);

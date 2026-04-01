@@ -1850,6 +1850,7 @@ export class GeminiLiveSession {
     this.onTranscript = null;
     this.onError = null;
     this.onActivityDetected = null;
+    this.onFunctionCall = null; // (call) => Promise<result>
 
     // Audio playback queue
     this._playbackQueue = [];
@@ -1861,8 +1862,9 @@ export class GeminiLiveSession {
     this._vadInterval = null;
   }
 
-  async connect(apiKey, systemPrompt) {
+  async connect(apiKey, systemPrompt, options = {}) {
     if (this.ws) this.disconnect();
+    this._tools = options.tools || null;
 
     this._setState('connecting');
 
@@ -1901,11 +1903,11 @@ export class GeminiLiveSession {
 
       // 3. Setup mit System-Prompt und Audio-Konfiguration
       //    Server erwartet "setup" als Top-Level-Key (nicht "config")
-      this.ws.send(JSON.stringify({
+      const setupPayload = {
         setup: {
           model: `models/${LIVE_MODEL}`,
           generationConfig: {
-            responseModalities: ['AUDIO'],
+            responseModalities: ['AUDIO', 'TEXT'],
             speechConfig: {
               voiceConfig: {
                 prebuiltVoiceConfig: { voiceName: 'Aoede' }
@@ -1916,7 +1918,16 @@ export class GeminiLiveSession {
             parts: [{ text: systemPrompt }]
           }
         }
-      }));
+      };
+
+      // Tools für Function Calling (z.B. Räume anlegen, Items verwalten)
+      if (this._tools && this._tools.length > 0) {
+        setupPayload.setup.tools = [{
+          functionDeclarations: this._tools
+        }];
+      }
+
+      this.ws.send(JSON.stringify(setupPayload));
 
       // 4. Auf Setup-Bestätigung warten (mit sauberem Timeout)
       //    Fängt: setupComplete, data.error UND vorzeitiges WebSocket-Close ab.
@@ -2181,6 +2192,35 @@ export class GeminiLiveSession {
       debugLog(`[Live] Server-Fehler: ${errMsg}`);
       this.onError?.(errMsg);
       this.disconnect();
+      return;
+    }
+
+    // ── Function Call (toolCall) vom Server ──
+    const toolCall = data.toolCall;
+    if (toolCall && toolCall.functionCalls) {
+      this.onActivityDetected?.();
+      const responses = [];
+      for (const fc of toolCall.functionCalls) {
+        let result = { success: true };
+        if (this.onFunctionCall) {
+          try {
+            result = await this.onFunctionCall(fc) || { success: true };
+          } catch (err) {
+            result = { error: err.message };
+          }
+        }
+        responses.push({
+          id: fc.id,
+          name: fc.name,
+          response: result
+        });
+      }
+      // Function-Call-Ergebnis an Server zurücksenden
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          toolResponse: { functionResponses: responses }
+        }));
+      }
       return;
     }
 
