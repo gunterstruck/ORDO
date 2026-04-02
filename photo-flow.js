@@ -646,6 +646,10 @@ async function handleVideoFile(file) {
     return;
   }
 
+  // Laufenden Upload abbrechen bevor ein neuer gestartet wird
+  if (videoAbortController) {
+    videoAbortController.abort();
+  }
   videoAbortController = new AbortController();
   startAnalysisAnimation('videoAnalysis');
 
@@ -655,10 +659,8 @@ async function handleVideoFile(file) {
 
     // Upload video to Gemini File API
     uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
-      if (videoAbortController?.signal.aborted) return;
-    });
-
-    if (videoAbortController?.signal.aborted) throw new Error('aborted');
+      // Progress updates can be added here
+    }, videoAbortController?.signal);
 
     // Build system prompt for container-level video analysis
     const customName = document.getElementById('photo-custom-name')?.value?.trim() || '';
@@ -736,7 +738,9 @@ Regeln:
   } finally {
     videoAbortController = null;
     if (uploadedFile?.fileName) {
-      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(() => {});
+      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(err => {
+        debugLog(`Gemini-Datei Cleanup fehlgeschlagen: ${err.message}`);
+      });
     }
   }
 }

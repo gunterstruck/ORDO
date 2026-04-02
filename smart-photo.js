@@ -450,14 +450,16 @@ export async function startSmartVideoCapture() {
   if (statusEl) statusEl.textContent = 'Video wird hochgeladen...';
 
   let uploadedFile = null;
+  const videoAbort = new AbortController();
   try {
     // 3. Upload zu Gemini File API
     uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
       if (statusEl) {
-        if (phase === 'uploading') statusEl.textContent = `Video wird hochgeladen... ${Math.round(pct)}%`;
+        if (phase === 'upload') statusEl.textContent = `Video wird hochgeladen... ${Math.round(pct)}%`;
         else if (phase === 'processing') statusEl.textContent = 'Video wird verarbeitet...';
+        else if (phase === 'ready') statusEl.textContent = 'Video bereit – Analyse startet...';
       }
-    });
+    }, videoAbort.signal);
 
     if (statusEl) statusEl.textContent = 'Video wird analysiert...';
 
@@ -491,7 +493,9 @@ export async function startSmartVideoCapture() {
     showToast('Video konnte nicht analysiert werden: ' + getErrorMessage(err), 'error');
   } finally {
     if (uploadedFile?.fileName) {
-      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(() => {});
+      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(err => {
+        debugLog(`Gemini-Datei Cleanup fehlgeschlagen: ${err.message}`);
+      });
     }
   }
 }
