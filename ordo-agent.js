@@ -352,6 +352,14 @@ export async function handleAction(action) {
       break;
     }
 
+    case 'togglePreviewModels': {
+      const current = localStorage.getItem('ordo_use_preview_models') !== 'false';
+      localStorage.setItem('ordo_use_preview_models', (!current).toString());
+      // Panel neu rendern damit der Toggle-Zustand stimmt
+      handleAction({ action: 'showSettings' });
+      break;
+    }
+
     case 'exportData': {
       try {
         const { exportData } = await import('./brain.js');
