@@ -1406,12 +1406,22 @@ export async function fetchWithRetry(url, options, maxRetries = 3, label = 'Requ
   }
 }
 
-export async function uploadVideoToGemini(apiKey, file, onProgress) {
+export async function uploadVideoToGemini(apiKey, file, onProgress, abortSignal) {
   const sizeMB = file.size / (1024 * 1024);
   debugLog(`Video-Upload gestartet: ${file.name} (${sizeMB.toFixed(1)} MB, ${file.type})`);
 
+  if (!file.size) {
+    throw new Error('Video-Datei ist leer (0 Bytes).');
+  }
+
   if (sizeMB > MAX_VIDEO_SIZE_MB) {
     throw new Error(`Video zu groß (${Math.round(sizeMB)} MB). Maximum: ${MAX_VIDEO_SIZE_MB} MB.`);
+  }
+
+  const SUPPORTED_VIDEO_TYPES = ['video/mp4', 'video/mpeg', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-matroska'];
+  const mimeBase = (file.type || '').split(';')[0].trim().toLowerCase();
+  if (!mimeBase || !SUPPORTED_VIDEO_TYPES.includes(mimeBase)) {
+    throw new Error(`Video-Format nicht unterstützt: "${file.type || 'unbekannt'}". Unterstützt: MP4, WebM, OGG.`);
   }
 
   onProgress?.('upload', 0);
@@ -1445,6 +1455,8 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
   let offset = 0;
 
   for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+    if (abortSignal?.aborted) throw new Error('aborted');
+
     const isLast = chunkIdx === totalChunks - 1;
     const end = Math.min(offset + CHUNK_SIZE, file.size);
     const chunkBlob = file.slice(offset, end);
@@ -1454,6 +1466,9 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
 
     const chunkController = new AbortController();
     const chunkTimeout = setTimeout(() => chunkController.abort(), 120000);
+    // Forward external abort to chunk controller
+    const abortHandler = () => chunkController.abort();
+    abortSignal?.addEventListener('abort', abortHandler, { once: true });
     let chunkRes;
     try {
       chunkRes = await fetchWithRetry(uploadUrl, {
@@ -1468,10 +1483,13 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
       }, 4, `Chunk ${chunkIdx + 1}/${totalChunks}`);
     } catch (err) {
       clearTimeout(chunkTimeout);
+      abortSignal?.removeEventListener('abort', abortHandler);
+      if (abortSignal?.aborted) throw new Error('aborted');
       if (err.name === 'AbortError') throw new Error('Timeout beim Video-Upload – Verbindung zu langsam.');
       throw err;
     }
     clearTimeout(chunkTimeout);
+    abortSignal?.removeEventListener('abort', abortHandler);
 
     if (!chunkRes.ok) {
       const errText = await chunkRes.text().catch(() => '');
@@ -1500,6 +1518,7 @@ export async function uploadVideoToGemini(apiKey, file, onProgress) {
       const fileId = fileObj.name.startsWith('files/') ? fileObj.name.slice(6) : fileObj.name;
 
       while (attempts < maxAttempts) {
+        if (abortSignal?.aborted) throw new Error('aborted');
         const pollUrl = `${FILE_API_GET_URL}/${fileId}?key=${apiKey}`;
         debugLog(`Poll-URL: ${pollUrl}`);
         const checkRes = await fetchWithRetry(
