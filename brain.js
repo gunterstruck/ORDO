@@ -2347,4 +2347,4 @@ Brain.debugListAllPhotos = debugListAllPhotos;
 
 // ES Module export (brain.js bleibt inhaltlich unverändert)
 export default Brain;
-export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE, SPLAT_STORE, calculateAutoLayout, calculateNeighborLayout, debugListAllPhotos };
+export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE, SPLAT_STORE, calculateAutoLayout, calculateNeighborLayout };
