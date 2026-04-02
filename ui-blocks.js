@@ -176,33 +176,120 @@ registerBlock('ItemList', (props) => {
     return el;
   }
 
-  for (const item of activeItems) {
-    const name = typeof item === 'string' ? item : item.name;
-    const menge = typeof item === 'object' ? item.menge : 1;
-    const freshness = typeof item === 'object' ? getItemFreshnessClass(item) : '';
+  // Suchfeld
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'item-list-search-wrap';
+  const searchInput = document.createElement('input');
+  searchInput.type = 'search';
+  searchInput.placeholder = '🔍 Suchen…';
+  searchInput.className = 'item-list-search';
+  searchWrap.appendChild(searchInput);
+  el.appendChild(searchWrap);
 
-    const row = document.createElement('div');
-    row.classList.add('block-item-row');
-    if (freshness) row.classList.add(freshness);
-    row.innerHTML = `
-      <span class="item-name">${menge > 1 ? menge + '\u00d7 ' : ''}${escapeHTML(name)}</span>
-    `;
-    row.addEventListener('click', async () => {
-      const { handleAction } = await import('./ordo-agent.js');
-      handleAction({
-        action: 'showItemDetail',
-        roomId: props.roomId,
-        containerId: props.containerId,
-        itemName: name,
+  const listContainer = document.createElement('div');
+
+  function renderItems(query) {
+    listContainer.innerHTML = '';
+    const q = (query || '').toLowerCase();
+
+    for (const item of activeItems) {
+      const name = typeof item === 'string' ? item : item.name;
+      const status = typeof item === 'object' ? item.status : 'aktiv';
+      const menge = typeof item === 'object' ? item.menge : 1;
+      const freshness = typeof item === 'object' ? getItemFreshnessClass(item) : '';
+
+      if (q && !name.toLowerCase().includes(q)) continue;
+
+      const row = document.createElement('div');
+      row.classList.add('block-item-row');
+      if (freshness) row.classList.add(freshness);
+      if (status === 'vermisst') row.classList.add('item-missing');
+
+      const prefix = status === 'vermisst' ? '⚠️ ' : '';
+      row.innerHTML = `
+        <span class="item-name">${prefix}${menge > 1 ? menge + '\u00d7 ' : ''}${escapeHTML(name)}</span>
+        <span class="item-row-chevron">›</span>
+      `;
+      row.addEventListener('click', async () => {
+        const { handleAction } = await import('./ordo-agent.js');
+        handleAction({
+          action: 'showItemDetail',
+          roomId: props.roomId,
+          containerId: props.containerId,
+          itemName: name,
+        });
       });
-    });
-    el.appendChild(row);
+      listContainer.appendChild(row);
+    }
   }
+
+  renderItems('');
+  searchInput.addEventListener('input', () => renderItems(searchInput.value));
+
+  el.appendChild(listContainer);
+  return el;
+});
+
+// 5. ContainerPhoto — Foto eines Containers im Dialog-Stream
+registerBlock('ContainerPhoto', (props) => {
+  // props: { roomId, containerId, roomName?, containerName? }
+  const el = document.createElement('div');
+  el.className = 'block-container-photo';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'block-container-photo-wrap';
+  wrap.innerHTML = '<span class="block-container-photo-empty" style="display:none"></span>';
+  el.appendChild(wrap);
+
+  const label = document.createElement('div');
+  label.className = 'block-container-photo-label';
+  el.appendChild(label);
+
+  // Async laden — blockiert Renderer nicht
+  Brain.findBestPhoto(props.roomId, props.containerId).then(async (result) => {
+    if (!result?.blob) {
+      wrap.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'block-container-photo-empty';
+      empty.textContent = 'Noch kein Foto für diesen Bereich.';
+      wrap.appendChild(empty);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(result.blob);
+    wrap.innerHTML = '';
+
+    const img = document.createElement('img');
+    img.src = objectUrl;
+    img.className = 'block-container-photo-img';
+    img.alt = props.containerName || props.containerId;
+    img.addEventListener('click', async () => {
+      const { showLightbox } = await import('./brain-view.js');
+      (showLightbox || (() => {}))(objectUrl);
+    });
+    wrap.appendChild(img);
+
+    if (result.source === 'parent') {
+      label.textContent = '📦 übergeordneter Behälter';
+    } else {
+      label.textContent = `📦 ${props.containerName || props.containerId}`;
+    }
+    if (result.timestamp) {
+      const d = new Date(result.timestamp);
+      label.textContent += ` · ${d.toLocaleDateString('de-DE')}`;
+    }
+  }).catch(() => {
+    wrap.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'block-container-photo-empty';
+    empty.textContent = 'Noch kein Foto für diesen Bereich.';
+    wrap.appendChild(empty);
+  });
 
   return el;
 });
 
-// 5. PhotoButton — Großer Foto-Auslöser
+// 6. PhotoButton — Großer Foto-Auslöser
 registerBlock('PhotoButton', (props) => {
   const el = document.createElement('button');
   el.classList.add('block-photo-btn');

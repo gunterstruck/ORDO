@@ -94,6 +94,47 @@ export function showItemDetailPanel(roomId, containerId, itemName) {
   loc.textContent = `${room.emoji} ${room.name} → ${pathNames.join(' → ')}`;
   sheet.appendChild(loc);
 
+  // Thumbnail-Section
+  const thumbSection = document.createElement('div');
+  thumbSection.className = 'item-detail-thumb-section';
+  thumbSection.innerHTML = `
+    <div class="item-detail-thumb-wrap item-detail-thumb-wrap--loading">
+      <span class="item-detail-thumb-placeholder">📷</span>
+    </div>`;
+  sheet.appendChild(thumbSection);
+
+  // Async laden — blockiert Panel-Öffnen nicht
+  Brain.findBestPhoto(roomId, containerId).then(result => {
+    const wrap = thumbSection.querySelector('.item-detail-thumb-wrap');
+    if (!result?.blob) {
+      wrap.classList.add('item-detail-thumb-wrap--empty');
+      return;
+    }
+    const objectUrl = URL.createObjectURL(result.blob);
+    wrap.classList.remove('item-detail-thumb-wrap--loading');
+    wrap.classList.add('item-detail-thumb-wrap--loaded');
+    wrap.innerHTML = '';
+
+    const img = document.createElement('img');
+    img.src = objectUrl;
+    img.className = 'item-detail-thumb-img';
+    img.alt = container.name;
+    img.addEventListener('click', async () => {
+      const showLb = await getLightbox();
+      showLb(objectUrl);
+    });
+    panel.addEventListener('remove', () => URL.revokeObjectURL(objectUrl), { once: true });
+
+    const label = document.createElement('div');
+    label.className = 'item-detail-thumb-label';
+    label.textContent = result.source === 'parent'
+      ? `📦 übergeordneter Behälter`
+      : `📦 ${container.name}`;
+
+    wrap.appendChild(img);
+    thumbSection.appendChild(label);
+  }).catch(() => {});
+
   // Status section
   const statusSection = document.createElement('div');
   statusSection.className = 'item-detail-section';
