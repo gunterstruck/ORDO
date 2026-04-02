@@ -348,6 +348,7 @@ registerBlock('SettingsPanel', () => {
   const apiKey = localStorage.getItem('ordo_api_key');
   const personality = localStorage.getItem('ordo_personality') || 'kauzig';
   const tts = localStorage.getItem('ordo_tts_enabled') === 'true';
+  const previewEnabled = localStorage.getItem('ordo_use_preview_models') !== 'false';
 
   el.innerHTML = `
     <div class="settings-title">\u2699\uFE0F Einstellungen</div>
@@ -371,6 +372,18 @@ registerBlock('SettingsPanel', () => {
       <div class="settings-label">ORDO spricht</div>
       <button class="settings-toggle ${tts ? 'on' : ''}" data-action="toggleTTS">
         ${tts ? '\u{1F50A} An' : '\u{1F507} Aus'}
+      </button>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-label">KI-Modelle</div>
+      <div class="settings-description">
+        Preview-Modelle sind neuer, aber manchmal \u00fcberlastet und langsam.
+        Stable-Modelle sind zuverl\u00e4ssiger.
+      </div>
+      <button class="settings-toggle ${previewEnabled ? 'on' : ''}"
+              data-action="togglePreviewModels">
+        ${previewEnabled ? '\u{1F9EA} Preview-Modelle aktiv' : '\u2705 Stable-Modelle aktiv'}
       </button>
     </div>
 

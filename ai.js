@@ -71,6 +71,17 @@ const MODELS = {
   ttsPro: 'gemini-2.5-pro-preview-tts',     // TTS Pro – Sprachausgabe (höhere Qualität)
 };
 
+/**
+ * Gibt true zurück wenn Preview-Modelle erwünscht sind.
+ * Default: true → bisheriges Verhalten bleibt erhalten.
+ */
+export function usePreviewModels() {
+  try {
+    const val = localStorage.getItem('ordo_use_preview_models');
+    return val === null ? true : val === 'true';
+  } catch { return true; }
+}
+
 // Timeout für einzelne API-Requests (ms) – kurz genug um schnell zu fallbacken
 const REQUEST_TIMEOUT_MS = 15000;
 
@@ -105,10 +116,12 @@ function _emitModelFallback(requestedModel, usedModel) {
  * @returns {string} Modellname
  */
 function determineModel({ hasImage = false, hasVideo = false, taskType = 'chat' } = {}) {
-  // Multimodale Analyse (Foto/Video) → Gemini 2.5 Pro
-  if (hasVideo) return MODELS.pro;
-  if (hasImage) return MODELS.pro;
-  // Komplexe Textaufgaben → Gemini 2.5 Pro
+  const preview = usePreviewModels();
+
+  // Multimodale Analyse (Foto/Video) → Pro-Klasse
+  if (hasVideo || hasImage) return preview ? MODELS.pro : MODELS.stablePro;
+
+  // Komplexe Textaufgaben → Pro-Klasse
   const PRO_TASKS = [
     'analyzeBlueprint',
     'analyzeReceipt',
@@ -117,14 +130,14 @@ function determineModel({ hasImage = false, hasVideo = false, taskType = 'chat' 
     'roomCheck',
     'householdCheck',
   ];
-  if (PRO_TASKS.includes(taskType)) return MODELS.pro;
+  if (PRO_TASKS.includes(taskType)) return preview ? MODELS.pro : MODELS.stablePro;
 
-  // Einfache/kurze Aufgaben → Lite (günstigster, schnellster)
+  // Einfache/kurze Aufgaben → Lite-Klasse
   const LITE_TASKS = ['analyzeHotspots', 'test'];
-  if (LITE_TASKS.includes(taskType)) return MODELS.lite;
+  if (LITE_TASKS.includes(taskType)) return preview ? MODELS.lite : MODELS.stableLite;
 
-  // Chat & mittlere Textaufgaben → Flash
-  return MODELS.fast;
+  // Chat & mittlere Textaufgaben → Flash-Klasse
+  return preview ? MODELS.fast : MODELS.stableFast;
 }
 
 // ── Thinking Configuration ────────────────────────────
