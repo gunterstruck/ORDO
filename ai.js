@@ -161,8 +161,13 @@ function getThinkingConfig(taskType) {
 }
 
 function buildGenerationConfig(options = {}) {
-  const config = { maxOutputTokens: 8192 };
   const taskType = options.taskType || 'chat';
+
+  // Video-Analyse und komplexe Raum-Analysen brauchen mehr Output-Tokens
+  const HIGH_TOKEN_TASKS = ['videoAnalysis', 'containerCheck', 'roomCheck', 'householdCheck', 'analyzeBlueprint'];
+  const maxOutputTokens = HIGH_TOKEN_TASKS.includes(taskType) ? 16384 : 8192;
+
+  const config = { maxOutputTokens };
 
   // Chat: niedrigere temperature für schnellere, konsistentere Antworten
   if (taskType === 'chat') {
@@ -724,7 +729,15 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
       const candidate = data.candidates?.[0];
       const finishReason = candidate?.finishReason ?? 'UNKNOWN';
       if (finishReason === 'SAFETY') throw new Error('safety_block');
-      if (finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
+      if (finishReason === 'MAX_TOKENS') {
+        debugLog(`MAX_TOKENS bei ${currentModel} (maxOutputTokens: ${genConfig.maxOutputTokens}) – versuche nächstes Modell…`);
+        // Bei abgeschnittener Antwort: nächstes Modell versuchen (oft stabiler)
+        if (currentModel !== modelsToTry[modelsToTry.length - 1]) {
+          _emitModelFallback(currentModel, modelsToTry[modelsToTry.indexOf(currentModel) + 1]);
+          break; // nächstes Modell in der Fallback-Kette
+        }
+        throw new Error('max_tokens');
+      }
 
       const parts = candidate?.content?.parts || [];
 
@@ -845,7 +858,7 @@ export function getErrorMessage(err) {
   if (err.message === 'bad_request') return 'Anfrage ungültig – Foto zu groß oder falsches Format. Bitte ein anderes Foto versuchen.';
   if (err.message === 'quota') return 'Tageslimit der kostenlosen Google AI API erreicht (429). Bitte morgen wieder versuchen oder ein bezahltes Konto nutzen.';
   if (err.message === 'safety_block') return 'Das Foto wurde vom Sicherheitsfilter blockiert. Bitte ein anderes Foto versuchen.';
-  if (err.message === 'max_tokens') return 'Antwort zu lang – bitte ein übersichtlicheres Foto wählen.';
+  if (err.message === 'max_tokens') return 'Antwort zu lang – bitte ein kürzeres Video oder ein übersichtlicheres Foto wählen.';
   if (err.message === 'Kein JSON in Antwort') return 'Die KI hat keine auswertbare Antwort geliefert. Bitte nochmal versuchen.';
   if (err.message?.includes('Video zu groß')) return err.message;
   if (err.message?.includes('Video-Verarbeitung') || err.message?.includes('Timeout')) return err.message;
