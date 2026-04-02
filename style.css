@@ -7176,6 +7176,65 @@ select.settings-input { appearance: none; }
   .live-modal { width: calc(100vw - 24px); right: 12px; left: 12px; }
 }
 
+/* ─── ContainerPhoto Block ─── */
+.block-container-photo { margin: 4px 0 8px; }
+.block-container-photo-wrap {
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #f0ede8;
+  min-height: 56px;
+  display: flex; align-items: center; justify-content: center;
+}
+.block-container-photo-img {
+  width: 100%; max-height: 280px;
+  object-fit: cover; display: block;
+  border-radius: 14px; cursor: zoom-in;
+}
+.block-container-photo-label {
+  font-size: 11px; color: #aaa;
+  text-align: center; margin-top: 5px;
+}
+.block-container-photo-empty {
+  font-size: 13px; color: #bbb;
+  padding: 16px; text-align: center;
+}
+
+/* ─── ItemList Search & Enhancements ─── */
+.item-list-search-wrap { padding: 4px 0 8px; }
+.item-list-search {
+  width: 100%; box-sizing: border-box;
+  padding: 8px 14px; border: 1.5px solid #e0d9d0;
+  border-radius: 20px; font-size: 14px;
+  background: #faf8f5; outline: none;
+  transition: border-color 0.2s;
+}
+.item-list-search:focus { border-color: #c8a97e; }
+.block-item-row {
+  display: flex; align-items: center;
+  justify-content: space-between; gap: 8px;
+}
+.item-row-chevron { color: #ccc; font-size: 18px; flex-shrink: 0; }
+.block-item-row.item-missing .item-name { color: #c0392b; }
+
+/* ─── Item Detail Thumbnail ─── */
+.item-detail-thumb-section { margin: 0 0 14px; }
+.item-detail-thumb-wrap {
+  width: 100%; border-radius: 12px; overflow: hidden;
+  background: #f5f3ee; display: flex;
+  align-items: center; justify-content: center; min-height: 48px;
+}
+.item-detail-thumb-wrap--loading { opacity: 0.4; animation: pulse-thumb 1.4s ease-in-out infinite; }
+.item-detail-thumb-wrap--empty { display: none; }
+.item-detail-thumb-img {
+  width: 100%; max-height: 220px; object-fit: cover;
+  display: block; cursor: zoom-in; border-radius: 12px;
+}
+.item-detail-thumb-label { font-size: 11px; color: #aaa; text-align: center; margin-top: 5px; }
+@keyframes pulse-thumb {
+  0%, 100% { opacity: 0.4; } 50% { opacity: 0.15; }
+}
+
 /* Fullscreen Overlay */
 .fullscreen-overlay { position: fixed; inset: 0; z-index: 500; background: var(--bg); }
 .fullscreen-overlay.hidden { display: none; }

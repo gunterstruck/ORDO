@@ -624,6 +624,86 @@ export async function handleAction(action) {
       ]);
       break;
 
+    // --- FOTO ANZEIGEN ---
+
+    case 'showPhoto': {
+      const rooms = Brain.getRooms();
+
+      // Fall A: Container bekannt → direkt anzeigen
+      if (action.containerId && action.roomId) {
+        const container = Brain.getContainer(action.roomId, action.containerId);
+        const room = Brain.getRoom(action.roomId);
+        agentMessage(
+          companionSays({
+            sachlich: `Foto: ${container?.name || action.containerId}`,
+            freundlich: `Hier ist das Foto von ${container?.name || action.containerId}!`,
+            kauzig: `Da. Das Foto.`,
+          }),
+          [{ type: 'ContainerPhoto', props: {
+            roomId: action.roomId,
+            containerId: action.containerId,
+            roomName: room?.name,
+            containerName: container?.name,
+          }}],
+          [{ icon: '📷', label: 'Neues Foto', action: 'takePhoto', primary: false }]
+        );
+        break;
+      }
+
+      // Fall B: Nur Raum bekannt → neuesten Container mit Foto finden
+      if (action.roomId) {
+        const room = Brain.getRoom(action.roomId);
+        if (!room) { agentMessage('Diesen Raum kenne ich nicht.'); break; }
+
+        const containersWithPhotos = Object.entries(room.containers || {})
+          .filter(([, c]) => c.has_photo || (c.photo_history?.length > 0))
+          .sort(([, a], [, b]) => (b.last_updated || 0) - (a.last_updated || 0));
+
+        if (containersWithPhotos.length === 0) {
+          agentMessage(companionSays({
+            sachlich: `Für ${room.name} sind noch keine Fotos gespeichert.`,
+            freundlich: `Von ${room.name} habe ich noch kein Foto. Mach eins!`,
+            kauzig: `${room.name} ist noch unbekannt. Kamera raus.`,
+          }), [], [{ icon: '📷', label: 'Foto machen', action: 'takePhoto', primary: true }]);
+          break;
+        }
+
+        const [newestId, newestContainer] = containersWithPhotos[0];
+        const blocks = [{ type: 'ContainerPhoto', props: {
+          roomId: action.roomId,
+          containerId: newestId,
+          roomName: room.name,
+          containerName: newestContainer.name,
+        }}];
+
+        const hint = containersWithPhotos.length > 1
+          ? ` (${containersWithPhotos.length} Bereiche mit Fotos)`
+          : '';
+
+        agentMessage(
+          companionSays({
+            sachlich: `Aktuellstes Foto aus ${room.name}${hint}:`,
+            freundlich: `Das neueste Foto aus dem ${room.name}${hint}:`,
+            kauzig: `Hier. ${room.name}${hint}.`,
+          }),
+          blocks,
+          containersWithPhotos.length > 1
+            ? containersWithPhotos.slice(1, 3).map(([cId, c]) => ({
+                icon: '📦',
+                label: c.name,
+                action: 'showPhoto',
+                roomId: action.roomId,
+                containerId: cId,
+              }))
+            : [{ icon: '📷', label: 'Neues Foto', action: 'takePhoto' }]
+        );
+        break;
+      }
+
+      agentMessage('Von was soll ich das Foto zeigen?');
+      break;
+    }
+
     // --- FALLBACK ---
 
     default:

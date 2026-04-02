@@ -2329,6 +2329,22 @@ const Brain = {
   }
 };
 
+// Dev-only: listet alle gespeicherten Foto-Keys in der Konsole
+export async function debugListAllPhotos() {
+  if (!Brain._photoDB) { console.warn('PhotoDB nicht initialisiert'); return []; }
+  return new Promise((resolve) => {
+    const tx = Brain._photoDB.transaction(PHOTO_STORE, 'readonly');
+    const req = tx.objectStore(PHOTO_STORE).getAllKeys();
+    req.onsuccess = () => {
+      console.table(req.result.map(k => ({ key: k })));
+      resolve(req.result);
+    };
+    req.onerror = () => resolve([]);
+  });
+}
+// Attach to Brain for console access
+Brain.debugListAllPhotos = debugListAllPhotos;
+
 // ES Module export (brain.js bleibt inhaltlich unverändert)
 export default Brain;
-export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE, SPLAT_STORE, calculateAutoLayout, calculateNeighborLayout };
+export { STORAGE_KEY, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE, SPLAT_STORE, calculateAutoLayout, calculateNeighborLayout, debugListAllPhotos };

@@ -122,6 +122,38 @@ export function checkLocalIntent(text) {
   if (/karte|grundriss|plan(?!e)|map\b/i.test(lower))
     return { action: 'showMap' };
 
+  // Foto / Bild anzeigen
+  const showPhotoMatch = lower.match(
+    /(?:zeig|zeige|schau|mal|bild|foto|fotos|bilder).{0,20}(?:von|vom|aus|der|dem|den|des|im|in)?\s+([a-zäöüß\s]{2,30})/i
+  );
+  if (showPhotoMatch || /zeig.*foto|zeig.*bild|foto.*zeig|bild.*zeig/i.test(lower)) {
+    const query = (showPhotoMatch?.[1] || '').trim().toLowerCase();
+
+    // Raum-Match
+    const roomsData = Brain.getRooms();
+    for (const [id, room] of Object.entries(roomsData)) {
+      const roomLower = room.name.toLowerCase();
+      if (query && (query.includes(roomLower) || roomLower.includes(query))) {
+        return { action: 'showPhoto', roomId: id };
+      }
+    }
+
+    // Container-Match (über alle Räume)
+    for (const [roomId, room] of Object.entries(roomsData)) {
+      for (const [cId, container] of Object.entries(room.containers || {})) {
+        const cLower = container.name.toLowerCase();
+        if (query && (query.includes(cLower) || cLower.includes(query))) {
+          return { action: 'showPhoto', roomId, containerId: cId };
+        }
+      }
+    }
+
+    // Kein Match aber Intent klar erkannt → allgemein fragen
+    if (/zeig.*foto|zeig.*bild|foto.*zeig|bild.*zeig/i.test(lower)) {
+      return { action: 'showPhoto', roomId: null, containerId: null };
+    }
+  }
+
   return null;
 }
 
