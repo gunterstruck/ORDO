@@ -4,7 +4,7 @@
 import Brain from './brain.js';
 import { callGemini, loadingManager, getErrorMessage, uploadVideoToGemini, deleteGeminiFile, MAX_VIDEO_SIZE_MB } from './ai.js';
 import { capturePhoto, captureVideo } from './camera.js';
-import { blobToBase64, resizeImage } from './photo-flow.js';
+import { blobToBase64, resizeImage, showReviewPopup } from './photo-flow.js';
 import { showToast } from './modal.js';
 import { ROOM_TYPES, ensureRoom, debugLog, escapeHTML } from './app.js';
 
@@ -239,6 +239,116 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
           if (fuzzyMatch) {
             containerId = fuzzyMatch[0]; // Verwende die existierende ID
           }
+        }
+      }
+
+      // Delta-Modus: Container hat schon Items → Vergleichs-Analyse starten
+      const existingActiveItems = Brain.getContainer(room.id, containerId)
+        ? Brain.getActiveItems(room.id, containerId)
+        : [];
+
+      if (existingActiveItems.length > 0) {
+        // Delta-Analyse: zweiter Gemini-Call mit bekannten Items
+        const confirmBtn = document.getElementById('smart-photo-confirm');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Vergleiche…';
+
+        try {
+          const knownItemsList = existingActiveItems.map(item => {
+            const name = Brain.getItemName(item);
+            const menge = item.menge || 1;
+            return menge > 1 ? `${menge}x ${name}` : name;
+          }).join(', ');
+
+          const deltaPrompt = `Analysiere dieses Foto.
+Vergleiche das Foto mit dem bekannten Inhalt dieses Behälters.
+Bekannter Inhalt (aus der Datenbank): ${knownItemsList}
+
+Antworte NUR mit diesem JSON:
+{
+  "bestaetigt": [
+    {"name": "Schere", "menge": 1}
+  ],
+  "nicht_gesehen": [
+    {"name": "Alter Adapter", "vermutung": "nicht mehr sichtbar"}
+  ],
+  "neu_erkannt": [
+    {"name": "Taschenlampe", "menge": 1}
+  ],
+  "hinweis": "optionaler Kommentar (sonst leer lassen)"
+}
+Regeln:
+- "bestaetigt": Dinge die du auf dem Foto siehst UND die im bekannten Inhalt stehen
+- "nicht_gesehen": Dinge aus dem bekannten Inhalt die du auf dem Foto NICHT sehen kannst
+- "neu_erkannt": Dinge die du auf dem Foto siehst aber die NICHT im bekannten Inhalt stehen
+- Sei ehrlich: Wenn etwas verdeckt sein könnte, sage das in der "vermutung"
+- Mengen aktualisieren wenn sich die Anzahl geändert hat
+- Jede Variante (Farbe, Muster, Größe) ist ein separater Eintrag`;
+
+          const deltaMessages = [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+              { type: 'text', text: `Inhalt von: ${container.name || containerId}` }
+            ]
+          }];
+
+          const deltaRaw = await callGemini(Brain.getApiKey(), deltaPrompt, deltaMessages, {
+            taskType: 'analyzePhoto',
+            hasImage: true
+          });
+
+          const deltaJsonMatch = (typeof deltaRaw === 'string' ? deltaRaw : deltaRaw.text || JSON.stringify(deltaRaw)).match(/\{[\s\S]*\}/);
+          if (!deltaJsonMatch) throw new Error('Kein JSON in Delta-Antwort');
+          const deltaAnalysis = JSON.parse(deltaJsonMatch[0]);
+
+          const bestaetigt = (deltaAnalysis.bestaetigt || []).map((item, i) => ({
+            id: `confirmed_${i}`,
+            name: typeof item === 'string' ? item : (item.name || ''),
+            menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+            checked: true,
+            section: 'bestaetigt',
+            ...(item.expiry?.date ? { expiry: item.expiry } : {})
+          })).filter(item => item.name.trim());
+
+          const nichtGesehen = (deltaAnalysis.nicht_gesehen || []).map((item, i) => ({
+            id: `missing_${i}`,
+            name: typeof item === 'string' ? item : (item.name || ''),
+            vermutung: typeof item === 'string' ? '' : (item.vermutung || ''),
+            action: 'nichts',
+            section: 'nicht_gesehen'
+          })).filter(item => item.name.trim());
+
+          const neuErkannt = (deltaAnalysis.neu_erkannt || []).map((item, i) => ({
+            id: `new_${i}`,
+            name: typeof item === 'string' ? item : (item.name || ''),
+            menge: typeof item === 'string' ? 1 : Math.max(1, parseInt(item.menge) || 1),
+            checked: true,
+            section: 'neu_erkannt',
+            ...(item.expiry?.date ? { expiry: item.expiry } : {})
+          })).filter(item => item.name.trim());
+
+          const deltaItems = [...bestaetigt, ...neuErkannt];
+          const deltaData = { bestaetigt, nichtGesehen, neuErkannt };
+
+          // Save photo
+          try {
+            await Brain.savePhotoWithHistory(room.id, containerId, photoBlob);
+            Brain.setContainerHasPhoto(room.id, containerId, true);
+          } catch(err) { debugLog('Foto konnte nicht gespeichert werden: ' + err.message); }
+
+          URL.revokeObjectURL(photoUrl);
+          hideSmartPhotoOverlay();
+
+          const hint = (deltaAnalysis.hinweis || '').trim();
+          const containerName = Brain.getContainer(room.id, containerId)?.name || container.name || containerId;
+          showReviewPopup(room.id, containerId, containerName, deltaItems, 'delta', hint || null, false, deltaData);
+          return;
+        } catch (deltaErr) {
+          debugLog(`Delta-Analyse fehlgeschlagen, nutze Standard-Flow: ${deltaErr.message}`);
+          // Fallthrough zum normalen Speichern
+          const confirmBtn2 = document.getElementById('smart-photo-confirm');
+          if (confirmBtn2) { confirmBtn2.disabled = false; confirmBtn2.textContent = '✅ Stimmt so'; }
         }
       }
 
