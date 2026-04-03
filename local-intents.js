@@ -106,8 +106,13 @@ export function checkLocalIntent(text) {
     return { action: 'show3DRoom' };
   }
 
+  // Alle UI-Blöcke zeigen / Showcase
+  if (/ui.?block|alle.*block|block.*alle|zeig.*alles|was.*kannst.*anzeigen|capabilities|showcase|funktionen.*zeig|zeig.*funktionen/i.test(lower)) {
+    return { action: 'showBlockShowcase' };
+  }
+
   // Capabilities / Help
-  if (/was kannst du|hilfe|funktionen|features/i.test(lower))
+  if (/was kannst du|hilfe|funktionen|features|was bist du|was machst du|zeig.*fähigkeiten/i.test(lower))
     return { action: 'showCapabilities' };
 
   // Live Dialog

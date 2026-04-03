@@ -27,6 +27,8 @@ export function registerBlock(type, renderer) {
  * @param {{ type, props, children? }} block
  * @returns {HTMLElement|null}
  */
+export { BLOCK_REGISTRY };
+
 export function renderBlock(block) {
   const renderer = BLOCK_REGISTRY[block.type];
   if (!renderer) {
