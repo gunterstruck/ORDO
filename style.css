@@ -6428,6 +6428,7 @@ select.settings-input { appearance: none; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: 16px;
+  padding-bottom: 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -6557,7 +6558,7 @@ select.settings-input { appearance: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  z-index: 100;
+  z-index: 200;
 }
 
 .voice-main-btn {

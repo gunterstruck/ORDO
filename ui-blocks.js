@@ -1328,7 +1328,15 @@ registerBlock('LiveDialogCard', () => {
       const { GeminiLiveSession, ORDO_FUNCTIONS, functionCallToAction, executeOrdoAction } = await import('./ai.js');
       const apiKey = Brain.getApiKey();
       if (!apiKey) {
-        statusEl.textContent = 'Kein API-Key!';
+        statusEl.textContent = 'Live-Dialog braucht einen eigenen API-Key';
+        addTranscriptLine('Der Live-Dialog nutzt eine direkte Verbindung zu Google und ben\u00f6tigt einen eigenen API-Key. Du kannst ihn kostenlos einrichten.', 'agent');
+        isActive = false;
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
+
+        // Upgrade-Action anbieten
+        const { handleAction } = await import('./ordo-agent.js');
+        handleAction({ action: 'showApiKeySetup' });
         return;
       }
 
