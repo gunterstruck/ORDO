@@ -1348,6 +1348,30 @@ const Brain = {
     return null;
   },
 
+  // --- Room Thumbnails ---
+  // Collect up to `limit` photos from a room's containers (for room card thumbnails)
+  async findRoomThumbnails(roomId, limit = 3) {
+    const room = this.getRoom(roomId);
+    if (!room?.containers) return [];
+    const results = [];
+    const queue = Object.entries(room.containers);
+    while (queue.length > 0 && results.length < limit) {
+      const [cId, c] = queue.shift();
+      if (c.has_photo || c.photo_history?.length > 0) {
+        const key = this.getLatestPhotoKey(roomId, cId);
+        const blob = await this.getPhoto(key);
+        if (blob) results.push({ containerId: cId, blob });
+      }
+      // Also check nested containers
+      if (c.containers) {
+        for (const [subId, sub] of Object.entries(c.containers)) {
+          queue.push([subId, sub]);
+        }
+      }
+    }
+    return results;
+  },
+
   // --- Archive & Lifecycle ---
 
   archiveItem(roomId, containerId, itemName, reason = 'archiviert') {

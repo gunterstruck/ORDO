@@ -101,10 +101,31 @@ registerBlock('RoomGrid', () => {
     const card = document.createElement('div');
     card.classList.add('block-room-card');
     card.innerHTML = `
-      <span class="room-emoji">${escapeHTML(room.emoji || '\u{1F3E0}')}</span>
-      <span class="room-name">${escapeHTML(room.name)}</span>
-      <span class="room-meta">${itemCount} Items \u00b7 ${containerCount} Container</span>
+      <div class="room-thumbs" data-room-id="${escapeHTML(roomId)}"></div>
+      <div class="room-info">
+        <span class="room-emoji">${escapeHTML(room.emoji || '\u{1F3E0}')}</span>
+        <span class="room-name">${escapeHTML(room.name)}</span>
+        <span class="room-meta">${itemCount} Gegenstände \u00b7 ${containerCount} Container</span>
+      </div>
     `;
+
+    // Async-load photo thumbnails
+    Brain.findRoomThumbnails(roomId, 3).then(photos => {
+      const thumbsEl = card.querySelector('.room-thumbs');
+      if (!thumbsEl || photos.length === 0) {
+        thumbsEl?.classList.add('room-thumbs-empty');
+        return;
+      }
+      thumbsEl.classList.add('room-thumbs-has-photos');
+      for (const { blob } of photos) {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(blob);
+        img.className = 'room-thumb-img';
+        img.loading = 'lazy';
+        thumbsEl.appendChild(img);
+      }
+    });
+
     card.addEventListener('click', async () => {
       const { handleAction } = await import('./ordo-agent.js');
       handleAction({ action: 'showRoom', roomId });
