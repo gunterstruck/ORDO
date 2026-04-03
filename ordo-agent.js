@@ -270,6 +270,40 @@ export async function handleAction(action) {
       break;
     }
 
+    // --- DOKUMENT-VIEWER ---
+
+    case 'showDocument': {
+      // action.roomId, action.containerId, action.itemName → Kassenbon
+      // action.photoKey → direkter Foto-Key
+      // action.label → Anzeige-Label
+      const { openDocumentViewer, openReceiptForItem } = await import('./document-viewer.js');
+
+      if (action.itemName && action.roomId && action.containerId) {
+        const found = await openReceiptForItem(
+          action.roomId, action.containerId, action.itemName
+        );
+        if (!found) {
+          agentMessage(companionSays({
+            sachlich: 'Kein Kassenbon für dieses Item gefunden.',
+            freundlich: 'Ich finde keinen Kassenbon dafür. Wurde keiner fotografiert?',
+            kauzig: 'Kein Bon. Nicht da.',
+          }), [], [
+            { icon: '📄', label: 'Kassenbon fotografieren', action: 'takePhoto', primary: true },
+          ]);
+        }
+      } else if (action.photoKey) {
+        const blob = await Brain.getPhoto(action.photoKey);
+        if (blob) {
+          await openDocumentViewer({
+            blob,
+            mimeType: blob.type || 'image/jpeg',
+            label: action.label || 'Dokument',
+          });
+        }
+      }
+      break;
+    }
+
     // --- KAMERA ---
 
     case 'takePhoto': {

@@ -7239,6 +7239,164 @@ select.settings-input { appearance: none; }
 .fullscreen-overlay { position: fixed; inset: 0; z-index: 500; background: var(--bg); }
 .fullscreen-overlay.hidden { display: none; }
 
+/* ═══════════════════════════════════════
+   DOCUMENT VIEWER MINI-MODUL
+   ═══════════════════════════════════════ */
+
+/* Modal */
+.docviewer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: #111;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  border-radius: 20px 20px 0 0;
+  overflow: hidden;
+}
+
+.docviewer-modal--visible {
+  transform: translateY(0);
+}
+
+/* Header */
+.docviewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  background: #1a1a1a;
+  flex-shrink: 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.docviewer-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f0ede8;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docviewer-close {
+  background: #333;
+  border: none;
+  color: #fff;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Status */
+.docviewer-status {
+  text-align: center;
+  color: #888;
+  font-size: 13px;
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+/* Content-Bereich */
+.docviewer-content {
+  flex: 1;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Bild */
+.docviewer-img-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.docviewer-img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  touch-action: pinch-zoom;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* PDF Seiten */
+.docviewer-pdf-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  touch-action: pinch-zoom;
+}
+
+.docviewer-page {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.docviewer-error {
+  color: #e74c3c;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Dialog-Block Trigger */
+.block-document-viewer-trigger {
+  margin: 4px 0;
+}
+
+.block-docviewer-btn {
+  width: 100%;
+  background: #f5f3ee;
+  border: 1.5px solid #e0d9d0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.block-docviewer-btn:active {
+  background: #ede9e2;
+}
+
+.docviewer-btn-icon {
+  font-size: 24px;
+}
+
+.docviewer-btn-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #2c2c2c;
+}
+
+.docviewer-btn-hint {
+  font-size: 11px;
+  color: #aaa;
+}
+
 /* ─── Hide old nav (safety) ─── */
 #nav, #view-onboarding, #view-chat, #view-photo, #view-brain, #view-settings, #view-nfc-context, #ordo-companion-container {
   display: none !important;

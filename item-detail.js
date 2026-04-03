@@ -482,11 +482,14 @@ function renderPurchaseDetails(container, item, roomId, containerId, itemName, p
     receiptBtn.className = 'item-detail-action-btn';
     receiptBtn.textContent = '📄 Kassenbon ansehen';
     receiptBtn.addEventListener('click', async () => {
+      const { openDocumentViewer } = await import('./document-viewer.js');
       const blob = await Brain.getReceiptPhoto(p.receipt_photo_key);
       if (blob) {
-        const url = URL.createObjectURL(blob);
-        const showLb = await getLightbox();
-        showLb(url);
+        await openDocumentViewer({
+          blob,
+          mimeType: blob.type || 'image/jpeg',
+          label: `🧾 Kassenbon: ${itemName}`,
+        });
       } else {
         showToast('Kassenbon nicht gefunden', 'error');
       }
