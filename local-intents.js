@@ -107,7 +107,7 @@ export function checkLocalIntent(text) {
   }
 
   // Alle UI-Blöcke zeigen / Showcase
-  if (/ui.?block|alle.*block|block.*alle|zeig.*alles|was.*kannst.*anzeigen|capabilities|showcase|funktionen.*zeig|zeig.*funktionen|alle.*ansicht|ansicht.*alle|alle.*modal|modal.*alle|ui.*modal|was.*hast.*du|alle.*views|zeig.*was.*du.*hast|was.*du.*so.*hast|was.*du.*kannst|alles.*zeig|zeig.*mir.*alles/i.test(lower)) {
+  if (/ui.?block|alle.*block|block.*alle|zeig.*alles|was.*kannst.*anzeigen|capabilities|showcase|funktionen.*zeig|zeig.*funktionen|alle.*ansicht|ansicht.*alle|alle.*modal|modal.*alle|ui.*modal|was.*hast.*du|alle.*views|zeig.*was.*du.*hast|was.*du.*so.*hast|was.*du.*kannst|alles.*zeig|zeig.*mir.*alles|alle.*card|card.*alle|alle.*komponente|alle.*element|alle.*widget|alle.*screen/i.test(lower)) {
     return { action: 'showBlockShowcase' };
   }
 
