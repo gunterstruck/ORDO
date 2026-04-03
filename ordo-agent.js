@@ -160,6 +160,9 @@ KONTEXT-MAPPING (zeige proaktiv die passende Ansicht):
 - Nutzer fragt nach Berichten, Versicherung → show_view(view: "reports")
 - Nutzer fragt was heute passiert ist → show_view(view: "activity")
 - Nutzer fragt was du kannst, zeig alles, alle Cards → show_view(view: "showcase")
+- Nutzer will Artikel verkaufen / loswerden / inserieren
+  → publish_to_kleinanzeigen Function Call auslösen
+  → KleinanzeigenCard zeigt fertige Anzeige
 
 WICHTIG: Schreibe KEINE HTML-Tags, Block-Objekte oder agentMessage() in deinen Text. Nutze NUR show_view() für Ansichten.
 
@@ -623,6 +626,44 @@ export async function handleAction(action) {
         { icon: '📋', label: 'Nochmal', action: 'generateDonationPDF' },
         { icon: '🏠', label: 'Zurück', action: 'showHome' },
       ]);
+      break;
+    }
+
+    case 'publishToKleinanzeigen': {
+      // action.itemName, action.roomId, action.containerId
+      // action.listing (optional, wenn schon generiert)
+
+      if (!action.itemName) {
+        // Kein Item angegeben → Agent fragt nach
+        agentMessage(companionSays({
+          sachlich: 'Welchen Artikel möchtest du verkaufen?',
+          freundlich: 'Was soll ich auf Kleinanzeigen stellen?',
+          kauzig: 'Was willst du loswerden?',
+        }));
+        break;
+      }
+
+      const room = action.roomId ? Brain.getRoom(action.roomId) : null;
+      const container = (action.roomId && action.containerId)
+        ? Brain.getContainer(action.roomId, action.containerId)
+        : null;
+
+      agentMessage(
+        companionSays({
+          sachlich: `Anzeige für: ${action.itemName}`,
+          freundlich: `Ich bereite eine Anzeige für „${action.itemName}" vor!`,
+          kauzig: `${action.itemName}. Schauen wir mal was das bringt.`,
+        }),
+        [{
+          type: 'KleinanzeigenCard',
+          props: {
+            itemName: action.itemName,
+            roomId: action.roomId || null,
+            containerId: action.containerId || null,
+            listing: action.listing || null,
+          }
+        }]
+      );
       break;
     }
 

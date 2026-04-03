@@ -454,6 +454,19 @@ const ORDO_FUNCTIONS = [
     }
   },
   {
+    name: "publish_to_kleinanzeigen",
+    description: "Erstellt eine Verkaufsanzeige für einen Artikel auf Kleinanzeigen. Auslösen wenn der Nutzer einen Artikel verkaufen, loswerden oder inserieren möchte.",
+    parameters: {
+      type: "object",
+      properties: {
+        item: { type: "string", description: "Name des zu verkaufenden Artikels" },
+        room: { type: "string", description: "ID des Raums wo der Artikel liegt (optional)" },
+        container_id: { type: "string", description: "ID des Containers (optional)" }
+      },
+      required: ["item"]
+    }
+  },
+  {
     name: "show_found_item",
     description: "Zeige dem Nutzer wo ein Gegenstand gefunden wurde",
     parameters: {
@@ -507,6 +520,13 @@ function functionCallToAction(call) {
       return { type: 'rename_container', room: args.room, path: [args.container_id], new_name: args.new_name };
     case 'delete_room':
       return { type: 'delete_room', room: args.room };
+    case 'publish_to_kleinanzeigen':
+      return {
+        type: 'publishToKleinanzeigen',
+        itemName: call.args?.item || '',
+        roomId: call.args?.room || null,
+        containerId: call.args?.container_id || null,
+      };
     case 'show_found_item':
       return { type: 'found', room: args.room, path: [args.container_id], item: args.item };
     case 'show_view': {
