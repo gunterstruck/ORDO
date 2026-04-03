@@ -5,8 +5,33 @@
 import Brain from './brain.js';
 import { debugLog, ensureRoom } from './app.js';
 
+// ── Proxy Configuration ──────────────────────────────
+const PROXY_URL = 'https://ordo-proxy.workers.dev';
+// In der Entwicklung: 'http://localhost:8787'
+
+// Kein client-seitiger Session-Header nötig — das Rate-Limiting
+// läuft serverseitig über die IP-Adresse (CF-Connecting-IP).
+// Der Client muss sich nicht identifizieren.
+
+/**
+ * Feuert wenn der Proxy die verbleibende Tages-Quota meldet.
+ * Der Dialog kann dem Nutzer zeigen: "Noch 12 von 50 Anfragen heute"
+ */
+function _emitRemainingQuota(remaining) {
+  try {
+    window.dispatchEvent(new CustomEvent('ordo-proxy-quota', {
+      detail: { remaining, limit: 50 },
+    }));
+  } catch { /* ignore */ }
+}
+
 // ── Provider Configuration ────────────────────────────
 const PROVIDERS = {
+  proxy: {
+    name: 'ORDO Cloud',
+    format: 'proxy',
+    // Kein API-Key nötig — der Proxy hat ihn
+  },
   gemini: {
     name: 'Google Gemini',
     buildUrl: (model, apiKey) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -28,12 +53,19 @@ const PROVIDERS = {
 
 export function getProviderConfig() {
   try {
-    return JSON.parse(localStorage.getItem('ordo_providers') || 'null') || {
-      primary: 'gemini',
-      fallbacks: [],
-      keys: {},
-    };
-  } catch { return { primary: 'gemini', fallbacks: [], keys: {} }; }
+    const stored = JSON.parse(localStorage.getItem('ordo_providers') || 'null');
+    if (stored) return stored;
+  } catch { /* ignore */ }
+
+  // Default: Hat der Nutzer einen eigenen Key?
+  const hasOwnKey = !!localStorage.getItem('ordo_api_key');
+
+  if (hasOwnKey) {
+    return { primary: 'gemini', fallbacks: ['proxy'], keys: {} };
+  }
+
+  // Kein Key → Proxy als Primary (Zero-Key-Modus)
+  return { primary: 'proxy', fallbacks: [], keys: {} };
 }
 
 export function setProviderConfig(config) {
@@ -575,6 +607,29 @@ export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
     const provider = PROVIDERS[providerId];
     if (!provider) continue;
 
+    // Proxy braucht keinen API-Key
+    if (provider.format === 'proxy') {
+      try {
+        const result = await _callProvider(providerId, provider, null, systemPrompt, messages, options);
+        if (debugDetails.length > 0) {
+          debugLog(`✓ Fallback erfolgreich: ${provider.name}`);
+        }
+        if (typeof result === 'object' && result !== null) {
+          result._debugInfo = { provider: provider.name, fallbacksTrialled: debugDetails, timestamp: new Date().toISOString() };
+        }
+        return result;
+      } catch (err) {
+        // Rate-Limit? → Spezielle Behandlung, weiterwerfen
+        if (err.message === 'rate_limit') {
+          throw err;
+        }
+        debugDetails.push({ provider: provider.name, status: 'failed', error: err.message });
+        lastError = err;
+        debugLog(`✗ ${provider.name} fehlgeschlagen: ${err.message}`);
+        continue;
+      }
+    }
+
     // Resolve API key: provider-specific key, or the main key for gemini
     const providerKey = providerCfg.keys?.[providerId] || (providerId === 'gemini' ? apiKey : '');
     if (!providerKey) {
@@ -624,10 +679,136 @@ export async function callGemini(apiKey, systemPrompt, messages, options = {}) {
 
 // ── Provider-specific API call ────────────────────────
 async function _callProvider(providerId, provider, apiKey, systemPrompt, messages, options) {
+  if (provider.format === 'proxy') {
+    return _callProxyFormat(systemPrompt, messages, options);
+  }
   if (provider.format === 'openai') {
     return _callOpenAIFormat(provider, apiKey, systemPrompt, messages, options);
   }
   return _callGeminiFormat(apiKey, systemPrompt, messages, options);
+}
+
+// ── Proxy API call (ORDO Cloud) ─────────────────────
+async function _callProxyFormat(systemPrompt, messages, options) {
+  const model = determineModel(options);
+  const genConfig = buildGenerationConfig(options);
+  const startTime = Date.now();
+
+  debugLog(`Proxy-Anfrage → Modell: ${model}, Task: ${options.taskType || 'chat'}`);
+
+  // Proxy erwartet dasselbe Format wie Gemini,
+  // nur an eine andere URL und ohne Key im Query-String.
+  const geminiContents = messages.map(msg => {
+    const role = msg.role === 'assistant' ? 'model' : 'user';
+    let parts;
+    if (typeof msg.content === 'string') {
+      parts = [{ text: msg.content }];
+    } else if (Array.isArray(msg.content)) {
+      parts = msg.content.map(item => {
+        if (item.type === 'image') {
+          return { inlineData: { mimeType: item.source.media_type, data: item.source.data } };
+        } else if (item.type === 'file') {
+          return { fileData: { fileUri: item.source.uri, mimeType: item.source.mimeType } };
+        } else if (item.type === 'text') {
+          return { text: item.text };
+        }
+        return { text: '' };
+      });
+    } else {
+      parts = [{ text: String(msg.content) }];
+    }
+    return { role, parts };
+  });
+
+  const requestBody = {
+    model,  // Der Proxy routet an das richtige Modell
+    contents: geminiContents,
+    generationConfig: genConfig,
+  };
+
+  // System-Prompt
+  if (systemPrompt) {
+    requestBody.systemInstruction = {
+      parts: [{ text: systemPrompt }],
+    };
+  }
+
+  // Tools (Function Calling)
+  if (options.tools?.length > 0) {
+    requestBody.tools = [{ functionDeclarations: options.tools }];
+    requestBody.toolConfig = { functionCallingConfig: { mode: 'AUTO' } };
+  }
+
+  const controller = new AbortController();
+  const effectiveTimeout = options.hasVideo ? VIDEO_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+
+  let slowTimer = null;
+  try {
+    slowTimer = setTimeout(() => _emitSlowWarning(model), 8000);
+
+    const response = await fetch(PROXY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Kein Session-Header — Rate-Limiting ist IP-basiert (CF-Connecting-IP)
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+
+    // Rate-Limit-Header auswerten
+    const remaining = response.headers.get('X-ORDO-Remaining');
+    if (remaining !== null) {
+      _emitRemainingQuota(parseInt(remaining));
+    }
+
+    // Rate-Limit erreicht?
+    if (response.status === 429) {
+      const errorData = await response.json();
+      const err = new Error('rate_limit');
+      err.rateLimitInfo = errorData;
+      throw err;
+    }
+
+    if (!response.ok) {
+      const err = new Error(`Proxy-Fehler: HTTP ${response.status}`);
+      err.httpStatus = response.status;
+      throw err;
+    }
+
+    const data = await response.json();
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason ?? 'UNKNOWN';
+    if (finishReason === 'SAFETY') throw new Error('safety_block');
+    if (finishReason === 'MAX_TOKENS') throw new Error('max_tokens');
+
+    const parts = candidate?.content?.parts || [];
+
+    logApiCall(options.taskType || 'chat', model, null, startTime);
+    debugLog(`Proxy-Antwort in ${Date.now() - startTime}ms`);
+
+    // If function calling is enabled, return structured response
+    if (options.tools) {
+      const textParts = [];
+      const functionCalls = [];
+      for (const part of parts) {
+        if (part.text) textParts.push(part.text);
+        if (part.functionCall) functionCalls.push(part.functionCall);
+      }
+      const text = sanitizeAIResponse(textParts.join(''));
+      return { text, functionCalls };
+    }
+
+    // Standard text-only response
+    const text = sanitizeAIResponse(parts[0]?.text ?? '');
+    if (!text) debugLog(`Warnung: Leere Proxy-Antwort. Volle Antwort: ${JSON.stringify(data).slice(0, 500)}`);
+    return text;
+
+  } finally {
+    clearTimeout(timeoutId);
+    if (slowTimer) clearTimeout(slowTimer);
+  }
 }
 
 async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {

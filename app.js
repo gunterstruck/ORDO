@@ -3,6 +3,7 @@
 
 import Brain from './brain.js';
 import { startOnboarding, showContextGreeting, handleAction, handleUserInput } from './ordo-agent.js';
+import { getProviderConfig } from './ai.js';
 import { systemMessage, clearStream } from './dialog-stream.js';
 import { logAction, touchActivity } from './session-log.js';
 import { setupPickingView, setupStagingOverlay, setupReviewOverlay, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay } from './photo-flow.js';
@@ -315,6 +316,32 @@ window.addEventListener('online', () => {
   systemMessage('📶 Wieder online');
 });
 
+// ── Proxy Quota Indicator ─────────────────────────────
+window.addEventListener('ordo-proxy-quota', (e) => {
+  const { remaining, limit } = e.detail;
+  const indicator = document.getElementById('quota-indicator');
+
+  if (!indicator) return;
+
+  // Nur im Proxy-Modus zeigen
+  const config = getProviderConfig();
+  if (config.primary !== 'proxy') {
+    indicator.style.display = 'none';
+    return;
+  }
+
+  indicator.style.display = 'flex';
+  indicator.textContent = `${remaining}/${limit}`;
+
+  // Farbe je nach Verbrauch
+  indicator.classList.remove('quota-warning', 'quota-critical');
+  if (remaining <= 5) {
+    indicator.classList.add('quota-critical');
+  } else if (remaining <= 15) {
+    indicator.classList.add('quota-warning');
+  }
+});
+
 // ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   // Kritische Init
@@ -350,9 +377,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Entscheidung: Onboarding oder Begrüßung
-  const hasApiKey = !!localStorage.getItem('ordo_api_key');
-
-  if (!hasApiKey && !localStorage.getItem('ordo_onboarding_completed')) {
+  // Kein API-Key-Check mehr nötig — der Proxy funktioniert immer
+  const isFirstStart = !localStorage.getItem('ordo_onboarding_completed');
+  if (isFirstStart) {
     startOnboarding();
   } else {
     showContextGreeting();

@@ -284,7 +284,7 @@ describe('SettingsPanel', () => {
 });
 
 describe('Block Registry', () => {
-  it('has all 31 block types registered', () => {
+  it('has all 33 block types registered', () => {
     seedData();
     const expectedTypes = [
       // Phase A (10)
@@ -298,8 +298,10 @@ describe('Block Registry', () => {
       'SalesCard', 'DonationList', 'RoomCheckCard', 'HouseholdCheckCard',
       'LifeEventBanner', 'ActivityLog', 'LiveDialogCard', 'SpatialMap',
       'OfflineNotice',
+      // Proxy-Gateway / Zero-Key (2)
+      'RateLimitCard', 'ApiKeyUpgrade',
     ];
-    assertEqual(expectedTypes.length, 31, 'Should expect 31 block types');
+    assertEqual(expectedTypes.length, 33, 'Should expect 33 block types');
     // Verify each type is registered (renderBlock does not log "Unbekannter Block")
     for (const type of expectedTypes) {
       // We can't easily test render output for all, but we verify the registry has them

@@ -1720,3 +1720,83 @@ registerBlock('ProgressCard', (props) => {
 
   return el;
 });
+
+// ─── RateLimitCard — Wird gezeigt wenn Proxy-Limit erreicht ───
+
+registerBlock('RateLimitCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-rate-limit');
+
+  const resetTime = props.resetAt
+    ? new Date(props.resetAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    : 'Mitternacht';
+
+  el.innerHTML = `
+    <div class="rate-limit-icon">\u26A1</div>
+    <div class="rate-limit-title">Du nutzt ORDO intensiv \u2014 gro\u00DFartig!</div>
+    <div class="rate-limit-text">
+      Dein kostenloses Tageslimit (${props.limit || 50} Anfragen) ist erreicht.
+      Es wird um ${resetTime} UTC zur\u00FCckgesetzt.
+    </div>
+    <div class="rate-limit-upgrade">
+      <strong>F\u00FCr unbegrenzten Zugang:</strong>
+      Trage deinen eigenen Gemini API-Key ein.
+      Kostenlos, 3 Minuten, keine Kreditkarte n\u00F6tig.
+    </div>
+  `;
+
+  return el;
+});
+
+// ─── ApiKeyUpgrade — Optionaler Upgrade-Flow ─────────────────
+
+registerBlock('ApiKeyUpgrade', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-api-key-upgrade');
+
+  const hasKey = !!localStorage.getItem('ordo_api_key');
+
+  if (hasKey) {
+    el.innerHTML = `
+      <div class="upgrade-status">\u2705 Eigener API-Key aktiv \u2014 kein Limit</div>
+      <div class="upgrade-hint">
+        Du nutzt deinen eigenen Gemini-Zugang.
+        Alle Anfragen gehen direkt an Google.
+      </div>
+    `;
+  } else {
+    el.innerHTML = `
+      <div class="upgrade-title">\uD83D\uDD13 Unbegrenzt nutzen</div>
+      <div class="upgrade-text">
+        Mit einem eigenen Gemini API-Key hast du kein Tageslimit.
+        Der Key ist kostenlos \u2014 Google bietet ein gro\u00DFz\u00FCgiges Free-Tier.
+      </div>
+      <div class="upgrade-steps">
+        <div class="upgrade-step">1. Geh zu <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div>
+        <div class="upgrade-step">2. "Create API Key" klicken</div>
+        <div class="upgrade-step">3. Key kopieren und hier einf\u00FCgen:</div>
+      </div>
+      <div class="upgrade-input-row">
+        <input type="password" id="upgrade-key-field"
+               placeholder="AIza..." autocomplete="off"
+               class="upgrade-key-field">
+        <button id="upgrade-key-submit" class="upgrade-key-submit">
+          Testen \u27A4
+        </button>
+      </div>
+    `;
+
+    // Event-Listener nach dem Render
+    setTimeout(() => {
+      el.querySelector('#upgrade-key-submit')?.addEventListener('click', async () => {
+        const key = el.querySelector('#upgrade-key-field')?.value.trim();
+        if (key) {
+          const { handleAction } = await import('./ordo-agent.js');
+          handleAction({ action: 'testApiKey', key });
+        }
+      });
+    }, 0);
+  }
+
+  return el;
+});

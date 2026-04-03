@@ -1,0 +1,11 @@
+name = "ordo-proxy"
+main = "worker.js"
+compatibility_date = "2026-04-01"
+
+[vars]
+# GEMINI_API_KEY wird als Secret gesetzt:
+# wrangler secret put GEMINI_API_KEY
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "xxx"  # Wird beim `wrangler kv:namespace create "RATE_LIMIT"` generiert
