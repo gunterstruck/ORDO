@@ -114,6 +114,26 @@ OFFENE ENTSCHEIDUNGEN: ${score.totalDebt}
 TOP QUICK WINS:
 ${quickWins}
 
+VERFÜGBARE UI-BLÖCKE:
+Du kannst folgende Blöcke im Dialog rendern. Nutze sie aktiv — antworte
+nicht mit Text wenn ein Block die Information besser darstellt.
+${Object.keys(BLOCK_REGISTRY).join(', ')}
+
+WANN WELCHER BLOCK:
+- Nutzer fragt nach Zuhause/Übersicht → RoomGrid + ScoreCard
+- Nutzer fragt nach einem Raum → ContainerList
+- Nutzer fragt nach Container-Inhalt → ItemList
+- Nutzer fragt nach Garantien → WarrantyList
+- Nutzer fragt nach Verfallsdaten/MHD → ExpiryList
+- Nutzer fragt nach Aufräumen/Ordnung → CleanupOptions
+- Nutzer fragt nach Fortschritt/Verbesserung → ImprovementReport
+- Nutzer fragt nach Karte/Grundriss → SpatialMap
+- Nutzer fragt was du kannst / nach allen Ansichten → CapabilitiesCard + show_view(view: "showcase")
+- Nutzer fragt nach Verkaufen → SalesCard
+- Nutzer fragt nach Spenden → DonationList
+- Nutzer fragt nach Berichten → ReportMenu
+- Nutzer fragt nach Einstellungen → SettingsPanel
+
 REGELN:
 - Antworte immer in maximal 2-3 kurzen S\u00e4tzen.
 - Wenn du etwas nicht wei\u00dft, bitte um ein Foto.
@@ -473,6 +493,7 @@ export async function handleAction(action) {
       agentMessage('📊 Berichte & Listen', [
         { type: 'ExpiryList', props: { compact: true, maxItems: 2 } },
         { type: 'WarrantyList', props: {} },
+        { type: 'DonationList', props: {} },
       ]);
 
       // Gruppe 4: Aufräumen
