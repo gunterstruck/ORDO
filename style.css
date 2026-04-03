@@ -16,6 +16,17 @@
   --radius: 16px;
   --nav-h: 64px;
   --footer-h: 0px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e;
+    --surface: #2e2e2e;
+    --border: #555;
+    --text: #f0f0f0;
+    --text-muted: #aaa;
+  }
 }
 
 html, body {
@@ -6663,7 +6674,7 @@ select.settings-input { appearance: none; }
 .block-room-card {
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: white;
+  background: var(--surface);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -6707,12 +6718,10 @@ select.settings-input { appearance: none; }
 
 @media (prefers-color-scheme: dark) {
   .block-room-card {
-    background: #4a4a4a;
+    background: #3c3c3c;
     border-color: #666;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   }
-  .room-name { color: #fff; }
-  .room-meta { color: #ccc; }
 }
 
 /* Container List */
@@ -6721,7 +6730,7 @@ select.settings-input { appearance: none; }
 .block-container-tile {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px; border: 1px solid var(--border);
-  border-radius: 10px; background: white; cursor: pointer;
+  border-radius: 10px; background: var(--surface); cursor: pointer;
 }
 .block-container-tile:active { background: var(--surface); }
 .container-tile-icon { font-size: 22px; }
@@ -7620,9 +7629,9 @@ select.settings-input { appearance: none; }
 
 /* ─── RichCard ─── */
 .block-rich-card {
-  border: 1px solid var(--border, #EBEBEB);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: white;
+  background: var(--surface);
   padding: 12px 14px;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
@@ -7684,16 +7693,15 @@ select.settings-input { appearance: none; }
 .rich-card-inline-btn:active { background: var(--surface, #F8F8F8); }
 
 @media (prefers-color-scheme: dark) {
-  .block-rich-card { background: #363636; border-color: #555; }
-  .rich-card-inline-btn { background: #444; border-color: #666; }
+  .rich-card-inline-btn { background: var(--surface); border-color: var(--border); }
 }
 
 /* ─── TabbedPanel ─── */
 .block-tabbed-panel {
-  border: 1px solid var(--border, #EBEBEB);
+  border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  background: white;
+  background: var(--surface);
   animation: block-in 0.25s ease;
 }
 .tabbed-panel-tabs {
@@ -7732,8 +7740,7 @@ select.settings-input { appearance: none; }
 }
 
 @media (prefers-color-scheme: dark) {
-  .block-tabbed-panel { background: #363636; border-color: #555; }
-  .tabbed-panel-tabs { border-bottom-color: #555; }
+  .tabbed-panel-tabs { border-bottom-color: var(--border); }
 }
 
 /* ─── ScoreMetric ─── */
@@ -7784,23 +7791,20 @@ select.settings-input { appearance: none; }
 .block-metric-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .block-metric-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .metric-grid-cell {
-  border: 1px solid var(--border, #EBEBEB);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
-  background: white;
+  background: var(--surface);
 }
 .metric-grid-cell .block-score-metric { padding: 0; }
-
-@media (prefers-color-scheme: dark) {
-  .metric-grid-cell { background: #363636; border-color: #555; }
 }
 
 /* ─── ProgressCard ─── */
 .block-progress-card {
-  border: 1px solid var(--border, #EBEBEB);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
-  background: white;
+  background: var(--surface);
   animation: block-in 0.25s ease;
 }
 .progress-card-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
@@ -7824,9 +7828,7 @@ select.settings-input { appearance: none; }
 .progress-card-actions { display: flex; gap: 6px; }
 .progress-card-actions .stream-action-btn { flex: 1; text-align: center; }
 
-@media (prefers-color-scheme: dark) {
-  .block-progress-card { background: #363636; border-color: #555; }
-}
+/* dark mode handled by --surface variable */
 
 /* ─── Extended ActionRow ─── */
 .stream-action-btn.danger {
