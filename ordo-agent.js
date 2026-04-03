@@ -990,13 +990,18 @@ function showHome() {
     return;
   }
 
-  // Daten-Frische berechnen
+  // Daten-Frische berechnen (rekursiv über Sub-Container)
   let totalItems = 0;
   let freshItems = 0;
-  for (const [, room] of rooms) {
-    for (const container of Object.values(room.containers || {})) {
+  function countFreshness(containers) {
+    for (const container of Object.values(containers || {})) {
       for (const item of (container.items || [])) {
-        if (typeof item === 'string') { totalItems++; continue; }
+        if (typeof item === 'string') {
+          // String-Items: kein Tracking → als neutral/frisch zählen
+          totalItems++;
+          freshItems++;
+          continue;
+        }
         if (item.status === 'archiviert') continue;
         totalItems++;
         if (item.last_seen) {
@@ -1004,7 +1009,12 @@ function showHome() {
           if (daysSince < 30) freshItems++;
         }
       }
+      // Rekursiv in Sub-Container
+      if (container.containers) countFreshness(container.containers);
     }
+  }
+  for (const [, room] of rooms) {
+    countFreshness(room.containers);
   }
   const freshPercent = totalItems > 0 ? Math.round((freshItems / totalItems) * 100) : 0;
 
@@ -1046,7 +1056,7 @@ function showHome() {
       props: {
         title: `${room.emoji || '\u{1F3E0}'} ${room.name}`,
         info: `${itemCount} Gegenst\u00e4nde \u00b7 ${containerCount} Container`,
-        action: `showRoom:${roomId}`,
+        action: `showRoom|${roomId}`,
       },
     };
   });
@@ -1165,8 +1175,8 @@ function showRoom(roomId) {
         return {
           label: name,
           actions: [
-            { label: 'Verschieben', action: `moveItem:${name}:${roomId}` },
-            { label: 'Entfernen', action: `archiveItem:${name}`, confirm: 'Wirklich?' },
+            { label: 'Verschieben', action: `moveItem|${name}|${roomId}` },
+            { label: 'Entfernen', action: `archiveItem|${name}`, confirm: 'Wirklich?' },
           ],
         };
       });
@@ -1188,7 +1198,7 @@ function showRoom(roomId) {
           badge: { text: badgeText, color: badgeColor },
           title: `\u{1F4E6} ${container.name}`,
           info: `${items.length} Gegenst\u00e4nde`,
-          action: `showContainer:${roomId}:${cId}`,
+          action: `showContainer|${roomId}|${cId}`,
           expandable: expandItems.length > 0,
           expandItems,
         },

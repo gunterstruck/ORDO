@@ -7644,8 +7644,8 @@ select.settings-input { appearance: none; }
 .rich-card-inline-btn:active { background: var(--surface, #F8F8F8); }
 
 @media (prefers-color-scheme: dark) {
-  .block-rich-card { background: var(--surface, #222); }
-  .rich-card-inline-btn { background: var(--surface, #222); }
+  .block-rich-card { background: #2a2a2a; border-color: #444; }
+  .rich-card-inline-btn { background: #333; border-color: #555; }
 }
 
 /* ─── TabbedPanel ─── */
@@ -7692,7 +7692,8 @@ select.settings-input { appearance: none; }
 }
 
 @media (prefers-color-scheme: dark) {
-  .block-tabbed-panel { background: var(--surface, #222); }
+  .block-tabbed-panel { background: #2a2a2a; border-color: #444; }
+  .tabbed-panel-tabs { border-bottom-color: #444; }
 }
 
 /* ─── ScoreMetric ─── */
@@ -7751,7 +7752,7 @@ select.settings-input { appearance: none; }
 .metric-grid-cell .block-score-metric { padding: 0; }
 
 @media (prefers-color-scheme: dark) {
-  .metric-grid-cell { background: var(--surface, #222); }
+  .metric-grid-cell { background: #2a2a2a; border-color: #444; }
 }
 
 /* ─── ProgressCard ─── */
@@ -7784,7 +7785,7 @@ select.settings-input { appearance: none; }
 .progress-card-actions .stream-action-btn { flex: 1; text-align: center; }
 
 @media (prefers-color-scheme: dark) {
-  .block-progress-card { background: var(--surface, #222); }
+  .block-progress-card { background: #2a2a2a; border-color: #444; }
 }
 
 /* ─── Extended ActionRow ─── */
