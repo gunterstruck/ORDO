@@ -139,17 +139,21 @@ function setupBrain() {
 }
 
 function renderBrainView() {
+  const brainTree = document.getElementById('brain-tree');
+  const brainMap = document.getElementById('brain-map');
+
   // If map mode is active, render map instead
   if (brainViewMode === 'map') {
-    document.getElementById('brain-tree').style.display = 'none';
-    document.getElementById('brain-map').style.display = '';
+    if (brainTree) brainTree.style.display = 'none';
+    if (brainMap) brainMap.style.display = '';
     renderMapView();
     return;
   }
-  document.getElementById('brain-tree').style.display = '';
-  document.getElementById('brain-map').style.display = 'none';
+  if (brainTree) brainTree.style.display = '';
+  if (brainMap) brainMap.style.display = 'none';
 
   const container = document.getElementById('brain-tree');
+  if (!container) return;
   const rooms = Brain.getRooms();
   container.innerHTML = '';
 
