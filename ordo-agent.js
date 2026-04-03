@@ -119,18 +119,20 @@ REGELN:
 - Wenn du etwas nicht wei\u00dft, bitte um ein Foto.
 - Wenn der Nutzer nach Aufr\u00e4umen, Ordnung oder Optimierung fragt: nenne 2-3 Quick Wins und frage, ob er eine Aufr\u00e4um-Session starten m\u00f6chte.
 
-VERFÜGBARE UI-BLÖCKE (zeige sie aktiv im Dialog):
-${Object.keys(BLOCK_REGISTRY).join(', ')}
-
-Wenn der Nutzer nach Räumen fragt → zeige RoomGrid
-Wenn der Nutzer nach einem Raum fragt → zeige ContainerList
-Wenn der Nutzer nach Container-Inhalt fragt → zeige ItemList
-Wenn der Nutzer nach Garantien fragt → zeige WarrantyList
-Wenn der Nutzer nach Verfallsdaten fragt → zeige ExpiryList
-Wenn der Nutzer nach Aufräumen fragt → zeige CleanupOptions
-Wenn der Nutzer nach Fortschritt fragt → zeige ImprovementReport
-Wenn der Nutzer nach Karte/Grundriss fragt → zeige SpatialMap
-Nutze agentMessage() mit dem blocks-Array — nicht nur Text antworten.
+VERFÜGBARE ANSICHTEN:
+Du hast die Funktion show_view() um dem Nutzer interaktive Ansichten zu zeigen.
+Nutze show_view() IMMER wenn der Nutzer nach Ansichten, Übersichten, Karten, Berichten oder UI-Elementen fragt.
+Beispiele:
+- "zeig mir alles" / "alle Cards" / "was kannst du anzeigen" → show_view(view: "showcase")
+- "mein Zuhause" / "Räume" → show_view(view: "home")
+- "Garantien" → show_view(view: "warranty")
+- "Verfallsdaten" → show_view(view: "expiry")
+- "Aufräumen" → show_view(view: "cleanup")
+- "Fortschritt" → show_view(view: "improvement")
+- "Karte" / "Grundriss" → show_view(view: "map")
+- "Einstellungen" → show_view(view: "settings")
+- "was kannst du" → show_view(view: "capabilities")
+WICHTIG: Schreibe KEINE HTML-Tags, Block-Objekte oder agentMessage() in deinen Text. Nutze nur show_view().
 
 AKTIONEN:
 Du kannst die Datenbank verändern. Nutze dazu die bereitgestellten Funktionen (Function Calls).
@@ -155,7 +157,13 @@ Bevorzuge IMMER Function Calls statt Text-Marker.`;
     const fcActions = [];
     for (const call of functionCalls) {
       const action = functionCallToAction(call);
-      if (action && action.type !== 'found') fcActions.push(action);
+      if (!action) continue;
+      if (action.type === 'found') continue;
+      if (action.type === 'show_view') {
+        await handleAction({ action: action.action });
+        continue;
+      }
+      fcActions.push(action);
     }
 
     // Marker-Fallback
