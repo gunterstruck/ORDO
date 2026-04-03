@@ -120,12 +120,12 @@ nicht mit Text wenn ein Block die Information besser darstellt.
 ${Object.keys(BLOCK_REGISTRY).join(', ')}
 
 WANN WELCHER BLOCK:
-- Nutzer fragt nach Zuhause/Übersicht → RoomGrid + ScoreCard
-- Nutzer fragt nach einem Raum → ContainerList
+- Nutzer fragt nach Zuhause/Übersicht → MetricGrid + TabbedPanel (Räume, Hinweise, Vorschläge)
+- Nutzer fragt nach einem Raum → RichCards mit expandierbaren Containern
 - Nutzer fragt nach Container-Inhalt → ItemList
 - Nutzer fragt nach Garantien → WarrantyList
 - Nutzer fragt nach Verfallsdaten/MHD → ExpiryList
-- Nutzer fragt nach Aufräumen/Ordnung → CleanupOptions
+- Nutzer fragt nach Aufräumen/Ordnung → CleanupOptions oder ProgressCard
 - Nutzer fragt nach Fortschritt/Verbesserung → ImprovementReport
 - Nutzer fragt nach Karte/Grundriss → SpatialMap
 - Nutzer fragt was du kannst / nach allen Ansichten → CapabilitiesCard + show_view(view: "showcase")
@@ -133,6 +133,11 @@ WANN WELCHER BLOCK:
 - Nutzer fragt nach Spenden → DonationList
 - Nutzer fragt nach Berichten → ReportMenu
 - Nutzer fragt nach Einstellungen → SettingsPanel
+- 2-3 Kennzahlen nebeneinander → MetricGrid
+- Laufende Session/Quest → ProgressCard
+- Einzelne große Kennzahl → ScoreMetric
+- 3+ Kategorien gruppieren → TabbedPanel
+- Raum/Container/Vorschlag mit Badge → RichCard
 
 REGELN:
 - Antworte immer in maximal 2-3 kurzen S\u00e4tzen.
@@ -831,6 +836,31 @@ export async function handleAction(action) {
       ]);
       break;
 
+    case 'moveItem':
+      agentMessage(companionSays({
+        sachlich: `${action.itemName || 'Item'} verschieben — wohin?`,
+        freundlich: `Klar, wohin soll ${action.itemName || 'das'} denn?`,
+        kauzig: `${action.itemName || 'Ding'} umziehen? Wohin?`,
+      }), [], [
+        { icon: '🏠', label: 'Raum wählen', action: 'showHome' },
+      ]);
+      break;
+
+    case 'donateItem':
+      agentMessage(companionSays({
+        sachlich: `${action.itemName || 'Item'} wird als Spende markiert.`,
+        freundlich: `Super, ${action.itemName || 'das'} wird gespendet! Gute Tat!`,
+        kauzig: `${action.itemName || 'Ding'} weg. Karma +1.`,
+      }), [
+        { type: 'QuickDecision', props: {
+          itemName: action.itemName,
+          roomId: action.roomId,
+          containerId: action.containerId,
+          mode: 'archive',
+        }},
+      ]);
+      break;
+
     // --- HILFE (Phase B) ---
 
     case 'showHelp':
@@ -941,21 +971,117 @@ export async function handleAction(action) {
  * Home-Ansicht im Dialog.
  */
 function showHome() {
-  const { percent } = calculateFreedomIndex();
+  const score = calculateFreedomIndex();
   const data = Brain.getData();
-  const roomCount = Object.keys(data.rooms || {}).length;
+  const rooms = Object.entries(data.rooms || {});
+  const roomCount = rooms.length;
 
-  const blocks = [{ type: 'ScoreCard', props: {} }];
-
-  if (roomCount > 0) {
-    blocks.push({ type: 'RoomGrid', props: {} });
+  // Bei leerer Wohnung: einfache Ansicht
+  if (roomCount === 0) {
+    agentMessage(
+      'Dein Zuhause ist noch leer. Mach ein Foto von einem Raum!',
+      [{ type: 'ScoreCard', props: {} }],
+      [
+        { icon: '\u{1F4F7}', label: 'Foto', action: 'takePhoto' },
+        { icon: '\u{1F3A5}', label: 'Film', action: 'takeVideo' },
+        { icon: '\u{1F3A4}', label: 'Live reden', action: 'startLive' },
+      ],
+    );
+    return;
   }
 
-  // Dringende Warnungen
+  // Daten-Frische berechnen
+  let totalItems = 0;
+  let freshItems = 0;
+  for (const [, room] of rooms) {
+    for (const container of Object.values(room.containers || {})) {
+      for (const item of (container.items || [])) {
+        if (typeof item === 'string') { totalItems++; continue; }
+        if (item.status === 'archiviert') continue;
+        totalItems++;
+        if (item.last_seen) {
+          const daysSince = (Date.now() - new Date(item.last_seen).getTime()) / 86400000;
+          if (daysSince < 30) freshItems++;
+        }
+      }
+    }
+  }
+  const freshPercent = totalItems > 0 ? Math.round((freshItems / totalItems) * 100) : 0;
+
+  const blocks = [];
+
+  // MetricGrid: Freiheitsindex + Daten-Frische
+  blocks.push({
+    type: 'MetricGrid',
+    props: {
+      columns: 2,
+      metrics: [
+        {
+          label: 'Kopf-Freiheits-Index',
+          value: score.percent,
+          unit: '%',
+          color: score.percent >= 70 ? 'success' : score.percent >= 40 ? 'warning' : 'danger',
+          sublabel: `${score.totalDebt} offene Entscheidungen`,
+        },
+        {
+          label: 'Daten-Frische',
+          value: freshPercent,
+          unit: '%',
+          color: freshPercent >= 70 ? 'success' : freshPercent >= 40 ? 'warning' : 'danger',
+          sublabel: `${totalItems} Gegenstände`,
+        },
+      ],
+    },
+  });
+
+  // TabbedPanel: Räume, Hinweise, Vorschläge
+  const roomCards = rooms.map(([roomId, room]) => {
+    const containerCount = Object.keys(room.containers || {}).length;
+    let itemCount = 0;
+    for (const c of Object.values(room.containers || {})) {
+      itemCount += (c.items || []).filter(i => typeof i === 'string' || i.status !== 'archiviert').length;
+    }
+    return {
+      type: 'RichCard',
+      props: {
+        title: `${room.emoji || '\u{1F3E0}'} ${room.name}`,
+        info: `${itemCount} Gegenst\u00e4nde \u00b7 ${containerCount} Container`,
+        action: `showRoom:${roomId}`,
+      },
+    };
+  });
+
+  // Hinweise Tab
+  const alertCards = [];
   try {
     const expired = (Brain.getExpiringItems?.(0) || []).filter(e => e.isExpired);
     if (expired.length > 0) {
-      blocks.push({ type: 'ExpiryList', props: { compact: true, maxItems: 3 } });
+      alertCards.push({
+        type: 'RichCard',
+        props: {
+          badge: { text: `${expired.length} abgelaufen`, color: 'danger' },
+          title: '\u26A0\uFE0F Abgelaufene Produkte',
+          info: expired.slice(0, 3).map(e => e.name).join(', '),
+          action: 'showExpiry',
+        },
+      });
+    }
+  } catch { /* ok */ }
+
+  // Vorschläge Tab
+  const suggestCards = [];
+  try {
+    const quickWins = getQuickWins(3);
+    for (const w of quickWins) {
+      suggestCards.push({
+        type: 'RichCard',
+        props: {
+          badge: { text: `${w.estimatedMinutes} Min`, color: 'info' },
+          title: `\u{1F4A1} ${w.description}`,
+          info: `Wirkung: -${w.impactPoints} Belastungspunkte`,
+          action: 'startCleanup',
+        },
+      });
     }
   } catch { /* ok */ }
 
@@ -963,26 +1089,51 @@ function showHome() {
   try {
     const seasonal = getSeasonalRecommendations();
     if (seasonal && (seasonal.storeAway.length + seasonal.bringOut.length) > 0) {
-      blocks.push({ type: 'SeasonalCard', props: { compact: true } });
+      suggestCards.push({
+        type: 'RichCard',
+        props: {
+          badge: { text: 'Saisonal', color: 'warning' },
+          title: '\u{1F343} Saisonale Empfehlung',
+          info: `${seasonal.storeAway.length} verstauen, ${seasonal.bringOut.length} hervorholen`,
+          action: 'showSeasonal',
+        },
+      });
     }
   } catch { /* ok */ }
 
-  const actions = [
-    { icon: '\u{1F4F7}', label: 'Foto', action: 'takePhoto' },
-    { icon: '\u{1F3A5}', label: 'Film', action: 'takeVideo' },
-    { icon: '\u{1F3A4}', label: 'Live reden', action: 'startLive' },
-  ];
+  // Nur TabbedPanel wenn es genug Inhalt gibt
+  if (alertCards.length > 0 || suggestCards.length > 0) {
+    const tabs = [{ id: 'rooms', label: 'R\u00e4ume', icon: '\u{1F3E0}' }];
+    const children = { rooms: roomCards };
 
-  if (roomCount > 0) {
-    actions.push({ icon: '\u{1F9F9}', label: 'Aufr\u00e4umen', action: 'startCleanup' });
+    if (alertCards.length > 0) {
+      tabs.push({ id: 'alerts', label: 'Hinweise', icon: '\u26A0\uFE0F' });
+      children.alerts = alertCards;
+    }
+    if (suggestCards.length > 0) {
+      tabs.push({ id: 'suggest', label: 'Vorschl\u00e4ge', icon: '\u{1F4A1}' });
+      children.suggest = suggestCards;
+    }
+
+    blocks.push({
+      type: 'TabbedPanel',
+      props: { tabs, defaultTab: 'rooms' },
+      children,
+    });
+  } else {
+    // Fallback: einfaches RoomGrid
+    blocks.push({ type: 'RoomGrid', props: {} });
   }
 
   agentMessage(
-    roomCount === 0
-      ? 'Dein Zuhause ist noch leer. Mach ein Foto von einem Raum!'
-      : `${roomCount} R\u00e4ume, ${percent}% frei.`,
+    `${roomCount} R\u00e4ume, ${score.percent}% frei.`,
     blocks,
-    actions,
+    [
+      { icon: '\u{1F4F7}', label: 'Foto', action: 'takePhoto' },
+      { icon: '\u{1F3A5}', label: 'Film', action: 'takeVideo' },
+      { icon: '\u{1F3A4}', label: 'Live reden', action: 'startLive' },
+      { icon: '\u{1F9F9}', label: 'Aufr\u00e4umen', action: 'startCleanup' },
+    ],
   );
 }
 
@@ -996,9 +1147,58 @@ function showRoom(roomId) {
     return;
   }
 
+  const containers = Object.entries(room.containers || {});
+  const blocks = [];
+
+  if (containers.length === 0) {
+    // Kein Container: klassische Ansicht
+    blocks.push({ type: 'ContainerList', props: { roomId } });
+  } else {
+    // RichCards mit expandierbaren Items pro Container
+    for (const [cId, container] of containers) {
+      const items = (container.items || []).filter(i =>
+        typeof i === 'string' || i.status !== 'archiviert'
+      );
+
+      const expandItems = items.slice(0, 10).map(item => {
+        const name = typeof item === 'string' ? item : item.name;
+        return {
+          label: name,
+          actions: [
+            { label: 'Verschieben', action: `moveItem:${name}:${roomId}` },
+            { label: 'Entfernen', action: `archiveItem:${name}`, confirm: 'Wirklich?' },
+          ],
+        };
+      });
+
+      // Frische bestimmen
+      let freshCount = 0;
+      for (const item of items) {
+        if (typeof item !== 'string' && item.last_seen) {
+          const days = (Date.now() - new Date(item.last_seen).getTime()) / 86400000;
+          if (days < 7) freshCount++;
+        }
+      }
+      const badgeColor = freshCount > items.length / 2 ? 'success' : items.length > 0 ? 'warning' : 'info';
+      const badgeText = freshCount > items.length / 2 ? 'Frisch' : items.length > 0 ? 'Prüfen' : 'Leer';
+
+      blocks.push({
+        type: 'RichCard',
+        props: {
+          badge: { text: badgeText, color: badgeColor },
+          title: `\u{1F4E6} ${container.name}`,
+          info: `${items.length} Gegenst\u00e4nde`,
+          action: `showContainer:${roomId}:${cId}`,
+          expandable: expandItems.length > 0,
+          expandItems,
+        },
+      });
+    }
+  }
+
   agentMessage(
     `${room.emoji || '\u{1F3E0}'} ${room.name}:`,
-    [{ type: 'ContainerList', props: { roomId } }],
+    blocks,
     [
       { icon: '\u{1F4F7}', label: 'Fotografieren', action: 'takePhoto', primary: true },
       { icon: '\u{1F3E0}', label: 'Zur\u00fcck', action: 'showHome' },

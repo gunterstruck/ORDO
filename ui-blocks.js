@@ -1407,3 +1407,310 @@ Wenn der Nutzer einen Raum oder Container anlegen will, nutze die passende Funct
 
   return el;
 });
+
+
+// ══════════════════════════════════════
+// RICH INTERACTIVE BLOCKS
+// ══════════════════════════════════════
+
+/**
+ * Parst einen Action-String und ruft handleAction auf.
+ * Format: 'actionType' oder 'actionType:param1' oder 'actionType:param1:param2'
+ */
+export async function handleBlockAction(actionString, element) {
+  if (!actionString) return;
+
+  const parts = actionString.split(':');
+  const type = parts[0];
+  const params = parts.slice(1);
+
+  // Visuelles Feedback: kurzer Scale-Effekt
+  if (element) {
+    element.style.transform = 'scale(0.96)';
+    element.style.transition = 'transform 0.1s';
+    setTimeout(() => { element.style.transform = ''; }, 150);
+  }
+
+  // Haptic Feedback wenn verfügbar
+  if (navigator.vibrate) navigator.vibrate(10);
+
+  const { handleAction } = await import('./ordo-agent.js');
+
+  // Params intelligent mappen je nach Action-Typ
+  const actionMap = {
+    showRoom:    () => ({ action: 'showRoom', roomId: params[0] }),
+    showContainer: () => ({ action: 'showContainer', roomId: params[0], containerId: params[1] }),
+    showItemDetail: () => ({ action: 'showItemDetail', roomId: params[0], containerId: params[1], itemName: params[2] }),
+    moveItem:    () => ({ action: 'moveItem', itemName: params[0], targetRoom: params[1] }),
+    archiveItem: () => ({ action: 'archiveItem', itemName: params[0] }),
+    donateItem:  () => ({ action: 'donateItem', itemName: params[0] }),
+  };
+
+  const builder = actionMap[type];
+  if (builder) {
+    handleAction(builder());
+  } else {
+    // Generischer Fallback
+    handleAction({ action: type, params });
+  }
+}
+
+// ─── ScoreMetric — Große Zahl mit Fortschrittsbalken ───
+registerBlock('ScoreMetric', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-score-metric');
+  const color = props.color || 'primary';
+  el.classList.add(`score-metric-color-${color}`);
+
+  if (props.action) {
+    el.classList.add('clickable');
+    el.addEventListener('click', () => handleBlockAction(props.action, el));
+  }
+
+  const value = props.value ?? 0;
+  const max = props.max ?? 100;
+  const percent = Math.round((value / max) * 100);
+
+  el.innerHTML = `
+    <div class="score-metric-label">${escapeHTML(props.label || '')}</div>
+    <div class="score-metric-value">${escapeHTML(String(value))}${escapeHTML(props.unit || '')}</div>
+    <div class="score-metric-bar">
+      <div class="score-metric-bar-fill" style="width: ${percent}%"></div>
+    </div>
+    ${props.sublabel ? `<div class="score-metric-sublabel">${escapeHTML(props.sublabel)}</div>` : ''}
+  `;
+  return el;
+});
+
+// ─── MetricGrid — Mehrere Scores nebeneinander ───
+registerBlock('MetricGrid', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-metric-grid');
+  const cols = props.columns || 2;
+  el.classList.add(`cols-${cols}`);
+
+  for (const metric of (props.metrics || [])) {
+    const cell = document.createElement('div');
+    cell.classList.add('metric-grid-cell');
+    const metricBlock = renderBlock({
+      type: 'ScoreMetric',
+      props: metric,
+    });
+    if (metricBlock) cell.appendChild(metricBlock);
+    el.appendChild(cell);
+  }
+
+  return el;
+});
+
+// ─── RichCard — Karte mit Badge, Titel, Info und optionalem Expand ───
+registerBlock('RichCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-rich-card');
+
+  let html = '';
+
+  // Badge
+  if (props.badge) {
+    const badgeColor = props.badge.color || 'info';
+    html += `<div class="rich-card-badge">
+      <span class="rich-badge rich-badge-${escapeHTML(badgeColor)}">${escapeHTML(props.badge.text)}</span>
+    </div>`;
+  }
+
+  // Titel
+  if (props.title) {
+    html += `<div class="rich-card-title">${escapeHTML(props.title)}</div>`;
+  }
+
+  // Info
+  if (props.info) {
+    html += `<div class="rich-card-info">${escapeHTML(props.info)}</div>`;
+  }
+
+  // Expand toggle + area
+  if (props.expandable && props.expandItems && props.expandItems.length > 0) {
+    html += `<div class="rich-card-expand-toggle" data-expand-toggle>▶ Details</div>`;
+    html += `<div class="rich-card-expand-area" data-expand-area>`;
+
+    const items = props.expandItems.slice(0, 10); // Max 10 items
+    for (const item of items) {
+      html += `<div class="rich-card-expand-item">`;
+      html += `<span class="rich-card-expand-label">${escapeHTML(item.label)}</span>`;
+      if (item.actions && item.actions.length > 0) {
+        html += `<span class="rich-card-expand-actions">`;
+        for (const action of item.actions) {
+          html += `<button class="rich-card-inline-btn" data-action="${escapeHTML(action.action)}"${action.confirm ? ` data-confirm="${escapeHTML(action.confirm)}"` : ''}>${escapeHTML(action.label)}</button>`;
+        }
+        html += `</span>`;
+      }
+      html += `</div>`;
+    }
+
+    if (props.expandItems.length > 10) {
+      html += `<div class="rich-card-expand-item" style="justify-content: center; color: var(--text-muted);">
+        <span>… und ${props.expandItems.length - 10} weitere</span>
+      </div>`;
+    }
+
+    html += `</div>`;
+  }
+
+  el.innerHTML = html;
+
+  // Expand toggle logic
+  const toggle = el.querySelector('[data-expand-toggle]');
+  const expandArea = el.querySelector('[data-expand-area]');
+  if (toggle && expandArea) {
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = expandArea.classList.toggle('open');
+      toggle.textContent = isOpen ? '▼ Details' : '▶ Details';
+    });
+  }
+
+  // Inline action buttons (stop propagation to card)
+  el.querySelectorAll('.rich-card-inline-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const actionStr = btn.dataset.action;
+      const confirmMsg = btn.dataset.confirm;
+
+      if (confirmMsg && !btn.classList.contains('confirming')) {
+        // First click: show confirmation
+        btn.classList.add('confirming');
+        const originalText = btn.textContent;
+        btn.textContent = confirmMsg;
+        setTimeout(() => {
+          btn.classList.remove('confirming');
+          btn.textContent = originalText;
+        }, 3000);
+        return;
+      }
+
+      btn.classList.remove('confirming');
+      handleBlockAction(actionStr, btn);
+    });
+  });
+
+  // Card-level action
+  if (props.action) {
+    el.addEventListener('click', () => handleBlockAction(props.action, el));
+  }
+
+  return el;
+});
+
+// ─── TabbedPanel — Tabs mit umschaltbaren Panels ───
+registerBlock('TabbedPanel', (props, children) => {
+  const el = document.createElement('div');
+  el.classList.add('block-tabbed-panel');
+
+  const tabs = props.tabs || [];
+  const defaultTab = props.defaultTab || (tabs[0] && tabs[0].id);
+
+  // Tab bar
+  const tabBar = document.createElement('div');
+  tabBar.classList.add('tabbed-panel-tabs');
+
+  for (const tab of tabs) {
+    const tabBtn = document.createElement('button');
+    tabBtn.classList.add('rich-tab');
+    if (tab.id === defaultTab) tabBtn.classList.add('active');
+    tabBtn.dataset.tabId = tab.id;
+    tabBtn.textContent = (tab.icon ? tab.icon + ' ' : '') + tab.label;
+    tabBar.appendChild(tabBtn);
+  }
+  el.appendChild(tabBar);
+
+  // Content area
+  const contentArea = document.createElement('div');
+  contentArea.classList.add('tabbed-panel-content');
+
+  for (const tab of tabs) {
+    const panel = document.createElement('div');
+    panel.classList.add('tabbed-panel-panel');
+    panel.dataset.panelId = tab.id;
+    if (tab.id === defaultTab) panel.classList.add('active');
+
+    // Render children for this tab
+    const tabChildren = (children && children[tab.id]) || [];
+    for (const childBlock of tabChildren) {
+      const rendered = renderBlock(childBlock);
+      if (rendered) {
+        rendered.style.marginBottom = '8px';
+        panel.appendChild(rendered);
+      }
+    }
+
+    contentArea.appendChild(panel);
+  }
+  el.appendChild(contentArea);
+
+  // Tab switching — pure client-side, no agent call
+  tabBar.addEventListener('click', (e) => {
+    const tabBtn = e.target.closest('.rich-tab');
+    if (!tabBtn) return;
+
+    const tabId = tabBtn.dataset.tabId;
+
+    // Update active tab
+    tabBar.querySelectorAll('.rich-tab').forEach(t => t.classList.remove('active'));
+    tabBtn.classList.add('active');
+
+    // Switch panels
+    contentArea.querySelectorAll('.tabbed-panel-panel').forEach(p => {
+      p.classList.remove('active');
+      if (p.dataset.panelId === tabId) p.classList.add('active');
+    });
+  });
+
+  return el;
+});
+
+// ─── ProgressCard — Fortschritt mit Kontext ───
+registerBlock('ProgressCard', (props) => {
+  const el = document.createElement('div');
+  el.classList.add('block-progress-card');
+
+  const current = props.current ?? 0;
+  const total = props.total ?? 1;
+  const percent = Math.round((current / total) * 100);
+
+  let html = `
+    <div class="progress-card-title">${escapeHTML(props.title || '')}</div>
+    <div class="progress-card-step">Schritt ${current} von ${total}</div>
+    <div class="progress-card-bar">
+      <div class="progress-card-bar-fill" style="width: ${percent}%"></div>
+    </div>
+    <div class="progress-card-percent">${percent}%</div>
+  `;
+
+  if (props.nextStep) {
+    html += `
+      <div class="progress-card-next-label">Nächster Schritt:</div>
+      <div class="progress-card-next-text">${escapeHTML(props.nextStep)}</div>
+    `;
+  }
+
+  el.innerHTML = html;
+
+  // Action buttons
+  if (props.actions && props.actions.length > 0) {
+    const actionsRow = document.createElement('div');
+    actionsRow.classList.add('progress-card-actions');
+
+    for (const action of props.actions) {
+      const btn = document.createElement('button');
+      btn.classList.add('stream-action-btn');
+      if (action.primary) btn.classList.add('primary');
+      btn.innerHTML = `${action.icon ? action.icon + ' ' : ''}${escapeHTML(action.label)}`;
+      btn.addEventListener('click', () => handleBlockAction(action.action, btn));
+      actionsRow.appendChild(btn);
+    }
+
+    el.appendChild(actionsRow);
+  }
+
+  return el;
+});
