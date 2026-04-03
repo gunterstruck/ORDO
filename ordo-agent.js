@@ -15,6 +15,7 @@ import {
   buildMessages, loadingManager, getErrorMessage,
 } from './ai.js';
 import { logAction, getLastActivityTime, touchActivity } from './session-log.js';
+import { BLOCK_REGISTRY } from './ui-blocks.js';
 
 // ══════════════════════════════════════
 // API-FEEDBACK EVENTS
@@ -118,8 +119,21 @@ REGELN:
 - Wenn du etwas nicht wei\u00dft, bitte um ein Foto.
 - Wenn der Nutzer nach Aufr\u00e4umen, Ordnung oder Optimierung fragt: nenne 2-3 Quick Wins und frage, ob er eine Aufr\u00e4um-Session starten m\u00f6chte.
 
+VERFÜGBARE UI-BLÖCKE (zeige sie aktiv im Dialog):
+${Object.keys(BLOCK_REGISTRY).join(', ')}
+
+Wenn der Nutzer nach Räumen fragt → zeige RoomGrid
+Wenn der Nutzer nach einem Raum fragt → zeige ContainerList
+Wenn der Nutzer nach Container-Inhalt fragt → zeige ItemList
+Wenn der Nutzer nach Garantien fragt → zeige WarrantyList
+Wenn der Nutzer nach Verfallsdaten fragt → zeige ExpiryList
+Wenn der Nutzer nach Aufräumen fragt → zeige CleanupOptions
+Wenn der Nutzer nach Fortschritt fragt → zeige ImprovementReport
+Wenn der Nutzer nach Karte/Grundriss fragt → zeige SpatialMap
+Nutze agentMessage() mit dem blocks-Array — nicht nur Text antworten.
+
 AKTIONEN:
-Du kannst die Datenbank ver\u00e4ndern. Nutze dazu die bereitgestellten Funktionen (Function Calls).
+Du kannst die Datenbank verändern. Nutze dazu die bereitgestellten Funktionen (Function Calls).
 Bevorzuge IMMER Function Calls statt Text-Marker.`;
 
     const history = Brain.getChatHistory().slice(-20).map(m => ({ role: m.role, content: m.content }));
@@ -398,6 +412,90 @@ export async function handleAction(action) {
         }
       });
       input.click();
+      break;
+    }
+
+    // --- BLOCK SHOWCASE ---
+
+    case 'showBlockShowcase': {
+      const rooms = Brain.getRooms();
+      const roomEntries = Object.entries(rooms);
+      const firstRoomId = roomEntries[0]?.[0] || null;
+      const firstRoom = roomEntries[0]?.[1] || null;
+      const firstContainerId = firstRoom
+        ? Object.keys(firstRoom.containers || {})[0]
+        : null;
+
+      const hasData = roomEntries.length > 0;
+
+      agentMessage(
+        companionSays({
+          sachlich: 'Hier sind alle verfügbaren Ansichten:',
+          freundlich: 'Schau mal, das alles kann ich dir anzeigen!',
+          kauzig: 'Na gut. Hier. Alles was ich kann.',
+        })
+      );
+
+      // Gruppe 1: Zuhause & Navigation
+      agentMessage('🏠 Dein Zuhause', [
+        { type: 'ScoreCard', props: {} },
+        { type: 'RoomGrid', props: {} },
+      ]);
+
+      // Gruppe 2: Container & Items (nur wenn Daten vorhanden)
+      if (hasData && firstRoomId && firstContainerId) {
+        agentMessage(`📦 Beispiel: ${firstRoom.name}`, [
+          { type: 'ContainerList', props: { roomId: firstRoomId } },
+        ]);
+        agentMessage('📋 Items in einem Container', [
+          { type: 'ItemList', props: { roomId: firstRoomId, containerId: firstContainerId } },
+        ]);
+      }
+
+      // Gruppe 3: Berichte
+      agentMessage('📊 Berichte & Listen', [
+        { type: 'ExpiryList', props: { compact: true, maxItems: 2 } },
+        { type: 'WarrantyList', props: {} },
+      ]);
+
+      // Gruppe 4: Aufräumen
+      agentMessage('🧹 Aufräumen', [
+        { type: 'CleanupOptions', props: {} },
+        { type: 'QuickDecision', props: {} },
+      ]);
+
+      // Gruppe 5: Quest (nur wenn aktiv)
+      const quest = Brain.getQuest();
+      if (quest?.active) {
+        agentMessage('🗺️ Aktiver Quest', [
+          { type: 'QuestStep', props: {} },
+        ]);
+      }
+
+      // Gruppe 6: Karte & Fortschritt
+      agentMessage('🗺️ Karte & Fortschritt', [
+        { type: 'SpatialMap', props: {} },
+        { type: 'ImprovementReport', props: {} },
+      ]);
+
+      // Gruppe 7: Einstellungen
+      agentMessage('⚙️ Einstellungen', [
+        { type: 'SettingsPanel', props: {} },
+      ]);
+
+      // Abschluss mit Capabilities-Übersicht
+      agentMessage(
+        companionSays({
+          sachlich: 'Das sind alle Ansichten. Tippe eine an.',
+          freundlich: 'Das war alles! Was möchtest du als nächstes?',
+          kauzig: 'Fertig. Such dir was aus.',
+        }),
+        [{ type: 'CapabilitiesCard', props: {} }],
+        [
+          { icon: '📷', label: 'Foto machen', action: 'takePhoto', primary: true },
+          { icon: '🏠', label: 'Mein Zuhause', action: 'showHome' },
+        ]
+      );
       break;
     }
 
