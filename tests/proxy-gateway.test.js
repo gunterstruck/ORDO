@@ -186,22 +186,24 @@ describe('getProviderConfig() – Provider-Routing', () => {
   });
 });
 
-// ── getSessionId ────��────────────────────────────────────
-describe('getSessionId() – Session-ID Verwaltung', () => {
-  const getSessionId = context.getSessionId;
-
-  it('generiert UUID und speichert sie', () => {
-    resetAll();
-    const sid = getSessionId();
-    assertEqual(sid, 'test-uuid-1234-5678-abcdefghijkl');
-    assertEqual(localStorage.getItem('ordo_session_id'), sid);
+// ── IP-basiertes Rate-Limiting (kein Client-Session) ─────
+describe('Rate-Limiting – IP-basiert (kein Client-Session)', () => {
+  it('ai.js exportiert KEIN getSessionId mehr', () => {
+    assertEqual(context.getSessionId, undefined, 'getSessionId should not exist');
   });
 
-  it('gibt bestehende Session-ID zurück', () => {
-    resetAll();
-    localStorage.setItem('ordo_session_id', 'existing-session-id');
-    const sid = getSessionId();
-    assertEqual(sid, 'existing-session-id');
+  it('ai.js enthält keinen X-ORDO-Session Header', () => {
+    const aiCode = fs.readFileSync(path.join(rootDir, 'ai.js'), 'utf8');
+    assert(!aiCode.includes("'X-ORDO-Session'"),
+      'ai.js should not contain X-ORDO-Session header');
+  });
+
+  it('worker.js nutzt CF-Connecting-IP statt Session-Header', () => {
+    const workerCode = fs.readFileSync(path.join(rootDir, 'worker', 'worker.js'), 'utf8');
+    assert(workerCode.includes('CF-Connecting-IP'),
+      'worker.js should use CF-Connecting-IP');
+    assert(!workerCode.includes('X-ORDO-Session'),
+      'worker.js should not reference X-ORDO-Session');
   });
 });
 

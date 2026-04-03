@@ -1,6 +1,6 @@
 // ordo-proxy – Cloudflare Worker
 // Leitet Gemini API Calls weiter, Key bleibt serverseitig.
-// Rate-Limiting per anonymer Session-ID.
+// Rate-Limiting per IP-Adresse (CF-Connecting-IP) + User-Agent-Hash.
 
 const DAILY_LIMIT = 50;         // Requests pro Gerät pro Tag
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -17,11 +17,20 @@ export default {
       return jsonResponse({ error: 'Method not allowed' }, 405);
     }
 
-    // Session-ID aus Header (vom Client generiert, anonym)
-    const sessionId = request.headers.get('X-ORDO-Session') || 'unknown';
+    // IP-basiertes Rate-Limiting (serverseitig, nicht manipulierbar)
+    // CF-Connecting-IP wird von Cloudflare gesetzt — der Client
+    // kann ihn NICHT fälschen. localStorage-Löschen, Inkognito,
+    // PWA-Neuinstall ändern nichts an der IP.
+    const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+    // Optional: Feineres Raster für Shared-IPs (Büro-Netze)
+    // User-Agent-Hash unterscheidet verschiedene Geräte hinter einer IP
+    const ua = request.headers.get('User-Agent') || '';
+    const uaHash = await hashString(ua.slice(0, 64));
+    const deviceKey = `${clientIP}:${uaHash}`;
 
     // Rate-Limit prüfen
-    const rateLimitKey = `rate:${sessionId}:${todayString()}`;
+    const rateLimitKey = `rate:${deviceKey}:${todayString()}`;
     const currentCount = parseInt(await env.RATE_LIMIT.get(rateLimitKey) || '0');
 
     if (currentCount >= DAILY_LIMIT) {
@@ -88,7 +97,7 @@ function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-ORDO-Session',
+    'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Expose-Headers': 'X-ORDO-Remaining, X-ORDO-Limit',
   };
 }
@@ -109,4 +118,17 @@ function nextMidnightUTC() {
   d.setUTCDate(d.getUTCDate() + 1);
   d.setUTCHours(0, 0, 0, 0);
   return d.toISOString();
+}
+
+/**
+ * Kurzer Hash eines Strings (für User-Agent-Differenzierung).
+ * Kein kryptografischer Anspruch — nur um Geräte zu unterscheiden.
+ */
+async function hashString(str) {
+  const data = new TextEncoder().encode(str);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  const bytes = new Uint8Array(hash);
+  return Array.from(bytes.slice(0, 4))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }

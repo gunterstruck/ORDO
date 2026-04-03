@@ -9,19 +9,9 @@ import { debugLog, ensureRoom } from './app.js';
 const PROXY_URL = 'https://ordo-proxy.workers.dev';
 // In der Entwicklung: 'http://localhost:8787'
 
-/**
- * Generiert oder liest eine anonyme Session-ID.
- * Wird für Rate-Limiting am Proxy verwendet.
- * Kein Tracking — rein technisch für Limit-Zählung.
- */
-function getSessionId() {
-  let sid = localStorage.getItem('ordo_session_id');
-  if (!sid) {
-    sid = crypto.randomUUID();
-    localStorage.setItem('ordo_session_id', sid);
-  }
-  return sid;
-}
+// Kein client-seitiger Session-Header nötig — das Rate-Limiting
+// läuft serverseitig über die IP-Adresse (CF-Connecting-IP).
+// Der Client muss sich nicht identifizieren.
 
 /**
  * Feuert wenn der Proxy die verbleibende Tages-Quota meldet.
@@ -82,7 +72,7 @@ export function setProviderConfig(config) {
   localStorage.setItem('ordo_providers', JSON.stringify(config));
 }
 
-export { PROVIDERS, getSessionId };
+export { PROVIDERS };
 
 // ── Model Routing ─────────────────────────────────────
 // Verfügbare Gemini-Modelle (Google AI Studio / gen-lang-client Projekt):
@@ -761,7 +751,7 @@ async function _callProxyFormat(systemPrompt, messages, options) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-ORDO-Session': getSessionId(),
+        // Kein Session-Header — Rate-Limiting ist IP-basiert (CF-Connecting-IP)
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
