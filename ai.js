@@ -84,6 +84,7 @@ export function usePreviewModels() {
 
 // Timeout für einzelne API-Requests (ms) – kurz genug um schnell zu fallbacken
 const REQUEST_TIMEOUT_MS = 15000;
+const VIDEO_TIMEOUT_MS = 60000; // Video-Analyse braucht länger
 
 /**
  * Event: API antwortet langsam (nach 8s ohne Antwort).
@@ -687,13 +688,16 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
       }
 
       let response;
+      const controller = new AbortController();
+      let timeoutId = null;
+      let slowTimer = null;
       try {
-        // Timeout: bricht den Request nach REQUEST_TIMEOUT_MS ab
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        // Timeout: bricht den Request ab – Video-Analyse bekommt mehr Zeit
+        const effectiveTimeout = options.hasVideo ? VIDEO_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+        timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
 
         // Feedback nach 8s: Nutzer informieren dass API langsam ist
-        const slowTimer = setTimeout(() => {
+        slowTimer = setTimeout(() => {
           _emitSlowWarning(currentModel);
         }, 8000);
 
@@ -710,8 +714,9 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
         clearTimeout(timeoutId);
         clearTimeout(slowTimer);
         const isTimeout = fetchErr.name === 'AbortError';
+        const usedTimeout = options.hasVideo ? VIDEO_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
         debugLog(isTimeout
-          ? `TIMEOUT nach ${REQUEST_TIMEOUT_MS / 1000}s (Modell: ${currentModel})`
+          ? `TIMEOUT nach ${usedTimeout / 1000}s (Modell: ${currentModel})`
           : `NETZWERK-FEHLER: ${fetchErr.message}`);
         // Bei Timeout: SOFORT nächstes Modell (nicht retrien — bringt nichts)
         if (isTimeout) {
@@ -719,7 +724,7 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
             debugLog(`${currentModel} Timeout – wechsle sofort zu ${modelsToTry[modelsToTry.indexOf(currentModel) + 1]}…`);
             break;
           }
-          const err = new Error(`Alle Modelle nicht erreichbar (Timeout nach ${REQUEST_TIMEOUT_MS / 1000}s)`);
+          const err = new Error(`Alle Modelle nicht erreichbar (Timeout nach ${usedTimeout / 1000}s)`);
           err.httpStatus = 408;
           throw err;
         }
