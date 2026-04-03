@@ -1415,12 +1415,14 @@ Wenn der Nutzer einen Raum oder Container anlegen will, nutze die passende Funct
 
 /**
  * Parst einen Action-String und ruft handleAction auf.
- * Format: 'actionType' oder 'actionType:param1' oder 'actionType:param1:param2'
+ * Format: 'actionType' oder 'actionType|param1' oder 'actionType|param1|param2'
+ * Pipe als Separator — sicher bei Item-Namen mit Sonderzeichen.
  */
 export async function handleBlockAction(actionString, element) {
   if (!actionString) return;
 
-  const parts = actionString.split(':');
+  // Pipe als Separator — sicher auch bei Item-Namen mit Doppelpunkt/Sonderzeichen
+  const parts = actionString.split('|');
   const type = parts[0];
   const params = parts.slice(1);
 
@@ -1486,7 +1488,7 @@ registerBlock('ScoreMetric', (props) => {
 registerBlock('MetricGrid', (props) => {
   const el = document.createElement('div');
   el.classList.add('block-metric-grid');
-  const cols = props.columns || 2;
+  const cols = Math.max(2, Math.min(3, props.columns || 2));
   el.classList.add(`cols-${cols}`);
 
   for (const metric of (props.metrics || [])) {
@@ -1566,6 +1568,10 @@ registerBlock('RichCard', (props) => {
       e.stopPropagation();
       const isOpen = expandArea.classList.toggle('open');
       toggle.textContent = isOpen ? '▼ Details' : '▶ Details';
+    });
+    // Klicks im Expand-Bereich dürfen nicht die Karten-Action auslösen
+    expandArea.addEventListener('click', (e) => {
+      e.stopPropagation();
     });
   }
 
@@ -1674,7 +1680,7 @@ registerBlock('ProgressCard', (props) => {
   el.classList.add('block-progress-card');
 
   const current = props.current ?? 0;
-  const total = props.total ?? 1;
+  const total = props.total || 1;  // || statt ?? — schützt auch vor 0
   const percent = Math.round((current / total) * 100);
 
   let html = `
