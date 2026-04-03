@@ -465,6 +465,21 @@ const ORDO_FUNCTIONS = [
       },
       required: ["item", "room", "container_id"]
     }
+  },
+  {
+    name: "show_view",
+    description: "Zeige dem Nutzer eine bestimmte Ansicht/UI-View. Nutze dies wenn der Nutzer nach einer Übersicht, Ansicht, Karte, Bericht oder allen verfügbaren Ansichten fragt.",
+    parameters: {
+      type: "object",
+      properties: {
+        view: {
+          type: "string",
+          enum: ["home", "showcase", "warranty", "expiry", "improvement", "map", "cleanup", "settings", "capabilities", "reports", "activity"],
+          description: "Welche Ansicht gezeigt werden soll: home=Zuhause/Räume, showcase=Alle UI-Blöcke/Cards/Ansichten zeigen, warranty=Garantien, expiry=Verfallsdaten, improvement=Fortschritt, map=Grundriss/Karte, cleanup=Aufräumen, settings=Einstellungen, capabilities=Was kann ich, reports=Berichte, activity=Aktivität"
+        }
+      },
+      required: ["view"]
+    }
   }
 ];
 
@@ -494,6 +509,15 @@ function functionCallToAction(call) {
       return { type: 'delete_room', room: args.room };
     case 'show_found_item':
       return { type: 'found', room: args.room, path: [args.container_id], item: args.item };
+    case 'show_view': {
+      const viewMap = {
+        home: 'showHome', showcase: 'showBlockShowcase', warranty: 'showWarranty',
+        expiry: 'showExpiry', improvement: 'showImprovement', map: 'showMap',
+        cleanup: 'startCleanup', settings: 'showSettings', capabilities: 'showCapabilities',
+        reports: 'showReports', activity: 'showActivity',
+      };
+      return { type: 'show_view', action: viewMap[args.view] || 'showHome' };
+    }
     default:
       debugLog(`Unbekannter Function Call: ${call.name}`);
       return null;
