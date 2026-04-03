@@ -1020,6 +1020,15 @@ function showHome() {
 
   const blocks = [];
 
+  // Backward-Compatibility: ältere Flows/Tests erwarten weiterhin eine ScoreCard im Home-Block.
+  blocks.push({
+    type: 'ScoreCard',
+    props: {
+      score: score.percent,
+      subtitle: `${score.totalDebt} offene Entscheidungen`,
+    },
+  });
+
   // MetricGrid: Freiheitsindex + Daten-Frische
   blocks.push({
     type: 'MetricGrid',
