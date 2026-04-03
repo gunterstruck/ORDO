@@ -247,7 +247,7 @@ function showSmartPhotoResult(analysis, photoBlob, base64, mimeType) {
         ? Brain.getActiveItems(room.id, containerId)
         : [];
 
-      if (existingActiveItems.length > 0) {
+      if (existingActiveItems.length > 0 && base64) {
         // Delta-Analyse: zweiter Gemini-Call mit bekannten Items
         const confirmBtn = document.getElementById('smart-photo-confirm');
         confirmBtn.disabled = true;
