@@ -848,10 +848,14 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
   // Fallback-Kette: Preview → stabiles Modell → Legacy
   if (model === MODELS.pro) {
     modelsToTry.push(MODELS.fast, MODELS.stablePro, MODELS.stableFast);
+  } else if (model === MODELS.stablePro) {
+    modelsToTry.push(MODELS.stableFast, MODELS.legacyFast);
   } else if (model === MODELS.fast) {
     modelsToTry.push(MODELS.stableFast, MODELS.legacyFast);
   } else if (model === MODELS.lite) {
     modelsToTry.push(MODELS.stableLite, MODELS.legacyFast);
+  } else if (model === MODELS.stableLite) {
+    modelsToTry.push(MODELS.legacyFast);
   }
 
   for (const currentModel of modelsToTry) {
@@ -925,9 +929,17 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
         const rawText = await response.text().catch(() => '');
         debugLog(`API Fehlerantwort: ${rawText.slice(0, 400)}`);
 
-        // Non-retryable errors – throw immediately
+        // Non-retryable errors
         if (response.status === 403) { const e = new Error('api_key'); e.httpStatus = 403; e.responseBody = rawText.slice(0, 500); throw e; }
-        if (response.status === 400) { const e = new Error('bad_request'); e.httpStatus = 400; e.responseBody = rawText.slice(0, 500); throw e; }
+        // 400 INVALID_ARGUMENT: try next model (may be model-specific parameter issue)
+        if (response.status === 400) {
+          debugLog(`✗ ${currentModel} → 400 Bad Request`);
+          if (currentModel !== modelsToTry[modelsToTry.length - 1]) {
+            debugLog(`Wechsle zu ${modelsToTry[modelsToTry.indexOf(currentModel) + 1]}…`);
+            break; // try next model
+          }
+          const e = new Error('bad_request'); e.httpStatus = 400; e.responseBody = rawText.slice(0, 500); throw e;
+        }
 
         // Retryable errors (5xx, 429) – retry with backoff
         if (attempt < MAX_RETRIES && (response.status >= 500 || response.status === 429)) {
