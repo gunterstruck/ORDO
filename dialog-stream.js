@@ -140,9 +140,31 @@ function createActionRow(actions) {
     const btn = document.createElement('button');
     btn.classList.add('stream-action-btn');
     if (action.primary) btn.classList.add('primary');
+    if (action.danger) btn.classList.add('danger');
+    if (action.disabled) btn.classList.add('disabled');
     btn.innerHTML = `${action.icon ? action.icon + ' ' : ''}${escapeHTML(action.label)}`;
 
+    if (action.disabled) {
+      row.appendChild(btn);
+      continue;
+    }
+
     btn.addEventListener('click', async () => {
+      // Bestätigungs-Pattern für destruktive Aktionen
+      if (action.confirm && !btn.classList.contains('confirming')) {
+        btn.classList.add('confirming');
+        const originalHTML = btn.innerHTML;
+        btn.textContent = action.confirm;
+        setTimeout(() => {
+          if (btn.classList.contains('confirming')) {
+            btn.classList.remove('confirming');
+            btn.innerHTML = originalHTML;
+          }
+        }, 3000);
+        return;
+      }
+
+      btn.classList.remove('confirming');
       // Chip als aktiviert markieren
       btn.classList.add('activated');
       row.classList.add('used');
