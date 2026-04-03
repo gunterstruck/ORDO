@@ -13,6 +13,7 @@ import {
   callGemini, ORDO_FUNCTIONS, functionCallToAction,
   processMarkers, executeOrdoAction, normalizeOrdoAction,
   buildMessages, loadingManager, getErrorMessage,
+  getProviderConfig, setProviderConfig,
 } from './ai.js';
 import { logAction, getLastActivityTime, touchActivity } from './session-log.js';
 import { BLOCK_REGISTRY } from './ui-blocks.js';
@@ -80,16 +81,8 @@ export async function handleUserInput(input) {
     }
   }
 
-  // 2. Gemini für alles andere
+  // 2. Gemini / Proxy für alles andere
   const apiKey = Brain.getApiKey();
-  if (!apiKey) {
-    agentMessage(
-      'Ich brauche einen API-Key um zu antworten. Geh in die Einstellungen.',
-      [],
-      [{ icon: '\u2699\uFE0F', label: 'Einstellungen', action: 'showSettings', primary: true }],
-    );
-    return;
-  }
 
   const loading = showStreamLoading('Denke nach...');
 
@@ -228,6 +221,13 @@ Bevorzuge IMMER Function Calls statt Text-Marker.`;
 
   } catch (err) {
     hideStreamLoading(loading);
+
+    // Rate-Limit vom Proxy → Upgrade-Angebot
+    if (err.message === 'rate_limit') {
+      handleRateLimitReached(err.rateLimitInfo || {});
+      return;
+    }
+
     const errMsg = getErrorMessage(err);
     agentMessage(companionSays({
       sachlich: `Fehler: ${errMsg}`,
@@ -597,6 +597,22 @@ export async function handleAction(action) {
 
     case 'testApiKey':
       await testAndSaveApiKey(action.key);
+      break;
+
+    case 'showApiKeySetup':
+      agentMessage(
+        'So bekommst du unbegrenzten Zugang:',
+        [{ type: 'ApiKeyUpgrade', props: {} }],
+        [{ icon: '\u2753', label: 'Was ist ein API-Key?', action: 'explainApiKey' }],
+      );
+      break;
+
+    case 'dismissRateLimit':
+      agentMessage(
+        'Kein Problem! Dein Limit wird um Mitternacht UTC zur\u00FCckgesetzt. Bis morgen!',
+        [],
+        [{ icon: '\uD83C\uDFE0', label: 'Zur\u00FCck', action: 'showHome' }],
+      );
       break;
 
     case 'startFirstPhoto':
@@ -1260,12 +1276,40 @@ function showReportsMenu() {
 }
 
 // ══════════════════════════════════════
+// RATE-LIMIT HANDLING
+// ══════════════════════════════════════
+
+/**
+ * Wird aufgerufen wenn der Proxy 429 zurückgibt.
+ * Zeigt dem Nutzer die Upgrade-Option.
+ */
+function handleRateLimitReached(info) {
+  agentMessage(
+    '',
+    [{ type: 'RateLimitCard', props: {
+      limit: info.limit || 50,
+      resetAt: info.resetAt,
+    }}],
+    [
+      { icon: '\uD83D\uDD11', label: 'Eigenen Key eingeben', action: 'showApiKeySetup', primary: true },
+      { icon: '\u23F0', label: 'Morgen weiter', action: 'dismissRateLimit' },
+    ],
+  );
+}
+
+// ══════════════════════════════════════
 // ONBOARDING (KRITISCH: Ohne KI!)
 // ══════════════════════════════════════
 
 /**
- * Phase 1: PRE-AGENT — Statisches Willkommen
- * Kein Gemini. Kein API-Call. Geskripteter Dialog.
+ * Phase 1: PRE-AGENT — Statisches Willkommen (Zero-Key)
+ *
+ * Kein API-Key nötig. Der Proxy übernimmt.
+ * Zwei Schritte: Hallo → Foto → Fertig.
+ *
+ * Das Onboarding ist weiterhin geskriptet (kein Gemini-Call),
+ * aber der Grund hat sich geändert: Nicht weil kein Key da ist,
+ * sondern weil das Onboarding SCHNELL und VORHERSAGBAR sein muss.
  */
 export function startOnboarding() {
   clearStream();
@@ -1273,16 +1317,19 @@ export function startOnboarding() {
   // Nachricht 1: Begrüßung (sofort)
   agentMessage(
     'Hey! Ich bin ORDO \u2014 dein Haushaltsassistent. ' +
-    'Ich helfe dir dein Zuhause zu organisieren.',
+    'Ich merke mir wo alles liegt, damit du es nicht musst.',
   );
 
-  // Nachricht 2: Was ich kann (nach 600ms)
+  // Nachricht 2: Direkt zum Foto (nach 600ms)
   setTimeout(() => {
     agentMessage(
-      'Alles was du tun musst: mit mir reden und Fotos machen. ' +
-      'Ich erkenne was auf dem Foto ist und merke mir wo alles liegt.',
+      'Mach einfach ein Foto von einem Raum oder Schrank. ' +
+      'Egal welcher \u2014 ich erkenne was drin ist.',
       [],
-      [{ icon: '\u{1F44B}', label: 'Klingt gut!', action: 'onboardingStep2', primary: true }],
+      [
+        { icon: '\u{1F4F7}', label: 'Foto aufnehmen', action: 'startFirstPhoto', primary: true },
+        { icon: '\u{1F3A5}', label: 'Video aufnehmen', action: 'startFirstVideo' },
+      ],
     );
   }, 600);
 }
@@ -1321,14 +1368,15 @@ function explainApiKey() {
 }
 
 /**
- * API-Key testen. DAS ist der erste echte API-Call.
+ * API-Key testen und speichern.
+ * Funktioniert sowohl im Onboarding als auch im Upgrade-Flow.
  */
 async function testAndSaveApiKey(key) {
   if (!key || key.length < 10) {
     agentMessage(
       'Hmm, das sieht nicht nach einem g\u00fcltigen Key aus. ' +
       'Er sollte mit "AIza" beginnen und ziemlich lang sein.',
-      [{ type: 'OnboardingKeyInput', props: {} }],
+      [{ type: 'ApiKeyUpgrade', props: {} }],
     );
     return;
   }
@@ -1346,23 +1394,43 @@ async function testAndSaveApiKey(key) {
 
     hideStreamLoading(loading);
 
-    if (result && result.text) {
-      // PHASE 2: AGENT ERWACHT
-      localStorage.setItem('ordo_onboarding_completed', 'pending_photo');
+    if (result && (result.text || typeof result === 'string')) {
+      // Provider-Chain umschalten: Eigener Key als Primary
+      setProviderConfig({
+        primary: 'gemini',
+        fallbacks: ['proxy'],
+        keys: {},
+      });
 
-      agentMessage('\u{1F389} Verbindung steht! Ich bin jetzt live.');
+      const onboardingState = localStorage.getItem('ordo_onboarding_completed');
 
-      setTimeout(() => {
+      if (!onboardingState || onboardingState === 'pending_photo') {
+        // Onboarding-Kontext
+        localStorage.setItem('ordo_onboarding_completed', 'pending_photo');
+
+        agentMessage('\u{1F389} Verbindung steht! Ich bin jetzt live.');
+
+        setTimeout(() => {
+          agentMessage(
+            'Jetzt wird\'s spannend. Mach ein Foto von irgendeinem ' +
+            'Raum oder Schrank. Egal welcher \u2014 ich erkenne den Rest.',
+            [{ type: 'PhotoButton', props: { label: 'Erstes Foto aufnehmen' } }],
+            [
+              { icon: '\u{1F4F7}', label: 'Foto aufnehmen', action: 'startFirstPhoto', primary: true },
+              { icon: '\u{1F3A5}', label: 'Oder ein Video', action: 'startFirstVideo' },
+            ],
+          );
+        }, 500);
+      } else {
+        // Upgrade-Kontext — Nutzer hat bereits ein Onboarding abgeschlossen
         agentMessage(
-          'Jetzt wird\'s spannend. Mach ein Foto von irgendeinem ' +
-          'Raum oder Schrank. Egal welcher \u2014 ich erkenne den Rest.',
-          [{ type: 'PhotoButton', props: { label: 'Erstes Foto aufnehmen' } }],
-          [
-            { icon: '\u{1F4F7}', label: 'Foto aufnehmen', action: 'startFirstPhoto', primary: true },
-            { icon: '\u{1F3A5}', label: 'Oder ein Video', action: 'startFirstVideo' },
-          ],
+          '\u{1F389} Dein eigener API-Key ist aktiv! ' +
+          'Ab jetzt hast du kein Tageslimit mehr. ' +
+          'Alle Anfragen gehen direkt an Google.',
+          [],
+          [{ icon: '\uD83C\uDFE0', label: 'Weiter', action: 'showHome', primary: true }],
         );
-      }, 500);
+      }
     }
 
   } catch (err) {
@@ -1373,7 +1441,7 @@ async function testAndSaveApiKey(key) {
       'Der Key funktioniert leider nicht. ' +
       'Bitte pr\u00fcfe ob du ihn richtig kopiert hast. ' +
       'Manchmal fehlt am Anfang oder Ende ein Zeichen.',
-      [{ type: 'OnboardingKeyInput', props: {} }],
+      [{ type: 'ApiKeyUpgrade', props: {} }],
       [{ icon: '\u2753', label: 'Hilfe', action: 'explainApiKey' }],
     );
   }

@@ -7827,3 +7827,84 @@ select.settings-input { appearance: none; }
 #nav, #view-onboarding, #view-chat, #view-photo, #view-brain, #view-settings, #view-nfc-context, #ordo-companion-container {
   display: none !important;
 }
+
+/* ─── Rate Limit Card ─── */
+.block-rate-limit {
+  text-align: center;
+  padding: 16px;
+}
+.rate-limit-icon { font-size: 32px; margin-bottom: 8px; }
+.rate-limit-title { font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+.rate-limit-text { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; }
+.rate-limit-upgrade {
+  font-size: 13px;
+  background: var(--surface);
+  padding: 12px;
+  border-radius: 10px;
+  line-height: 1.5;
+}
+
+/* ─── API Key Upgrade Card ─── */
+.block-api-key-upgrade { padding: 4px 0; }
+.upgrade-title { font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+.upgrade-text { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px; }
+.upgrade-steps { margin-bottom: 12px; }
+.upgrade-step {
+  font-size: 13px;
+  padding: 4px 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent);
+}
+.upgrade-step a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.upgrade-input-row {
+  display: flex;
+  gap: 8px;
+}
+.upgrade-key-field {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  background: var(--bg);
+}
+.upgrade-key-submit {
+  padding: 10px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.upgrade-status {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--success);
+  margin-bottom: 4px;
+}
+.upgrade-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ─── Quota Indicator (Header) ─── */
+.quota-indicator {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  align-items: center;
+}
+.quota-indicator.quota-warning {
+  background: #fef3d5;
+  color: #8a5a06;
+}
+.quota-indicator.quota-critical {
+  background: #fde8e8;
+  color: #9a2c2c;
+}

@@ -276,7 +276,7 @@ describe('startOnboarding()', () => {
     assert(calls[0].text.includes('ORDO'), 'First message should mention ORDO');
   });
 
-  it('second message has onboardingStep2 action', () => {
+  it('second message has startFirstPhoto action (Zero-Key)', () => {
     resetAll();
     ctx._streamCalls = [];
     ctx.startOnboarding();
@@ -284,7 +284,7 @@ describe('startOnboarding()', () => {
     assert(calls.length >= 2, 'Should have at least 2 messages');
     const secondMsg = calls[1];
     assert(secondMsg.actions.length > 0, 'Second message should have actions');
-    assertEqual(secondMsg.actions[0].action, 'onboardingStep2', 'Action should be onboardingStep2');
+    assertEqual(secondMsg.actions[0].action, 'startFirstPhoto', 'Action should be startFirstPhoto');
   });
 });
 
