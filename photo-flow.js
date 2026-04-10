@@ -1,7 +1,7 @@
 // photo-flow.js – Foto-Aufnahme, Staging, Picking, Review
 
 import Brain from './brain.js';
-import { callGemini, getErrorMessage, loadingManager } from './ai.js';
+import { callGemini, getErrorMessage, loadingManager, extractJSON } from './ai.js';
 import { showToast, showInputModal } from './modal.js';
 import { ROOM_PRESETS, ensureRoom, debugLog, showView, getNfcContext, getCurrentView } from './app.js';
 import { renderBrainView, showBrainToast } from './brain-view.js';
@@ -501,11 +501,8 @@ Regeln:
 
       const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'analyzePhoto', hasImage: true });
 
-      // Extract JSON from response
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-      const analysis = JSON.parse(jsonMatch[0]);
+      const analysis = extractJSON(raw);
+      if (!analysis) throw new Error('Kein JSON in Antwort');
 
       if (isDeltaMode) {
         // ── Delta-Modus: Review-Popup mit bestaetigt/nicht_gesehen/neu_erkannt ──
@@ -650,7 +647,9 @@ async function handleVideoFile(file) {
   if (videoAbortController) {
     videoAbortController.abort();
   }
-  videoAbortController = new AbortController();
+  // Lokale Referenz: sonst kann das finally des vorherigen Runs den neuen Controller killen
+  const localVideoCtrl = new AbortController();
+  videoAbortController = localVideoCtrl;
   startAnalysisAnimation('videoAnalysis');
 
   let uploadedFile = null;
@@ -660,7 +659,7 @@ async function handleVideoFile(file) {
     // Upload video to Gemini File API
     uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
       // Progress updates can be added here
-    }, videoAbortController?.signal);
+    }, localVideoCtrl.signal);
 
     // Build system prompt for container-level video analysis
     const customName = document.getElementById('photo-custom-name')?.value?.trim() || '';
@@ -711,12 +710,10 @@ Regeln:
 
     const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'videoAnalysis', hasVideo: true });
 
-    if (videoAbortController?.signal.aborted) throw new Error('aborted');
+    if (localVideoCtrl.signal.aborted) throw new Error('aborted');
 
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-    const analysis = JSON.parse(jsonMatch[0]);
+    const analysis = extractJSON(raw);
+    if (!analysis) throw new Error('Kein JSON in Antwort');
 
     // Apply custom name if set
     if (customName && analysis.behaelter?.length > 0) {
@@ -736,7 +733,9 @@ Regeln:
     const baseMsg = getErrorMessage(err);
     showPhotoStatus(baseMsg + '\n💡 Tipp: Versuche stattdessen einzelne Fotos.', 'error');
   } finally {
-    videoAbortController = null;
+    // Nur den eigenen Controller nullen – sonst löscht ein beendeter alter Run
+    // den gerade neu gestarteten Folge-Run.
+    if (videoAbortController === localVideoCtrl) videoAbortController = null;
     if (uploadedFile?.fileName) {
       deleteGeminiFile(apiKey, uploadedFile.fileName).catch(err => {
         debugLog(`Gemini-Datei Cleanup fehlgeschlagen: ${err.message}`);
@@ -891,9 +890,9 @@ Ergänze im JSON pro Hotspot (optional):
   }];
 
   const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'analyzeHotspots', hasImage: true });
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-  return JSON.parse(jsonMatch[0]);
+  const parsed = extractJSON(raw);
+  if (!parsed) throw new Error('Kein JSON in Antwort');
+  return parsed;
 }
 
 // ── PICKING VIEW ─────────────────────────────────────────
@@ -1392,7 +1391,23 @@ async function analyzeAllStagedPhotos() {
   // Room scan flow: delegate to onboarding module
   if (stagingTarget.roomScanFlow) {
     const photos = stagedPhotos.map(p => ({ base64: p.base64, mimeType: p.mimeType }));
-    analyzeRoomScanPhotos(photos);
+    const analyzeBtn = document.getElementById('staging-analyze-btn');
+    if (analyzeBtn) {
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = 'Analysiere…';
+    }
+    try {
+      await analyzeRoomScanPhotos(photos);
+    } catch (err) {
+      debugLog(`Room-Scan-Analyse fehlgeschlagen: ${err.message}`);
+      showToast('Analyse fehlgeschlagen. Bitte erneut versuchen.', 'error');
+      if (analyzeBtn) {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = stagedPhotos.length > 1
+          ? `${stagedPhotos.length} Fotos analysieren`
+          : 'Analysieren';
+      }
+    }
     return;
   }
 
@@ -1498,10 +1513,8 @@ Datumsformat: YYYY-MM-DD oder YYYY-MM. Wenn kein Verfallsdatum sichtbar ist, las
     const messages = [{ role: 'user', content: [...imageContents, textContent] }];
     const raw = await callGemini(apiKey, systemPrompt, messages, { taskType: 'analyzePhoto', hasImage: true });
 
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-    const analysis = JSON.parse(jsonMatch[0]);
+    const analysis = extractJSON(raw);
+    if (!analysis) throw new Error('Kein JSON in Antwort');
     let items;
     let deltaData = null;
 
@@ -2115,8 +2128,13 @@ async function processQueue() {
     }
   }
 
-  // Update queue: remove completed entries
-  const remaining = queue.filter(q => q.status !== 'done');
+  // Neu einlesen, damit während der Verarbeitung neu gequeuete Fotos nicht überschrieben werden.
+  let currentQueue;
+  try { currentQueue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { currentQueue = []; }
+  const statusByKey = new Map(queue.map(q => [q.photoKey, q.status]));
+  const remaining = currentQueue
+    .map(q => statusByKey.has(q.photoKey) ? { ...q, status: statusByKey.get(q.photoKey) } : q)
+    .filter(q => q.status !== 'done');
   localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
   updateQueueBadge();
 

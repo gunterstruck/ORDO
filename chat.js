@@ -1,7 +1,7 @@
 // chat.js – Chat-UI, Nachrichten senden/empfangen, Spracheingabe
 
 import Brain from './brain.js';
-import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, getErrorWithDebug, buildMessages, resolveContainerFromPath, loadingManager } from './ai.js';
+import { callGemini, ORDO_FUNCTIONS, functionCallToAction, processMarkers, executeOrdoAction, normalizeOrdoAction, getErrorMessage, getErrorWithDebug, buildMessages, resolveContainerFromPath, loadingManager, extractJSON } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog, showView, getNfcContext, ensureRoom, escapeHTML } from './app.js';
 import { renderBrainView, showLightbox, closeLightbox, showSeasonalDetails } from './brain-view.js';
@@ -786,10 +786,9 @@ function handleSaveResponse(response) {
   let analysis = null;
   let roomId = 'sonstiges';
   try {
-    const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      analysis = JSON.parse(jsonMatch[0]);
-      roomId = analysis.raumId || 'sonstiges';
+    if (jsonPart) {
+      analysis = extractJSON(jsonPart);
+      if (analysis) roomId = analysis.raumId || 'sonstiges';
     }
   } catch (err) { debugLog(`Legacy-SAVE JSON nicht parsebar: ${err.message}`); }
 
