@@ -402,6 +402,19 @@ const Brain = {
       const dataWithoutPhotos = { ...data };
       delete dataWithoutPhotos.photos;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(dataWithoutPhotos));
+      // Cache synchron halten: sonst liefert getData() im selben Tab weiterhin
+      // alte Daten, bis ein Reload oder ein fremder Storage-Event kommt.
+      this._cache = dataWithoutPhotos;
+      this._emit('dataChanged', { type: 'import' });
+
+      // IndexedDB könnte noch nicht initialisiert sein (init() awaitet sie nicht) –
+      // hier zwingend nachholen, sonst gehen importierte Fotos still verloren.
+      if (!this._photoDB) {
+        try { await this.initPhotoDB(); } catch (err) {
+          if (typeof debugLog === 'function') debugLog(`initPhotoDB beim Import fehlgeschlagen: ${err.message}`);
+        }
+      }
+
       if (this._photoDB && Object.keys(photos).length > 0) {
         for (const [id, dataUrl] of Object.entries(photos)) {
           try {
@@ -1738,7 +1751,7 @@ const Brain = {
   },
 
   setApiKey(key) {
-    localStorage.setItem('ordo_api_key', key.trim());
+    localStorage.setItem('ordo_api_key', (key == null ? '' : String(key)).trim());
   },
 
   // --- Quantity Management ---

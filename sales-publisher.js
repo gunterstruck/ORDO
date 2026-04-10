@@ -3,7 +3,7 @@
 // mit Text im Clipboard. Kein automatisches Posting — bewusste Entscheidung.
 
 import Brain from './brain.js';
-import { callGemini } from './ai.js';
+import { callGemini, extractJSON } from './ai.js';
 import { registerBlock } from './ui-blocks.js';
 import { escapeHTML } from './app.js';
 
@@ -75,10 +75,9 @@ Sei realistisch — lieber etwas tiefer ansetzen damit es schnell geht.`;
   });
 
   const text = typeof raw === 'string' ? raw : (raw.text || '');
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-  return JSON.parse(jsonMatch[0]);
+  const parsed = extractJSON(text);
+  if (!parsed) throw new Error('Kein JSON in Antwort');
+  return parsed;
 }
 
 // ── Share / Clipboard ─────────────────────────────────

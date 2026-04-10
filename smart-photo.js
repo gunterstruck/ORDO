@@ -2,7 +2,7 @@
 // Foto von überall: KI erkennt Raum, Container und Items automatisch
 
 import Brain from './brain.js';
-import { callGemini, loadingManager, getErrorMessage, uploadVideoToGemini, deleteGeminiFile, MAX_VIDEO_SIZE_MB } from './ai.js';
+import { callGemini, loadingManager, getErrorMessage, uploadVideoToGemini, deleteGeminiFile, MAX_VIDEO_SIZE_MB, extractJSON } from './ai.js';
 import { capturePhoto, captureVideo } from './camera.js';
 import { blobToBase64, resizeImage, showReviewPopup } from './photo-flow.js';
 import { showToast } from './modal.js';
@@ -107,10 +107,8 @@ export async function startSmartPhotoCapture() {
     });
 
     const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-    const analysis = JSON.parse(jsonMatch[0]);
+    const analysis = extractJSON(responseText);
+    if (!analysis) throw new Error('Kein JSON in Antwort');
 
     // 5. Show result UI
     showSmartPhotoResult(analysis, resizedBlob, base64, mimeType);
@@ -298,9 +296,9 @@ Regeln:
             hasImage: true
           });
 
-          const deltaJsonMatch = (typeof deltaRaw === 'string' ? deltaRaw : deltaRaw.text || JSON.stringify(deltaRaw)).match(/\{[\s\S]*\}/);
-          if (!deltaJsonMatch) throw new Error('Kein JSON in Delta-Antwort');
-          const deltaAnalysis = JSON.parse(deltaJsonMatch[0]);
+          const deltaText = typeof deltaRaw === 'string' ? deltaRaw : deltaRaw.text || JSON.stringify(deltaRaw);
+          const deltaAnalysis = extractJSON(deltaText);
+          if (!deltaAnalysis) throw new Error('Kein JSON in Delta-Antwort');
 
           const bestaetigt = (deltaAnalysis.bestaetigt || []).map((item, i) => ({
             id: `confirmed_${i}`,
@@ -479,10 +477,8 @@ export async function startSmartVideoCapture() {
     });
 
     const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-    const analysis = JSON.parse(jsonMatch[0]);
+    const analysis = extractJSON(responseText);
+    if (!analysis) throw new Error('Kein JSON in Antwort');
 
     // 5. Ergebnis-UI anzeigen (gleiche UI wie Smart Photo)
     showSmartPhotoResult(analysis, file, null, file.type || 'video/webm');

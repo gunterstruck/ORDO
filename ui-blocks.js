@@ -1739,7 +1739,7 @@ registerBlock('ProgressCard', (props) => {
       const btn = document.createElement('button');
       btn.classList.add('stream-action-btn');
       if (action.primary) btn.classList.add('primary');
-      btn.innerHTML = `${action.icon ? action.icon + ' ' : ''}${escapeHTML(action.label)}`;
+      btn.innerHTML = `${action.icon ? escapeHTML(action.icon) + ' ' : ''}${escapeHTML(action.label)}`;
       btn.addEventListener('click', () => handleBlockAction(action.action, btn));
       actionsRow.appendChild(btn);
     }

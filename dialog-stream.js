@@ -142,7 +142,7 @@ function createActionRow(actions) {
     if (action.primary) btn.classList.add('primary');
     if (action.danger) btn.classList.add('danger');
     if (action.disabled) btn.classList.add('disabled');
-    btn.innerHTML = `${action.icon ? action.icon + ' ' : ''}${escapeHTML(action.label)}`;
+    btn.innerHTML = `${action.icon ? escapeHTML(action.icon) + ' ' : ''}${escapeHTML(action.label)}`;
 
     if (action.disabled) {
       row.appendChild(btn);

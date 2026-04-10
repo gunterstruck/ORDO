@@ -1081,6 +1081,52 @@ async function _callOpenAIFormat(provider, apiKey, systemPrompt, messages, optio
   return text;
 }
 
+/**
+ * Robuste JSON-Extraktion aus einer KI-Textantwort.
+ * Frühere Aufrufer nutzten `/\{[\s\S]*\}/` (greedy): das bricht bei Antworten
+ * mit mehreren JSON-Fragmenten (z.B. Code-Beispiel im Preamble + echte Antwort).
+ * Diese Funktion strippt Code-Fences, probiert erst einen vollen Parse und
+ * fällt dann auf einen Klammer-balancierten Scanner ab dem ersten `{` zurück.
+ *
+ * @param {string} text
+ * @returns {any|null} geparstes Objekt/Array oder null
+ */
+export function extractJSON(text) {
+  if (typeof text !== 'string' || !text) return null;
+  const stripped = text.replace(/```(?:json)?/gi, '```').replace(/```/g, '').trim();
+  // Optimistisch: komplette Antwort ist JSON
+  try { return JSON.parse(stripped); } catch { /* fall through */ }
+  // Balancierten ersten JSON-Block ab erstem '{' oder '[' extrahieren
+  const firstObj = stripped.indexOf('{');
+  const firstArr = stripped.indexOf('[');
+  let start = -1;
+  if (firstObj === -1) start = firstArr;
+  else if (firstArr === -1) start = firstObj;
+  else start = Math.min(firstObj, firstArr);
+  if (start === -1) return null;
+  const openChar = stripped[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < stripped.length; i++) {
+    const c = stripped[i];
+    if (escape) { escape = false; continue; }
+    if (c === '\\') { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === openChar) depth++;
+    else if (c === closeChar) {
+      depth--;
+      if (depth === 0) {
+        const candidate = stripped.slice(start, i + 1);
+        try { return JSON.parse(candidate); } catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+
 export function getErrorMessage(err) {
   if (err.message === 'offline') return 'Ich bin gerade offline. Deine gespeicherten Infos kann ich dir trotzdem zeigen.';
   if (err.message === 'api_key') return 'API Key ungültig oder abgelaufen. Bitte in den Einstellungen prüfen.';
@@ -1246,7 +1292,8 @@ Regeln:
 ${labelHints}
 `.trim();
 
-  const images = await Promise.all(safePhotos.map(async p => {
+  // allSettled: ein einzelnes kaputtes Foto darf nicht die komplette Analyse abbrechen
+  const settled = await Promise.allSettled(safePhotos.map(async p => {
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result).split(',')[1]);
@@ -1255,15 +1302,17 @@ ${labelHints}
     });
     return { type: 'image', source: { media_type: p.blob.type || 'image/jpeg', data: base64 } };
   }));
+  const images = settled
+    .filter(r => r.status === 'fulfilled')
+    .map(r => r.value);
+  if (images.length === 0) throw new Error('Keine der Fotos konnten gelesen werden.');
 
   const response = await callGemini(apiKey, 'Du antwortest ausschließlich mit validem JSON.', [
     { role: 'user', content: [{ type: 'text', text: prompt }, ...images] }
   ], { taskType: 'analyzeBlueprint', hasImage: true });
 
-  const cleaned = response.replace(/```json/gi, '```');
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-  const parsed = JSON.parse(jsonMatch[0]);
+  const parsed = extractJSON(response);
+  if (!parsed || typeof parsed !== 'object') throw new Error('Kein JSON in Antwort');
   parsed.raeume = Array.isArray(parsed.raeume) ? parsed.raeume : [];
   return parsed;
 }
@@ -1891,9 +1940,9 @@ Regeln:
   }];
 
   const response = await callGemini(apiKey, 'Du bist ein Wertgutachter. Antworte nur mit JSON.', messages, { taskType: 'estimateValue', hasImage: true });
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-  return JSON.parse(jsonMatch[0]);
+  const parsed = extractJSON(response);
+  if (!parsed) throw new Error('Kein JSON in Antwort');
+  return parsed;
 }
 
 // ── Receipt Analysis ──────────────────────────────────
@@ -1932,15 +1981,9 @@ Wenn das Foto kein Kassenbon ist, antworte mit:
 
   const response = await callGemini(apiKey, 'Du bist ein Kassenbon-Scanner. Antworte nur mit JSON.', messages, { taskType: 'analyzeReceipt', hasImage: true });
 
-  // Extract JSON from response
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-  try {
-    return JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    throw new Error('Kein JSON in Antwort');
-  }
+  const parsed = extractJSON(response);
+  if (!parsed) throw new Error('Kein JSON in Antwort');
+  return parsed;
 }
 
 // ── Expiry Date Detection ────────────────────────────
@@ -1983,10 +2026,8 @@ Wenn du kein Verfallsdatum findest:
 
   try {
     const response = await callGemini(apiKey, 'Du bist ein Verfallsdaten-Scanner. Antworte nur mit JSON.', messages, { taskType: 'analyzeReceipt', hasImage: true });
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]);
-    return parsed.date ? parsed : null;
+    const parsed = extractJSON(response);
+    return parsed && parsed.date ? parsed : null;
   } catch {
     return null;
   }
@@ -2059,13 +2100,9 @@ Antworte NUR mit JSON:
     { taskType: 'containerCheck', hasImage: true }
   );
 
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-  try {
-    return JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error('Kein JSON in Antwort');
-  }
+  const parsed = extractJSON(response);
+  if (!parsed) throw new Error('Kein JSON in Antwort');
+  return parsed;
 }
 
 /**
@@ -2115,10 +2152,8 @@ Regeln:
   ], { taskType: 'batchEstimateValues' });
 
   try {
-    const jsonMatch = result.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return [];
-    const parsed = JSON.parse(jsonMatch[0]);
-    return parsed.items || [];
+    const parsed = extractJSON(result);
+    return parsed?.items || [];
   } catch {
     console.warn('Verkaufstext-Parsing fehlgeschlagen');
     return [];

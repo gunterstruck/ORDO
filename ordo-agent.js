@@ -481,11 +481,14 @@ export async function handleAction(action) {
         if (!file) return;
         try {
           const text = await file.text();
-          const data = JSON.parse(text);
-          Brain.importData(data);
-          agentMessage('Daten importiert! Die App wird neu geladen.', [], [
-            { icon: '\u{1F3E0}', label: 'Mein Zuhause', action: 'showHome', primary: true },
-          ]);
+          const ok = await Brain.importData(text);
+          if (ok) {
+            agentMessage('Daten importiert! Die App wird neu geladen.', [], [
+              { icon: '\u{1F3E0}', label: 'Mein Zuhause', action: 'showHome', primary: true },
+            ]);
+          } else {
+            agentMessage('Import fehlgeschlagen. Ist das eine g\u00fcltige ORDO-Datei?');
+          }
         } catch {
           agentMessage('Import fehlgeschlagen. Ist das eine g\u00fcltige ORDO-Datei?');
         }

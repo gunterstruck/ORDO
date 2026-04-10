@@ -1,5 +1,5 @@
 import Brain from './brain.js';
-import { callGemini, getErrorMessage, deleteGeminiFile, uploadVideoToGemini } from './ai.js';
+import { callGemini, getErrorMessage, deleteGeminiFile, uploadVideoToGemini, extractJSON } from './ai.js';
 import { showToast } from './modal.js';
 import { debugLog, showView, ROOM_PRESETS } from './app.js';
 import { resizeImage, blobToBase64, showStagingOverlay, addFileToStaging, showReviewPopup, setStagingTarget, closeStagingOverlay } from './photo-flow.js';
@@ -84,10 +84,8 @@ function setupFirstPhotoStep() {
 
       const raw = await callGemini(apiKey, prompt, messages, { taskType: 'analyzePhoto', hasImage: true });
       const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-      const result = JSON.parse(jsonMatch[0]);
+      const result = extractJSON(responseText);
+      if (!result) throw new Error('Kein JSON in Antwort');
       mergeDetectedRoom(result);
 
       // Save rooms immediately
@@ -491,10 +489,9 @@ export async function analyzeRoomScanPhotos(photos) {
 
     const raw = await callGemini(apiKey, prompt, messages, { taskType: 'analyzePhoto', hasImage: true });
     const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Kein JSON in Antwort');
-
-    mergeDetectedRoom(JSON.parse(jsonMatch[0]));
+    const parsed = extractJSON(responseText);
+    if (!parsed) throw new Error('Kein JSON in Antwort');
+    mergeDetectedRoom(parsed);
     showOnboardingScreen('review');
 
   } catch (err) {
@@ -576,13 +573,11 @@ async function onRoomScanVideo(file) {
 
     const responseText = typeof raw === 'string' ? raw : raw.text || JSON.stringify(raw);
     debugLog(`Gemini-Antwort erhalten (${responseText.length} Zeichen)`);
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      debugLog(`FEHLER: Kein JSON in Antwort. Rohe Antwort: ${raw.slice(0, 500)}`);
+    const result = extractJSON(responseText);
+    if (!result) {
+      debugLog(`FEHLER: Kein JSON in Antwort. Rohe Antwort: ${String(raw).slice(0, 500)}`);
       throw new Error('Kein JSON in Antwort');
     }
-
-    const result = JSON.parse(jsonMatch[0]);
     const rooms = result.raeume || [];
     debugLog(`${rooms.length} Räume erkannt: ${rooms.map(r => r.raum_name || r.raum_typ).join(', ')}`);
 
