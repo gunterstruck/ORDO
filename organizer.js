@@ -153,6 +153,7 @@ export function findHouseholdDuplicates() {
   const data = Brain.getData();
   const flat = [];
   for (const [roomId, room] of Object.entries(data?.rooms || {})) {
+    if (!room) continue;
     collectItemsRecursive(room.containers, roomId, room.name, flat);
   }
 
@@ -279,6 +280,7 @@ export function calculateFreedomIndex() {
   let totalItems = 0;
 
   for (const [roomId, room] of Object.entries(data?.rooms || {})) {
+    if (!room) continue;
     const roomType = normalizeRoomType(room.name || roomId);
     analyzeContainersRecursive(room.containers, roomId, room.name, roomType, breakdown);
     totalItems += countItemsRecursive(room.containers);
@@ -427,10 +429,12 @@ export function getTasksForTimeSlot(minutes) {
 
 function summarizeHousehold() {
   const rooms = Brain.getRooms();
-  const summary = Object.entries(rooms).map(([roomId, room]) => {
-    const itemsCount = countItemsRecursive(room.containers);
-    return `${room.name || roomId}: ${itemsCount} aktive Items`;
-  });
+  const summary = Object.entries(rooms)
+    .filter(([, room]) => !!room)
+    .map(([roomId, room]) => {
+      const itemsCount = countItemsRecursive(room.containers);
+      return `${room.name || roomId}: ${itemsCount} aktive Items`;
+    });
   return summary.join('; ');
 }
 
@@ -529,6 +533,7 @@ export function getArchivedByReason() {
   };
 
   for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    if (!room) continue;
     collectArchivedRecursive(room.containers, roomId, room.name, result);
   }
 
@@ -587,6 +592,7 @@ export function findStorageRoom() {
   const storageTypes = ['keller', 'abstellraum', 'dachboden', 'garage'];
 
   for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    if (!room) continue;
     const roomType = normalizeRoomType(room.name);
     if (storageTypes.includes(roomType)) {
       const containerIds = Object.keys(room.containers || {});
@@ -847,6 +853,7 @@ export function getSeasonalRecommendations() {
   };
 
   for (const [roomId, room] of Object.entries(data.rooms || {})) {
+    if (!room) continue;
     const roomType = normalizeRoomType(room.name);
     const isStorage = ['keller', 'abstellraum', 'dachboden', 'garage'].includes(roomType);
 
@@ -886,6 +893,7 @@ export function getSeasonalRecommendations() {
   const month = new Date().getMonth() + 1;
   if (season.postChristmas && season.postChristmas.months.includes(month)) {
     for (const [roomId, room] of Object.entries(data.rooms || {})) {
+      if (!room) continue;
       const roomType = normalizeRoomType(room.name);
       if (['keller', 'abstellraum', 'dachboden'].includes(roomType)) continue;
 
@@ -919,6 +927,7 @@ export function detectLifeEvents() {
 
   // Count recently added rooms (last_updated within 14 days and close to creation)
   const recentRooms = Object.entries(data.rooms || {}).filter(([, room]) => {
+    if (!room) return false;
     const updated = room.last_updated || 0;
     return (now - updated) < twoWeeks;
   });
@@ -926,6 +935,7 @@ export function detectLifeEvents() {
   // Count recently archived items
   let recentArchives = 0;
   for (const room of Object.values(data.rooms || {})) {
+    if (!room) continue;
     forEachArchivedItem(room.containers, (item) => {
       if (item.archived_at && (now - new Date(item.archived_at).getTime()) < twoWeeks) {
         recentArchives++;
@@ -949,12 +959,13 @@ export function detectLifeEvents() {
   const babyKeywords = /baby|wickel|kinderbett|stillkissen|schnuller|windel|fläschchen|strampler|kinderwagen|babyfon/i;
   let babyItemCount = 0;
   for (const room of Object.values(data.rooms || {})) {
+    if (!room) continue;
     forEachActiveItem(room.containers, '', '', (item) => {
       if (babyKeywords.test(item.name || '')) babyItemCount++;
     });
   }
   const hasKinderzimmer = Object.values(data.rooms || {}).some(r =>
-    normalizeRoomType(r.name) === 'kinderzimmer'
+    r && normalizeRoomType(r.name) === 'kinderzimmer'
   );
 
   if (babyItemCount >= 3 || (hasKinderzimmer && babyItemCount >= 1)) {
@@ -1049,7 +1060,8 @@ export function getImprovementReport() {
 
   // Count total decisions from archived + moved items
   let totalDecisions = 0;
-  for (const room of Object.values(Brain.getData().rooms || {})) {
+  for (const room of Object.values(Brain.getData()?.rooms || {})) {
+    if (!room) continue;
     forEachArchivedItem(room.containers, () => { totalDecisions++; });
   }
   if (totalDecisions >= 20) {

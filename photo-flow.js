@@ -17,6 +17,26 @@ let pickingIsRecording = false;
 let stagedPhotos = [];
 let stagingTarget = null;
 let reviewState = null;
+// Modul-Level, damit stopPhotoMicRecognitions() sie beim Overlay-Close sauber stoppen kann
+let customMicRecInstance = null;
+let customChatMicRecInstance = null;
+
+/**
+ * Stoppt laufende SpeechRecognition-Instanzen der Photo-View.
+ * Wird beim Schließen von Overlays aufgerufen, damit Mikrofon und
+ * Recognition-Handler nicht im Hintergrund weiterlaufen.
+ */
+function stopPhotoMicRecognitions() {
+  try { customMicRecInstance?.stop(); } catch { /* ignore */ }
+  customMicRecInstance = null;
+  try { customChatMicRecInstance?.stop(); } catch { /* ignore */ }
+  customChatMicRecInstance = null;
+  try { pickingRecognition?.stop(); } catch { /* ignore */ }
+  pickingRecognition = null;
+  pickingIsRecording = false;
+  document.getElementById('photo-custom-mic')?.classList.remove('recording');
+  document.getElementById('room-chat-mic')?.classList.remove('recording');
+}
 
 // ── Image Helpers ──────────────────────────────────────
 function resizeImage(file, maxWidth = 1200, { quality = 0.7, returnFormat = 'blob' } = {}) {
@@ -128,29 +148,35 @@ function setupPhoto() {
 
   // ── Ort: Mic dictation ──────────────────────────────
   const customMicBtn = document.getElementById('photo-custom-mic');
-  let customMicRec = null;
   customMicBtn?.addEventListener('click', () => {
-    if (customMicRec) {
-      customMicRec.stop();
-      customMicRec = null;
+    if (customMicRecInstance) {
+      try { customMicRecInstance.stop(); } catch { /* ignore */ }
+      customMicRecInstance = null;
       customMicBtn.classList.remove('recording');
       return;
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { showToast('Spracherkennung nicht verfügbar.', 'error'); return; }
-    customMicRec = new SpeechRecognition();
-    customMicRec.lang = 'de-DE';
-    customMicRec.continuous = false;
-    customMicRec.interimResults = false;
-    customMicRec.onresult = e => {
+    const rec = new SpeechRecognition();
+    customMicRecInstance = rec;
+    rec.lang = 'de-DE';
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.onresult = e => {
       const transcript = e.results[0][0].transcript;
       document.getElementById('photo-custom-name').value = transcript;
       const display = document.getElementById('photo-custom-name-display');
       if (display) { display.textContent = `📍 ${transcript}`; display.style.display = 'block'; }
     };
-    customMicRec.onend = () => { customMicRec = null; customMicBtn.classList.remove('recording'); };
-    customMicRec.onerror = () => { customMicRec = null; customMicBtn.classList.remove('recording'); };
-    customMicRec.start();
+    rec.onend = () => {
+      if (customMicRecInstance === rec) customMicRecInstance = null;
+      customMicBtn.classList.remove('recording');
+    };
+    rec.onerror = () => {
+      if (customMicRecInstance === rec) customMicRecInstance = null;
+      customMicBtn.classList.remove('recording');
+    };
+    rec.start();
     customMicBtn.classList.add('recording');
   });
 
@@ -244,18 +270,25 @@ Antworte mit diesem JSON am Ende deiner Nachricht:
     chatVoiceBtn.textContent = '🔴';
 
     try {
-      const text = await new Promise((resolve, reject) => {
+      const text = await new Promise((resolve) => {
         const rec = new SpeechRecognition();
+        customChatMicRecInstance = rec;
         rec.lang = 'de-DE';
         rec.interimResults = false;
         rec.maxAlternatives = 1;
         rec.continuous = false;
         let settled = false;
-        rec.onresult = (event) => { if (!settled) { settled = true; resolve(event.results[0][0].transcript); } };
-        rec.onerror = (event) => { if (!settled) { settled = true; resolve(null); } };
-        rec.onend = () => { if (!settled) { settled = true; resolve(null); } };
+        const done = (val) => {
+          if (settled) return;
+          settled = true;
+          if (customChatMicRecInstance === rec) customChatMicRecInstance = null;
+          resolve(val);
+        };
+        rec.onresult = (event) => done(event.results[0][0].transcript);
+        rec.onerror = () => done(null);
+        rec.onend = () => done(null);
         rec.start();
-        setTimeout(() => rec.stop(), 10000);
+        setTimeout(() => { try { rec.stop(); } catch { /* ignore */ } }, 10000);
       });
 
       if (text && chatInput) {
@@ -653,13 +686,18 @@ async function handleVideoFile(file) {
   startAnalysisAnimation('videoAnalysis');
 
   let uploadedFile = null;
+  // Separater Filename-Tracker: wird gesetzt sobald der Upload fertig ist,
+  // damit wir die Datei auch dann auf Gemini aufräumen können, wenn die
+  // nachfolgende Verarbeitung wirft (onProgress liefert den Namen mit).
+  let uploadedFileName = null;
   try {
     ensureRoom(roomId);
 
     // Upload video to Gemini File API
-    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
-      // Progress updates can be added here
+    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct, info) => {
+      if (phase === 'uploaded' && info?.fileName) uploadedFileName = info.fileName;
     }, localVideoCtrl.signal);
+    if (uploadedFile?.fileName) uploadedFileName = uploadedFile.fileName;
 
     // Build system prompt for container-level video analysis
     const customName = document.getElementById('photo-custom-name')?.value?.trim() || '';
@@ -729,6 +767,9 @@ Regeln:
 
   } catch (err) {
     stopAnalysisAnimation();
+    // Uploads, die während der Verarbeitung fehlschlagen, hängen sich den
+    // fileName an den Error – damit kann finally unten aufräumen.
+    if (err?.fileName && !uploadedFileName) uploadedFileName = err.fileName;
     if (err.message === 'aborted') return;
     const baseMsg = getErrorMessage(err);
     showPhotoStatus(baseMsg + '\n💡 Tipp: Versuche stattdessen einzelne Fotos.', 'error');
@@ -736,8 +777,8 @@ Regeln:
     // Nur den eigenen Controller nullen – sonst löscht ein beendeter alter Run
     // den gerade neu gestarteten Folge-Run.
     if (videoAbortController === localVideoCtrl) videoAbortController = null;
-    if (uploadedFile?.fileName) {
-      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(err => {
+    if (uploadedFileName) {
+      deleteGeminiFile(apiKey, uploadedFileName).catch(err => {
         debugLog(`Gemini-Datei Cleanup fehlgeschlagen: ${err.message}`);
       });
     }
@@ -2165,5 +2206,6 @@ export {
   showStagingOverlay, closeStagingOverlay, addFileToStaging, showReviewPopup,
   openCameraForContainer, handlePhotoFile, handleVideoFile, cancelVideoAnalysis, showPhotoStatus,
   setStagingTarget,
-  queuePhotoForAnalysis, processQueue, setupOfflineQueue, getQueueLength, updateQueueBadge
+  queuePhotoForAnalysis, processQueue, setupOfflineQueue, getQueueLength, updateQueueBadge,
+  stopPhotoMicRecognitions
 };

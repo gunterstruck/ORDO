@@ -34,7 +34,8 @@ const PROVIDERS = {
   },
   gemini: {
     name: 'Google Gemini',
-    buildUrl: (model, apiKey) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    // Key wird als Header gesendet, damit er nicht in der URL (History, Referer, Logs) landet.
+    buildUrl: (model /*, apiKey */) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     format: 'gemini',
   },
   openai: {
@@ -860,7 +861,8 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
 
   for (const currentModel of modelsToTry) {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const apiUrl = `${API_BASE}/${currentModel}:generateContent?key=${apiKey}`;
+      // Key wird als Header gesendet (siehe fetch-Call unten) – nicht in die URL hängen
+      const apiUrl = `${API_BASE}/${currentModel}:generateContent`;
       const requestBody = {
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: geminiContents,
@@ -888,7 +890,10 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
 
         response = await fetch(apiUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
           body: JSON.stringify(requestBody),
           signal: controller.signal,
         });
@@ -1718,9 +1723,10 @@ export async function uploadVideoToGemini(apiKey, file, onProgress, abortSignal)
   onProgress?.('upload', 0);
 
   debugLog('Starte resumable Upload-Session…');
-  const startRes = await fetchWithRetry(`${FILE_API_URL}?key=${apiKey}`, {
+  const startRes = await fetchWithRetry(FILE_API_URL, {
     method: 'POST',
     headers: {
+      'x-goog-api-key': apiKey,
       'X-Goog-Upload-Protocol': 'resumable',
       'X-Goog-Upload-Command': 'start',
       'X-Goog-Upload-Header-Content-Length': file.size,
@@ -1798,30 +1804,43 @@ export async function uploadVideoToGemini(apiKey, file, onProgress, abortSignal)
       const fileObj = uploadData.file;
       if (!fileObj?.name) throw new Error('Keine Datei-Referenz erhalten');
 
+      // Caller über den hochgeladenen Filename informieren, damit sein Cleanup-Pfad
+      // auch dann greift, wenn die nachfolgende Verarbeitung fehlschlägt oder
+      // der Nutzer abbricht.
+      const uploadedFileName = fileObj.name;
+      onProgress?.('uploaded', 50, { fileName: uploadedFileName });
+
+      // Hilfsfunktion: Bei Errors den Filename anhängen, damit der Caller weiß,
+      // dass er aufräumen muss.
+      const withFileName = (err) => {
+        try { err.fileName = uploadedFileName; } catch { /* ignore */ }
+        return err;
+      };
+
       onProgress?.('processing', 50);
-      debugLog(`Datei hochgeladen: ${fileObj.name}. Warte auf Verarbeitung…`);
+      debugLog(`Datei hochgeladen: ${uploadedFileName}. Warte auf Verarbeitung…`);
 
       let attempts = 0;
       const maxAttempts = 48; // 48 × 2.5s = 120s timeout
       let pollErrors = 0;
 
       // fileObj.name is e.g. "files/abc123" – strip "files/" prefix to avoid double "files/" in URL
-      const fileId = fileObj.name.startsWith('files/') ? fileObj.name.slice(6) : fileObj.name;
+      const fileId = uploadedFileName.startsWith('files/') ? uploadedFileName.slice(6) : uploadedFileName;
 
       while (attempts < maxAttempts) {
-        if (abortSignal?.aborted) throw new Error('aborted');
-        const pollUrl = `${FILE_API_GET_URL}/${fileId}?key=${apiKey}`;
+        if (abortSignal?.aborted) throw withFileName(new Error('aborted'));
+        const pollUrl = `${FILE_API_GET_URL}/${fileId}`;
         debugLog(`Poll-URL: ${pollUrl}`);
         const checkRes = await fetchWithRetry(
           pollUrl,
-          {}, 2, 'Status-Poll'
+          { headers: { 'x-goog-api-key': apiKey } }, 2, 'Status-Poll'
         );
 
         if (!checkRes.ok) {
           pollErrors++;
           const errText = await checkRes.text().catch(() => '');
           debugLog(`Status-Abfrage fehlgeschlagen: HTTP ${checkRes.status} – ${errText}`);
-          if (pollErrors >= 5) throw new Error(`Status-Abfrage fehlgeschlagen nach ${pollErrors} Fehlern: HTTP ${checkRes.status}`);
+          if (pollErrors >= 5) throw withFileName(new Error(`Status-Abfrage fehlgeschlagen nach ${pollErrors} Fehlern: HTTP ${checkRes.status}`));
           await new Promise(r => setTimeout(r, 3000));
           attempts++;
           continue;
@@ -1834,11 +1853,11 @@ export async function uploadVideoToGemini(apiKey, file, onProgress, abortSignal)
         if (state === 'ACTIVE') {
           debugLog(`Datei bereit: ${checkData.uri}`);
           onProgress?.('ready', 100);
-          return { fileUri: checkData.uri, mimeType: checkData.mimeType, fileName: fileObj.name };
+          return { fileUri: checkData.uri, mimeType: checkData.mimeType, fileName: uploadedFileName };
         }
         if (state === 'FAILED') {
           debugLog(`Verarbeitung fehlgeschlagen. Response: ${JSON.stringify(checkData).slice(0, 300)}`);
-          throw new Error('Video-Verarbeitung fehlgeschlagen. Bitte ein kürzeres Video versuchen.');
+          throw withFileName(new Error('Video-Verarbeitung fehlgeschlagen. Bitte ein kürzeres Video versuchen.'));
         }
 
         attempts++;
@@ -1847,7 +1866,7 @@ export async function uploadVideoToGemini(apiKey, file, onProgress, abortSignal)
         await new Promise(r => setTimeout(r, 2500));
       }
 
-      throw new Error('Video-Verarbeitung dauert zu lange (Timeout nach 120 s). Bitte ein kürzeres Video versuchen oder stattdessen einzelne Fotos verwenden.');
+      throw withFileName(new Error('Video-Verarbeitung dauert zu lange (Timeout nach 120 s). Bitte ein kürzeres Video versuchen oder stattdessen einzelne Fotos verwenden.'));
     }
   }
 }
@@ -1855,7 +1874,10 @@ export async function uploadVideoToGemini(apiKey, file, onProgress, abortSignal)
 export async function deleteGeminiFile(apiKey, fileName) {
   try {
     const fileId = fileName.startsWith('files/') ? fileName.slice(6) : fileName;
-    await fetch(`${FILE_API_GET_URL}/${fileId}?key=${apiKey}`, { method: 'DELETE' });
+    await fetch(`${FILE_API_GET_URL}/${fileId}`, {
+      method: 'DELETE',
+      headers: { 'x-goog-api-key': apiKey },
+    });
   } catch (err) { debugLog(`Gemini-Datei löschen fehlgeschlagen: ${err.message}`); }
 }
 
@@ -2229,7 +2251,11 @@ export class GeminiLiveSession {
       }
 
       // 2. WebSocket öffnen (mit sauberem Timeout)
-      const url = `${LIVE_WS_URL}?key=${apiKey}`;
+      // Browser-WebSockets unterstützen keine custom Headers – hier bleibt der
+      // Key zwangsläufig im URL-Query. Die Verbindung erfolgt über WSS (TLS),
+      // sodass der Key auf der Leitung geschützt ist; in Referer/History taucht
+      // er nicht auf, weil WebSockets keine Referer senden.
+      const url = `${LIVE_WS_URL}?key=${encodeURIComponent(apiKey)}`;
       this.ws = new WebSocket(url);
       this.ws.binaryType = 'arraybuffer'; // Gemini sendet JSON als Binary-Frames
 
