@@ -6,7 +6,7 @@ import { startOnboarding, showContextGreeting, handleAction, handleUserInput } f
 import { getProviderConfig } from './ai.js';
 import { systemMessage, clearStream } from './dialog-stream.js';
 import { logAction, touchActivity } from './session-log.js';
-import { setupPickingView, setupStagingOverlay, setupReviewOverlay, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay } from './photo-flow.js';
+import { setupPickingView, setupStagingOverlay, setupReviewOverlay, setupOfflineQueue, cancelVideoAnalysis, closeStagingOverlay, stopPhotoMicRecognitions } from './photo-flow.js';
 import { setupCamera } from './camera.js';
 import { loadQuest } from './quest.js';
 import { closeTopOverlay } from './overlay-manager.js';
@@ -115,6 +115,8 @@ function closeAllOverlays() {
   }
 
   cancelVideoAnalysis();
+  // Mikrofon-Erkennungen der Photo-View stoppen, falls noch aktiv
+  stopPhotoMicRecognitions();
 }
 
 // ── URL / NFC Params ───────────────────────────────────

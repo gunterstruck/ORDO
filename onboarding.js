@@ -526,6 +526,8 @@ async function onRoomScanVideo(file) {
   progressFill.style.width = '0%';
 
   let uploadedFile = null;
+  // Filename früh tracken: damit auch Fehler nach erfolgreichem Upload aufräumen können.
+  let uploadedFileName = null;
 
   // Reset debug log for this upload
   const dbgEl = document.getElementById('onboarding-debug-log');
@@ -538,8 +540,9 @@ async function onRoomScanVideo(file) {
     if (abortSignal.signal.aborted) throw new Error('aborted');
 
     // Upload video to Gemini File API
-    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
+    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct, info) => {
       if (abortSignal.signal.aborted) return;
+      if (phase === 'uploaded' && info?.fileName) uploadedFileName = info.fileName;
       progressFill.style.width = `${pct}%`;
       if (phase === 'upload') {
         document.getElementById('onboarding-scan-status-text').textContent = 'Video wird hochgeladen…';
@@ -549,6 +552,7 @@ async function onRoomScanVideo(file) {
         document.getElementById('onboarding-scan-status-text').textContent = 'KI analysiert Räume…';
       }
     });
+    if (uploadedFile?.fileName) uploadedFileName = uploadedFile.fileName;
 
     if (abortSignal.signal.aborted) throw new Error('aborted');
 
@@ -595,6 +599,7 @@ async function onRoomScanVideo(file) {
   } catch (err) {
     debugLog(`FEHLER: ${err.message}`);
     hideScanSpinner();
+    if (err?.fileName && !uploadedFileName) uploadedFileName = err.fileName;
     if (err.message === 'aborted') {
       // User cancelled – already handled by cancel button
       return;
@@ -608,9 +613,12 @@ async function onRoomScanVideo(file) {
       : baseMsg + fallbackHint, 'error');
   } finally {
     videoScanAbortController = null;
-    // Cleanup: delete uploaded file from Gemini
-    if (uploadedFile?.fileName) {
-      deleteGeminiFile(apiKey, uploadedFile.fileName);
+    // Cleanup: delete uploaded file from Gemini (auch im Fehlerfall — der Filename
+    // wird via err.fileName oder onProgress('uploaded') gemerkt)
+    if (uploadedFileName) {
+      deleteGeminiFile(apiKey, uploadedFileName).catch(err => {
+        debugLog(`Gemini-Datei Cleanup fehlgeschlagen: ${err.message}`);
+      });
     }
   }
 }

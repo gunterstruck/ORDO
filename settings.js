@@ -11,8 +11,15 @@ import { wrapInputWithVoice } from './voice-input.js';
 import { isWebGLAvailable } from './spatial-3d.js';
 
 let settingsInitialized = false;
+let settingsSetupDone = false;
 
 export function setupSettings() {
+  // Idempotent: doppelte Aufrufe dürfen keine Listener duplizieren.
+  if (settingsSetupDone) return;
+  // DOM-Elemente können fehlen (z.B. nach Refactor der Settings-Ansicht).
+  // In dem Fall geben wir lautlos auf statt auf null.addEventListener zu crashen.
+  if (!document.getElementById('settings-save-key')) return;
+  settingsSetupDone = true;
   document.getElementById('settings-save-key').addEventListener('click', () => {
     const key = document.getElementById('settings-api-key').value.trim();
     if (key) {
@@ -176,9 +183,13 @@ export function setupSettings() {
     });
   });
 
-  // Copy NFC URL
+  // Copy NFC URL – bevorzugt die Fallback-URL (die NFC-Writing-Fehlermeldung),
+  // fällt ansonsten auf die Live-Preview zurück und behandelt Clipboard-Fehler.
   document.getElementById('nfc-copy-btn')?.addEventListener('click', () => {
-    const url = document.getElementById('nfc-fallback-url').textContent;
+    const fallbackEl = document.getElementById('nfc-fallback-url');
+    const previewEl = document.getElementById('nfc-preview-url');
+    const url = (fallbackEl?.textContent || previewEl?.textContent || '').trim();
+    if (!url) { showSettingsMsg('Keine URL zum Kopieren.', 'error'); return; }
     navigator.clipboard.writeText(url)
       .then(() => showSettingsMsg('URL kopiert.', 'success'))
       .catch(() => showSettingsMsg('Kopieren fehlgeschlagen.', 'error'));

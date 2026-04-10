@@ -448,16 +448,21 @@ export async function startSmartVideoCapture() {
   if (statusEl) statusEl.textContent = 'Video wird hochgeladen...';
 
   let uploadedFile = null;
+  // Falls die Verarbeitung nach erfolgreichem Upload wirft, brauchen wir den
+  // Filename trotzdem für das Gemini-Cleanup im finally.
+  let uploadedFileName = null;
   const videoAbort = new AbortController();
   try {
     // 3. Upload zu Gemini File API
-    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct) => {
+    uploadedFile = await uploadVideoToGemini(apiKey, file, (phase, pct, info) => {
+      if (phase === 'uploaded' && info?.fileName) uploadedFileName = info.fileName;
       if (statusEl) {
         if (phase === 'upload') statusEl.textContent = `Video wird hochgeladen... ${Math.round(pct)}%`;
         else if (phase === 'processing') statusEl.textContent = 'Video wird verarbeitet...';
         else if (phase === 'ready') statusEl.textContent = 'Video bereit – Analyse startet...';
       }
     }, videoAbort.signal);
+    if (uploadedFile?.fileName) uploadedFileName = uploadedFile.fileName;
 
     if (statusEl) statusEl.textContent = 'Video wird analysiert...';
 
@@ -486,10 +491,11 @@ export async function startSmartVideoCapture() {
   } catch (err) {
     hideSmartPhotoOverlay();
     debugLog(`Smart Video Fehler: ${err.message}`);
+    if (err?.fileName && !uploadedFileName) uploadedFileName = err.fileName;
     showToast('Video konnte nicht analysiert werden: ' + getErrorMessage(err), 'error');
   } finally {
-    if (uploadedFile?.fileName) {
-      deleteGeminiFile(apiKey, uploadedFile.fileName).catch(err => {
+    if (uploadedFileName) {
+      deleteGeminiFile(apiKey, uploadedFileName).catch(err => {
         debugLog(`Gemini-Datei Cleanup fehlgeschlagen: ${err.message}`);
       });
     }
