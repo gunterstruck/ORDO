@@ -42,6 +42,11 @@ export function checkLocalIntent(text) {
     return { action: 'showShoppingList' };
   }
 
+  // Aussortier-Board (Kanban-Pipeline)
+  if (/aussortier|kanban|vorgemerkt|sortier.*board/i.test(lower)) {
+    return { action: 'showSortBoard' };
+  }
+
   // Report / Versicherungsbericht
   if (/bericht|versicherung|pdf|report/i.test(lower)) {
     return { action: 'showReports' };

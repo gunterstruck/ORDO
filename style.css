@@ -4115,6 +4115,22 @@ select.settings-input { appearance: none; }
   flex: 1 1 45%;
 }
 
+/* ── Aussortier-Board (Kanban) ────────────────────── */
+.sort-board-item {
+  cursor: default;
+}
+.sort-board-actions {
+  flex-basis: 100%;
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.sort-board-actions .item-detail-action-btn {
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 0.85em;
+}
+
 /* ── Receipt Review Form ─────────────────────────── */
 .receipt-review {
   display: flex;
