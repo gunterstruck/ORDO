@@ -1,7 +1,59 @@
 # ORDO Projektstand
 
-**Datum:** 28.03.2026  
+**Datum:** 28.03.2026 (Basis) · **Delta-Update:** 11.06.2026  
 **Quelle:** Automatisch aus dem Quellcode abgeleitet
+
+---
+
+## 0) Delta-Update Juni 2026
+
+> Die Kapitel 1–6 beschreiben den Stand vom März 2026. Seitdem hat sich die
+> Architektur grundlegend weiterentwickelt – dieses Kapitel dokumentiert das Delta.
+
+### Architektur-Wandel: Agent-First & Dialog-Stream
+
+Die App ist von einer view-zentrierten PWA zu einer **agent-gesteuerten Oberfläche** umgebaut worden:
+
+- **`ordo-agent.js`** (~1.600 Zeilen): Agent-Kern – verarbeitet User-Eingaben, entscheidet, was angezeigt wird, navigiert durch die App und steuert das Onboarding.
+- **`dialog-stream.js`**: zentraler Container für alle Agent- und User-Nachrichten; alle UI-Blöcke werden als DOM-Elemente in den Stream eingefügt.
+- **`ui-blocks.js`** (~1.800 Zeilen): Block-Renderer – jeder Block-Typ (Raumkarte, Container-Kachel, Settings-Panel, Quest-Schritt, …) hat eine Render-Funktion mit konsequentem HTML-Escaping.
+- **`session-log.js`**: Session-Logging in `sessionStorage` für Kontext-Begrüßung und Debugging.
+
+### Voice-First & Live-Companion
+
+- **`voice-input.js`**: Companion-First-Eingabeparadigma – Antippen → Mikrofon → KI-Vorschlag → One-Tap-Bestätigung (✔️/❌).
+- **`companion.js`**: schwebender, kontextbewusster KI-Begleiter mit Push-to-Talk und **Live-Modus** (Gemini Multimodal Live API).
+- **`live-modal.js`**: verschiebbares, minimierbares Fenster für Echtzeit-Gespräche.
+- **`pcm-processor.js`**: AudioWorkletProcessor für PCM-16-Capture (ersetzt deprecated ScriptProcessorNode).
+- **`local-intents.js`**: lokale Intent-Erkennung für Navigation und einfache Befehle – ganz ohne API-Call.
+
+### Zero-Key-Modus & Provider-System
+
+- **`worker/worker.js`**: Cloudflare-Worker-Proxy (`ordo-proxy`) – der Gemini-Key bleibt serverseitig. Origin-Whitelist, IP+User-Agent-basiertes Rate-Limit (50 Requests/Gerät/Tag, Reserve-first gegen TOCTOU), Modell-Whitelist (`gemini-2.5-flash`, `gemini-2.5-pro`).
+- **`ai.js`**: Provider-Konfiguration in `ordo_providers` – ohne eigenen Key läuft der Proxy als Primary (**Zero-Key-Onboarding**), mit eigenem Key wird dieser genutzt.
+- Damit ist die Roadmap-Empfehlung „Stufe 2: sichere Key-Verwaltung“ (Kap. 6) **umgesetzt**.
+
+### Neue Feature-Module
+
+- **`smart-photo.js`**: Smart Photo Capture – Foto von überall, KI erkennt Raum, Container und Items automatisch.
+- **`marble-api.js`** + **`spatial-3d.js`**: Foto → begehbare 3D-Welt (World Labs Marble, Gaussian Splatting) gerendert mit Three.js + Spark.js.
+- **`sales-publisher.js`**: KI-generierte Kleinanzeigen; öffnet kleinanzeigen.de mit Text im Clipboard (bewusst kein Auto-Posting).
+- **`document-viewer.js`**: PDF-/Bild-Viewer mit Pinch-to-Zoom (PDF.js lazy via CDN).
+
+### Aktualisierte Statistiken (Juni 2026)
+
+| Metrik | März 2026 | Juni 2026 |
+|---|---:|---:|
+| Produktive JS-Zeilen | 12.931 | ~26.700 |
+| Module | 17 | 30 (+ Cloudflare Worker) |
+| Testfälle (`it`) | 259 | 445 |
+| Test-Dateien | 5 | 9 (neu: chat-actions, dialog-stream, ordo-agent, proxy-gateway, ui-blocks) |
+| SW-Cache-Version | v7 | v46 |
+| Backend | keins | Cloudflare-Worker-Proxy (Zero-Key) |
+
+### Code-Audit Juni 2026
+
+Vier Funde, behoben in PR #164: Modell-Whitelist im Proxy (Endpoint-Injection), Rettungskopie `haushalt_data_corrupt_backup` vor Reinitialisierung korrupter Daten, fehlende App-Shell-Einträge (`document-viewer.js`, `sales-publisher.js`), robustes Marble-Status-Polling bei transienten Netzfehlern. XSS-Prüfung der KI-Renderpfade: durchgängig `escapeHTML`, keine Funde.
 
 ---
 
