@@ -2045,6 +2045,78 @@ describe('Brain Condition Reports', () => {
   });
 });
 
+describe('Brain Meldebestand & Einkaufsliste', () => {
+  it('setMinStock speichert den Meldebestand', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('bad', 'schrank', 'Zahnpasta');
+    const ok = Brain.setMinStock('bad', 'schrank', 'Zahnpasta', 2);
+    assertEqual(ok, true);
+    const c = Brain.getContainer('bad', 'schrank');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Zahnpasta');
+    assertEqual(item.min_stock, 2);
+  });
+
+  it('setMinStock mit 0 entfernt den Meldebestand', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('bad', 'schrank', 'Seife');
+    Brain.setMinStock('bad', 'schrank', 'Seife', 3);
+    Brain.setMinStock('bad', 'schrank', 'Seife', 0);
+    const c = Brain.getContainer('bad', 'schrank');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Seife');
+    assertEqual(item.min_stock, undefined);
+  });
+
+  it('getShoppingList listet Items auf/unter Meldebestand, dringendste zuerst', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('bad', 'schrank', 'Zahnpasta');           // menge 1
+    Brain.addItem('bad', 'schrank', 'Klopapier');
+    Brain.setItemQuantity('bad', 'schrank', 'Klopapier', 2);
+    Brain.addItem('bad', 'schrank', 'Shampoo');
+    Brain.setItemQuantity('bad', 'schrank', 'Shampoo', 5);
+    Brain.setMinStock('bad', 'schrank', 'Zahnpasta', 3);    // missing 3
+    Brain.setMinStock('bad', 'schrank', 'Klopapier', 2);    // missing 1
+    Brain.setMinStock('bad', 'schrank', 'Shampoo', 2);      // genug da
+
+    const list = Brain.getShoppingList();
+    assertEqual(list.length, 2);
+    assertEqual(list[0].name, 'Zahnpasta');
+    assertEqual(list[0].missing, 3);
+    assertEqual(list[1].name, 'Klopapier');
+    assertEqual(list[1].missing, 1);
+    assertEqual(list[0].roomName, 'Bad');
+    assertEqual(list[0].containerName, 'Schrank');
+  });
+
+  it('getShoppingList ignoriert archivierte Items', () => {
+    resetBrain();
+    Brain.addRoom('bad', 'Bad', '🛁');
+    Brain.addContainer('bad', 'schrank', 'Schrank', 'schrank');
+    Brain.addItem('bad', 'schrank', 'Duschgel');
+    Brain.setMinStock('bad', 'schrank', 'Duschgel', 2);
+    Brain.archiveItem('bad', 'schrank', 'Duschgel');
+    assertEqual(Brain.getShoppingList().length, 0);
+  });
+
+  it('getShoppingList findet Items in Untercontainern', () => {
+    resetBrain();
+    Brain.addRoom('keller', 'Keller', '🏚️');
+    Brain.addContainer('keller', 'regal', 'Regal', 'regal');
+    Brain.addChildContainer('keller', 'regal', 'kiste', 'Kiste', 'kiste');
+    Brain.addItem('keller', 'kiste', 'Batterien');
+    Brain.setMinStock('keller', 'kiste', 'Batterien', 4);
+    const list = Brain.getShoppingList();
+    assertEqual(list.length, 1);
+    assertEqual(list[0].name, 'Batterien');
+    assertEqual(list[0].containerId, 'kiste');
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

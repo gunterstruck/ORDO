@@ -387,6 +387,12 @@ export async function handleAction(action) {
       break;
     }
 
+    case 'showShoppingList': {
+      const { showShoppingListOverview } = await import('./warranty-view.js');
+      showShoppingListOverview();
+      break;
+    }
+
     case 'showImprovement':
       agentMessage(companionSays({
         sachlich: 'Dein Fortschritt:',

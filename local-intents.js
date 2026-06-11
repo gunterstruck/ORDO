@@ -37,6 +37,11 @@ export function checkLocalIntent(text) {
     return { action: 'showExpiry' };
   }
 
+  // Einkaufsliste / Nachkaufen
+  if (/einkaufsliste|einkaufen|nachkaufen|nachbestellen|was (fehlt|muss ich kaufen)|shopping/i.test(lower)) {
+    return { action: 'showShoppingList' };
+  }
+
   // Report / Versicherungsbericht
   if (/bericht|versicherung|pdf|report/i.test(lower)) {
     return { action: 'showReports' };
