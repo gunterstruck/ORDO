@@ -48,11 +48,19 @@ async function pollWorldStatus(worldId, apiKey, maxWait = 120000) {
   const start = Date.now();
 
   while (Date.now() - start < maxWait) {
-    const response = await fetch(`${MARBLE_API_BASE}/worlds/${worldId}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-    });
-
-    const data = await response.json();
+    let data;
+    try {
+      const response = await fetch(`${MARBLE_API_BASE}/worlds/${worldId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      data = await response.json();
+    } catch {
+      // Transienter Netz-/Serverfehler darf einen fast fertigen Job nicht
+      // abbrechen – beim nächsten Poll-Durchlauf erneut versuchen.
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      continue;
+    }
 
     if (data.status === 'completed') {
       return {

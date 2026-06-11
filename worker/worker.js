@@ -5,6 +5,11 @@
 const DAILY_LIMIT = 50;         // Requests pro Gerät pro Tag
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+// Nur diese Modelle dürfen über den Proxy laufen. Ohne Whitelist könnte ein
+// Client über body.model beliebige Pfade/Modelle ansteuern (Kostenrisiko,
+// Endpoint-Injection via ":"/"../" im Modellnamen).
+const ALLOWED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+
 // Whitelist der erlaubten Origins (Wildcard erlaubt sonst Quota-Klau durch
 // beliebige Websites, da die Proxy-URL im Client-Code steht).
 // Via env.ALLOWED_ORIGINS überschreibbar (kommagetrennt), sonst dieser Default.
@@ -92,8 +97,11 @@ export default {
       return jsonResponse({ error: 'Invalid JSON' }, 400, allowedOrigin);
     }
 
-    // Modell aus dem Body extrahieren
+    // Modell aus dem Body extrahieren – strikt gegen Whitelist prüfen
     const model = body.model || 'gemini-2.5-flash';
+    if (!ALLOWED_MODELS.includes(model)) {
+      return jsonResponse({ error: 'invalid_model', allowed: ALLOWED_MODELS }, 400, allowedOrigin);
+    }
 
     // An Gemini weiterleiten
     const geminiUrl = `${GEMINI_BASE}/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
