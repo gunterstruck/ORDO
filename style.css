@@ -4105,6 +4105,15 @@ select.settings-input { appearance: none; }
   color: var(--error);
   border-color: var(--error);
 }
+.item-detail-action-btn--active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.item-detail-condition-states .item-detail-action-btn {
+  min-width: 0;
+  flex: 1 1 45%;
+}
 
 /* ── Receipt Review Form ─────────────────────────── */
 .receipt-review {

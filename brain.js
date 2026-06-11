@@ -2061,6 +2061,64 @@ const Brain = {
     return true;
   },
 
+  // --- Condition Reports (Zustandsdokumentation, Vorbild Museums-CMS) ---
+
+  /** Erlaubte Zustandsstufen, von best nach schlechtest. */
+  CONDITION_STATES: ['neuwertig', 'gut', 'gebraucht', 'beschädigt'],
+
+  /**
+   * Fügt einen Zustandsbericht zu einem Item hinzu.
+   * @param {string} roomId
+   * @param {string} containerId
+   * @param {string} itemName
+   * @param {{ status: string, note?: string, photo_key?: string|null }} report
+   * @returns {boolean}
+   */
+  addConditionReport(roomId, containerId, itemName, { status, note, photo_key } = {}) {
+    if (!this.CONDITION_STATES.includes(status)) return false;
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item !== 'object') return false;
+
+    if (!Array.isArray(item.condition_reports)) item.condition_reports = [];
+    item.condition_reports.push({
+      date: new Date().toISOString(),
+      status,
+      note: note || '',
+      photo_key: photo_key || null,
+    });
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  /**
+   * Liefert alle Zustandsberichte eines Items, neueste zuerst.
+   * @returns {Array<{date: string, status: string, note: string, photo_key: string|null}>}
+   */
+  getConditionReports(roomId, containerId, itemName) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data?.rooms?.[roomId]?.containers, containerId);
+    if (!c) return [];
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item !== 'object' || !Array.isArray(item.condition_reports)) return [];
+    return [...item.condition_reports].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  },
+
+  /**
+   * Speichert ein Zustandsfoto in IndexedDB (Key-Schema analog Belegfoto).
+   * @returns {Promise<string|null>} der Foto-Key
+   */
+  async saveConditionPhoto(roomId, containerId, itemName, blob) {
+    const key = `condition_${roomId}_${containerId}_${this.slugify(itemName)}_${Date.now()}`;
+    await this.savePhoto(key, blob);
+    return key;
+  },
+
   // Save receipt photo in IndexedDB and link to item
   async saveReceiptPhoto(roomId, containerId, itemName, blob) {
     const data = this.getData();

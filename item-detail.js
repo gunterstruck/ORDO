@@ -208,6 +208,20 @@ export function showItemDetailPanel(roomId, containerId, itemName) {
   valuationSection.appendChild(valuationContent);
   sheet.appendChild(valuationSection);
 
+  // Condition / Zustand section
+  const conditionSection = document.createElement('div');
+  conditionSection.className = 'item-detail-section';
+  const conditionHeader = document.createElement('div');
+  conditionHeader.className = 'item-detail-section-header';
+  conditionHeader.textContent = 'Zustand';
+  conditionSection.appendChild(conditionHeader);
+
+  const conditionContent = document.createElement('div');
+  conditionContent.className = 'item-detail-condition-content';
+  renderConditionSection(conditionContent, roomId, containerId, itemName);
+  conditionSection.appendChild(conditionContent);
+  sheet.appendChild(conditionSection);
+
   // Actions section
   const actionsSection = document.createElement('div');
   actionsSection.className = 'item-detail-section';
@@ -263,6 +277,133 @@ export function showItemDetailPanel(roomId, containerId, itemName) {
   requestAnimationFrame(() => {
     panel.classList.add('item-detail-panel--visible');
   });
+}
+
+const CONDITION_LABELS = {
+  neuwertig: '✨ Neuwertig',
+  gut: '👍 Gut',
+  gebraucht: '🔧 Gebraucht',
+  'beschädigt': '⚠️ Beschädigt',
+};
+
+function renderConditionSection(container, roomId, containerId, itemName) {
+  container.innerHTML = '';
+  const reports = Brain.getConditionReports(roomId, containerId, itemName);
+
+  if (reports.length === 0) {
+    const hint = document.createElement('p');
+    hint.className = 'item-detail-empty-hint';
+    hint.textContent = 'Noch kein Zustandsbericht. Für Wertgegenstände lohnt sich regelmäßige Dokumentation – im Versicherungsfall zählt der belegte Zustand.';
+    container.appendChild(hint);
+  } else {
+    const latest = reports[0];
+    const field = document.createElement('div');
+    field.className = 'item-detail-field';
+    field.style.whiteSpace = 'pre-line';
+    let text = `${CONDITION_LABELS[latest.status] || latest.status} – dokumentiert am ${formatDateDE(latest.date.slice(0, 10))}`;
+    if (latest.note) text += `\n   ${latest.note}`;
+    field.textContent = text;
+    container.appendChild(field);
+
+    if (reports.length > 1) {
+      const history = document.createElement('div');
+      history.className = 'item-detail-field item-detail-condition-history';
+      history.style.whiteSpace = 'pre-line';
+      history.style.opacity = '0.7';
+      history.textContent = reports.slice(1).map(r =>
+        `${formatDateDE(r.date.slice(0, 10))}: ${CONDITION_LABELS[r.status] || r.status}${r.note ? ` – ${r.note}` : ''}`
+      ).join('\n');
+      container.appendChild(history);
+    }
+  }
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'item-detail-purchase-actions';
+  const addBtn = document.createElement('button');
+  addBtn.className = 'item-detail-action-btn';
+  addBtn.textContent = '📋 Zustand dokumentieren';
+  addBtn.addEventListener('click', () => showConditionForm(container, roomId, containerId, itemName));
+  btnRow.appendChild(addBtn);
+  container.appendChild(btnRow);
+}
+
+function showConditionForm(container, roomId, containerId, itemName) {
+  container.innerHTML = '';
+
+  let selectedStatus = 'gut';
+  const statusRow = document.createElement('div');
+  statusRow.className = 'item-detail-purchase-actions item-detail-condition-states';
+  for (const state of Brain.CONDITION_STATES) {
+    const b = document.createElement('button');
+    b.className = 'item-detail-action-btn';
+    if (state === selectedStatus) b.classList.add('item-detail-action-btn--active');
+    b.textContent = CONDITION_LABELS[state];
+    b.addEventListener('click', () => {
+      selectedStatus = state;
+      statusRow.querySelectorAll('button').forEach(x => x.classList.remove('item-detail-action-btn--active'));
+      b.classList.add('item-detail-action-btn--active');
+    });
+    statusRow.appendChild(b);
+  }
+  container.appendChild(statusRow);
+
+  const noteField = createReviewField('Notiz (optional)', '', 'text');
+  container.appendChild(noteField);
+  const noteInput = noteField.querySelector('input');
+
+  const photoField = document.createElement('div');
+  photoField.className = 'receipt-review-field';
+  const photoLabel = document.createElement('label');
+  photoLabel.className = 'receipt-review-label';
+  photoLabel.textContent = 'Foto (optional)';
+  photoField.appendChild(photoLabel);
+  const photoInput = document.createElement('input');
+  photoInput.type = 'file';
+  photoInput.accept = 'image/*';
+  photoInput.className = 'receipt-review-input';
+  photoField.appendChild(photoInput);
+  container.appendChild(photoField);
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'item-detail-purchase-actions';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'item-detail-action-btn';
+  saveBtn.textContent = '💾 Speichern';
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    let photoKey = null;
+    const file = photoInput.files?.[0];
+    if (file) {
+      try {
+        photoKey = await Brain.saveConditionPhoto(roomId, containerId, itemName, file);
+      } catch (err) {
+        debugLog(`Zustandsfoto speichern fehlgeschlagen: ${err.message}`);
+        showToast('Foto konnte nicht gespeichert werden');
+      }
+    }
+    const ok = Brain.addConditionReport(roomId, containerId, itemName, {
+      status: selectedStatus,
+      note: noteInput.value.trim(),
+      photo_key: photoKey,
+    });
+    if (ok) {
+      showToast('Zustand dokumentiert');
+      renderConditionSection(container, roomId, containerId, itemName);
+    } else {
+      saveBtn.disabled = false;
+      showToast('Speichern fehlgeschlagen');
+    }
+  });
+  btnRow.appendChild(saveBtn);
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'item-detail-action-btn';
+  cancelBtn.textContent = 'Abbrechen';
+  cancelBtn.addEventListener('click', () => renderConditionSection(container, roomId, containerId, itemName));
+  btnRow.appendChild(cancelBtn);
+
+  container.appendChild(btnRow);
 }
 
 function renderValuationSection(container, item, roomId, containerId, itemName, panel) {
