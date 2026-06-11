@@ -8,7 +8,19 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // Nur diese Modelle dürfen über den Proxy laufen. Ohne Whitelist könnte ein
 // Client über body.model beliebige Pfade/Modelle ansteuern (Kostenrisiko,
 // Endpoint-Injection via ":"/"../" im Modellnamen).
-const ALLOWED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+// WICHTIG: Muss die komplette Modell-Leiter aus ai.js (MODELS + Fallbacks)
+// abdecken, sonst schlägt der Zero-Key-Modus für diese Modelle fehl.
+const ALLOWED_MODELS = [
+  // Preview (Client-Standard)
+  'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite-preview',
+  // GA / Fallback-Leiter
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash-lite',
+];
 
 // Whitelist der erlaubten Origins (Wildcard erlaubt sonst Quota-Klau durch
 // beliebige Websites, da die Proxy-URL im Client-Code steht).
