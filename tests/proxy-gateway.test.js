@@ -314,6 +314,45 @@ describe('UI Blocks – Neue Blöcke', () => {
 });
 
 // ══════════════════════════════════════════════════════════
+// MODELL-KONSISTENZ: ai.js-Leiter ↔ Worker-Whitelist
+// Verhindert, dass der Zero-Key-Modus bricht, weil ein Modell
+// im Client genutzt wird, das der Proxy nicht durchlässt.
+// ══════════════════════════════════════════════════════════
+
+describe('Proxy-Modell-Whitelist deckt ai.js-Modelle ab', () => {
+  const aiSource = fs.readFileSync(path.join(__dirname, '..', 'ai.js'), 'utf8');
+  const workerSource = fs.readFileSync(path.join(__dirname, '..', 'worker', 'worker.js'), 'utf8');
+
+  // MODELS-Block aus ai.js extrahieren (nur generateContent-Modelle, TTS/Live laufen nicht über den Proxy)
+  const modelsBlock = aiSource.match(/const MODELS = \{[\s\S]*?\};/)?.[0] || '';
+  const ladderKeys = ['fast', 'pro', 'lite', 'stableFast', 'stablePro', 'stableLite', 'legacyFast'];
+  const usedModels = ladderKeys.map(key => {
+    const m = modelsBlock.match(new RegExp(`${key}:\\s*'([^']+)'`));
+    return m ? m[1] : null;
+  }).filter(Boolean);
+
+  const whitelistBlock = workerSource.match(/const ALLOWED_MODELS = \[[\s\S]*?\];/)?.[0] || '';
+
+  it('findet die Modell-Leiter in ai.js', () => {
+    assertEqual(usedModels.length, ladderKeys.length);
+  });
+
+  it('findet die Whitelist im Worker', () => {
+    assert(whitelistBlock.length > 0, 'ALLOWED_MODELS nicht gefunden');
+  });
+
+  for (const model of usedModels) {
+    it(`Whitelist enthält ${model}`, () => {
+      assert(whitelistBlock.includes(`'${model}'`), `${model} fehlt in worker/worker.js ALLOWED_MODELS`);
+    });
+  }
+
+  it('Whitelist enthält keine abgeschalteten 2.0-Modelle', () => {
+    assert(!whitelistBlock.includes('gemini-2.0'), 'gemini-2.0-* ist seit 06/2026 abgeschaltet');
+  });
+});
+
+// ══════════════════════════════════════════════════════════
 // ERGEBNIS
 // ══════════════════════��═══════════════════════════════════
 

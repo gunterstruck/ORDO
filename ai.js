@@ -96,8 +96,10 @@ const MODELS = {
   stablePro: 'gemini-2.5-pro',              // stabiles Pro – Fallback bei Überlastung
   stableLite: 'gemini-2.5-flash-lite',      // stabiles Lite – günstigster Fallback
 
-  // ── Legacy (bewährt, letzter Fallback) ──
-  legacyFast: 'gemini-2.0-flash',           // 2.0 Flash – letzter Fallback, sehr stabil
+  // ── Legacy (letzter Fallback) ──
+  // gemini-2.0-flash wurde 06/2026 abgeschaltet – Flash-Lite 2.5 ist der
+  // günstigste noch verfügbare GA-Notnagel.
+  legacyFast: 'gemini-2.5-flash-lite',
 
   // ── TTS (Text-to-Speech) ──
   tts: 'gemini-2.5-flash-preview-tts',      // TTS Flash – Sprachausgabe (schnell, günstig)
@@ -859,7 +861,7 @@ async function _callGeminiFormat(apiKey, systemPrompt, messages, options) {
     modelsToTry.push(MODELS.legacyFast);
   }
 
-  for (const currentModel of modelsToTry) {
+  for (const currentModel of [...new Set(modelsToTry)]) {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       // Key wird als Header gesendet (siehe fetch-Call unten) – nicht in die URL hängen
       const apiUrl = `${API_BASE}/${currentModel}:generateContent`;

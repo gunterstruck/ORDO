@@ -3321,9 +3321,14 @@ async function show3DRoom(roomId) {
     return;
   }
 
-  // 3. Prüfe ob Marble Key vorhanden
+  // 3. Kein Cache + kein Marble Key → echten Scan importieren anbieten
   if (!hasMarbleKey()) {
-    showToast('Marble API Key in den Einstellungen eintragen für 3D-Ansicht', 'info');
+    const ok = await showConfirmModal({
+      title: '3D-Scan importieren?',
+      description: 'Kein Marble-Key hinterlegt. Du kannst stattdessen einen echten 3D-Scan (.spz/.ply) importieren – z. B. kostenlos mit der Scaniverse-App erstellt.',
+      confirmLabel: 'Datei wählen'
+    });
+    if (ok) importSplatForRoom(roomId);
     return;
   }
 
@@ -3371,6 +3376,36 @@ async function show3DRoom(roomId) {
 /**
  * Erstellt das 3D-Overlay.
  */
+/**
+ * Importiert einen echten 3D-Scan (.spz/.ply/.splat, z. B. aus Scaniverse)
+ * und cached ihn wie einen Marble-Splat in IndexedDB.
+ */
+function importSplatForRoom(roomId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.spz,.ply,.splat';
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const MAX_SPLAT_BYTES = 200 * 1024 * 1024;
+    if (file.size > MAX_SPLAT_BYTES) {
+      showToast('Datei zu groß (max. 200 MB). In Scaniverse das komprimierte SPZ-Format wählen.', 'error');
+      return;
+    }
+    try {
+      showToast('3D-Scan wird importiert…');
+      const buffer = await file.arrayBuffer();
+      await Brain.saveSplat(roomId, buffer);
+      showToast('3D-Scan gespeichert');
+      show3DRoom(roomId);
+    } catch (err) {
+      console.error('Splat-Import fehlgeschlagen:', err);
+      showToast('Import fehlgeschlagen – Datei konnte nicht gespeichert werden', 'error');
+    }
+  });
+  input.click();
+}
+
 function create3DOverlay(roomId) {
   if (!requestOverlay('3d-viewer', 70, () => close3DViewer())) return null;
 
@@ -3390,6 +3425,7 @@ function create3DOverlay(roomId) {
       Finger-Gesten: 1 Finger drehen · 2 Finger zoomen
     </div>
     <div class="spatial-3d-footer">
+      <button class="spatial-3d-btn" id="spatial-3d-import">📥 Scan importieren</button>
       <button class="spatial-3d-btn" id="spatial-3d-close">🏠 Zurück zur Karte</button>
     </div>
   `;
@@ -3402,6 +3438,10 @@ function create3DOverlay(roomId) {
   document.getElementById('spatial-3d-refresh').addEventListener('click', () => {
     close3DViewer();
     Brain.deleteSplat(roomId).then(() => show3DRoom(roomId));
+  });
+  document.getElementById('spatial-3d-import').addEventListener('click', () => {
+    close3DViewer();
+    importSplatForRoom(roomId);
   });
 
   // Three.js initialisieren
