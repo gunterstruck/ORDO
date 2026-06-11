@@ -393,6 +393,12 @@ export async function handleAction(action) {
       break;
     }
 
+    case 'showSortBoard': {
+      const { showSortBoard } = await import('./sort-board.js');
+      showSortBoard();
+      break;
+    }
+
     case 'showImprovement':
       agentMessage(companionSays({
         sachlich: 'Dein Fortschritt:',

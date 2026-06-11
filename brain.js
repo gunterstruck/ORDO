@@ -1861,6 +1861,90 @@ const Brain = {
     return list;
   },
 
+  // --- Aussortier-Pipeline (Kanban) ---
+
+  /** Vormerkstatus für die Aussortier-Pipeline. */
+  SORT_STATES: ['undecided', 'sell', 'donate', 'discard'],
+  /** Mapping Vormerkstatus → archived_reason beim Abschluss. */
+  SORT_ARCHIVE_REASON: { sell: 'verkauft', donate: 'gespendet', discard: 'entsorgt' },
+
+  /**
+   * Merkt ein Item zum Aussortieren vor. status null/'keep' entfernt die Vormerkung.
+   * @returns {boolean}
+   */
+  setSortStatus(roomId, containerId, itemName, status) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item === 'string') return false;
+
+    if (!status || status === 'keep') {
+      delete item.sort_status;
+    } else {
+      if (!this.SORT_STATES.includes(status)) return false;
+      item.sort_status = status;
+    }
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  /**
+   * Kanban-Board: alle aktiven, vorgemerkten Items gruppiert nach Status.
+   * @returns {{ undecided: Array, sell: Array, donate: Array, discard: Array }}
+   */
+  getSortBoard() {
+    const data = this.getData();
+    const board = { undecided: [], sell: [], donate: [], discard: [] };
+    const walk = (containers, roomId, roomName) => {
+      for (const [cId, c] of Object.entries(containers || {})) {
+        if (!c) continue;
+        this._migrateContainerItems(c);
+        for (const item of c.items || []) {
+          if (typeof item !== 'object' || !item.sort_status) continue;
+          if (item.status && item.status !== 'aktiv') continue;
+          if (!board[item.sort_status]) continue;
+          board[item.sort_status].push({
+            name: this.getItemName(item),
+            menge: item.menge || 1,
+            value: item.valuation?.replacement_value ?? item.purchase?.price ?? null,
+            roomId,
+            roomName,
+            containerId: cId,
+            containerName: c.name,
+          });
+        }
+        if (c.containers) walk(c.containers, roomId, roomName);
+      }
+    };
+    for (const [roomId, room] of Object.entries(data?.rooms || {})) {
+      if (room) walk(room.containers, roomId, room.name);
+    }
+    return board;
+  },
+
+  /**
+   * Schließt eine Vormerkung ab: archiviert das Item mit dem passenden Grund
+   * (verkauft/gespendet/entsorgt). Für 'undecided' nicht möglich.
+   * @returns {boolean}
+   */
+  completeSortItem(roomId, containerId, itemName) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item === 'string') return false;
+
+    const reason = this.SORT_ARCHIVE_REASON[item.sort_status];
+    if (!reason) return false;
+    delete item.sort_status;
+    this.archiveItem(roomId, containerId, itemName, reason);
+    return true;
+  },
+
   // --- Infrastructure Ignore ---
 
   addInfrastructureIgnore(roomId, containerId, name) {

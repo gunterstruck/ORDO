@@ -2117,6 +2117,80 @@ describe('Brain Meldebestand & Einkaufsliste', () => {
   });
 });
 
+describe('Brain Aussortier-Pipeline (Kanban)', () => {
+  it('setSortStatus merkt ein Item vor', () => {
+    resetBrain();
+    Brain.addRoom('keller', 'Keller', '🏚️');
+    Brain.addContainer('keller', 'kiste', 'Kiste', 'kiste');
+    Brain.addItem('keller', 'kiste', 'Toaster');
+    const ok = Brain.setSortStatus('keller', 'kiste', 'Toaster', 'sell');
+    assertEqual(ok, true);
+    const board = Brain.getSortBoard();
+    assertEqual(board.sell.length, 1);
+    assertEqual(board.sell[0].name, 'Toaster');
+    assertEqual(board.sell[0].roomName, 'Keller');
+  });
+
+  it('setSortStatus mit keep entfernt die Vormerkung', () => {
+    resetBrain();
+    Brain.addRoom('keller', 'Keller', '🏚️');
+    Brain.addContainer('keller', 'kiste', 'Kiste', 'kiste');
+    Brain.addItem('keller', 'kiste', 'Lampe');
+    Brain.setSortStatus('keller', 'kiste', 'Lampe', 'donate');
+    Brain.setSortStatus('keller', 'kiste', 'Lampe', 'keep');
+    const board = Brain.getSortBoard();
+    assertEqual(board.donate.length, 0);
+  });
+
+  it('setSortStatus lehnt ungültigen Status ab', () => {
+    resetBrain();
+    Brain.addRoom('keller', 'Keller', '🏚️');
+    Brain.addContainer('keller', 'kiste', 'Kiste', 'kiste');
+    Brain.addItem('keller', 'kiste', 'Buch');
+    assertEqual(Brain.setSortStatus('keller', 'kiste', 'Buch', 'verbrennen'), false);
+  });
+
+  it('completeSortItem archiviert mit passendem Grund', () => {
+    resetBrain();
+    Brain.addRoom('keller', 'Keller', '🏚️');
+    Brain.addContainer('keller', 'kiste', 'Kiste', 'kiste');
+    Brain.addItem('keller', 'kiste', 'Monitor');
+    Brain.setSortStatus('keller', 'kiste', 'Monitor', 'sell');
+    const ok = Brain.completeSortItem('keller', 'kiste', 'Monitor');
+    assertEqual(ok, true);
+    const c = Brain.getContainer('keller', 'kiste');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Monitor');
+    assertEqual(item.status, 'archiviert');
+    assertEqual(item.archived_reason, 'verkauft');
+    assertEqual(item.sort_status, undefined);
+    assertEqual(Brain.getSortBoard().sell.length, 0);
+  });
+
+  it('completeSortItem für undecided gibt false zurück', () => {
+    resetBrain();
+    Brain.addRoom('keller', 'Keller', '🏚️');
+    Brain.addContainer('keller', 'kiste', 'Kiste', 'kiste');
+    Brain.addItem('keller', 'kiste', 'Kabel');
+    Brain.setSortStatus('keller', 'kiste', 'Kabel', 'undecided');
+    assertEqual(Brain.completeSortItem('keller', 'kiste', 'Kabel'), false);
+    const c = Brain.getContainer('keller', 'kiste');
+    const item = c.items.find(i => Brain.getItemName(i) === 'Kabel');
+    assertEqual(item.status, 'aktiv');
+  });
+
+  it('getSortBoard ignoriert archivierte Items und liefert value', () => {
+    resetBrain();
+    Brain.addRoom('keller', 'Keller', '🏚️');
+    Brain.addContainer('keller', 'kiste', 'Kiste', 'kiste');
+    Brain.addItem('keller', 'kiste', 'Drucker');
+    Brain.setPurchaseData('keller', 'kiste', 'Drucker', { price: 120 });
+    Brain.setSortStatus('keller', 'kiste', 'Drucker', 'sell');
+    assertEqual(Brain.getSortBoard().sell[0].value, 120);
+    Brain.archiveItem('keller', 'kiste', 'Drucker', 'verkauft');
+    assertEqual(Brain.getSortBoard().sell.length, 0);
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);

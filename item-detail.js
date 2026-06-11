@@ -261,6 +261,34 @@ export function showItemDetailPanel(roomId, containerId, itemName) {
   });
   actionsRow.appendChild(chatBtn);
 
+  // Aussortieren: Vormerkung für die Kanban-Pipeline
+  const sortBtn = document.createElement('button');
+  sortBtn.className = 'item-detail-action-btn';
+  sortBtn.textContent = '📤 Aussortieren';
+  sortBtn.addEventListener('click', () => {
+    actionsRow.innerHTML = '';
+    const choices = [
+      ['sell', '💰 Verkaufen'],
+      ['donate', '🎁 Spenden'],
+      ['discard', '🗑️ Entsorgen'],
+      ['undecided', '🤔 Später entscheiden'],
+    ];
+    for (const [status, label] of choices) {
+      const b = document.createElement('button');
+      b.className = 'item-detail-action-btn';
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        if (Brain.setSortStatus(roomId, containerId, itemName, status)) {
+          showToast(`"${itemName}" vorgemerkt: ${label}`);
+          panel.remove();
+          releaseOverlay('item-detail');
+        }
+      });
+      actionsRow.appendChild(b);
+    }
+  });
+  actionsRow.appendChild(sortBtn);
+
   // Archive action
   const archiveBtn = document.createElement('button');
   archiveBtn.className = 'item-detail-action-btn item-detail-action-btn--danger';
