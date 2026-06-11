@@ -99,6 +99,76 @@ function buildWarrantyGroup(label, items, className) {
   return group;
 }
 
+export function showShoppingListOverview() {
+  if (!requestOverlay('shopping-overview', 30, () => {
+    document.getElementById('item-detail-panel')?.remove();
+    releaseOverlay('shopping-overview');
+  })) return;
+
+  const existing = document.getElementById('item-detail-panel');
+  if (existing) existing.remove();
+
+  const panel = document.createElement('div');
+  panel.id = 'item-detail-panel';
+  panel.className = 'item-detail-panel';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'item-detail-overlay';
+  overlay.addEventListener('click', () => { panel.remove(); releaseOverlay('shopping-overview'); });
+
+  const sheet = document.createElement('div');
+  sheet.className = 'item-detail-sheet';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'item-detail-close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', () => { panel.remove(); releaseOverlay('shopping-overview'); });
+  sheet.appendChild(closeBtn);
+
+  const title = document.createElement('h2');
+  title.className = 'item-detail-title';
+  title.textContent = '🛒 Einkaufsliste';
+  sheet.appendChild(title);
+
+  const list = Brain.getShoppingList();
+
+  if (list.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'item-detail-empty-hint';
+    empty.textContent = 'Alles aufgefüllt! Setze bei Verbrauchsgütern einen Meldebestand (Item-Detail → Vorrat & Nachkauf), damit sie hier auftauchen, sobald der Vorrat knapp wird.';
+    sheet.appendChild(empty);
+  } else {
+    const group = document.createElement('div');
+    group.className = 'warranty-overview-group';
+
+    const header = document.createElement('div');
+    header.className = 'warranty-overview-header';
+    header.textContent = `⚠️ Nachkaufen (${list.length})`;
+    group.appendChild(header);
+
+    list.forEach(entry => {
+      const el = document.createElement('div');
+      el.className = 'warranty-item warranty-item--expiring';
+      const locationText = `${entry.roomName} > ${entry.containerName}`;
+      el.innerHTML = `<span class="warranty-item-name">🛒 ${escapeHTML(entry.name)}</span><span class="warranty-item-days">${escapeHTML(`${entry.menge}/${entry.min_stock} · ${entry.missing}× besorgen`)}</span><span class="warranty-item-location">${escapeHTML(locationText)}</span>`;
+      el.addEventListener('click', () => {
+        const existingPanel = document.getElementById('item-detail-panel');
+        if (existingPanel) existingPanel.remove();
+        releaseOverlay('shopping-overview');
+        showItemDetailPanel(entry.roomId, entry.containerId, entry.name);
+      });
+      group.appendChild(el);
+    });
+
+    sheet.appendChild(group);
+  }
+
+  panel.appendChild(overlay);
+  panel.appendChild(sheet);
+  document.body.appendChild(panel);
+  requestAnimationFrame(() => panel.classList.add('item-detail-panel--visible'));
+}
+
 export function checkWarrantyBanner() {
   const lastShown = localStorage.getItem('ordo_warranty_hint_shown');
   const today = new Date().toISOString().slice(0, 10);

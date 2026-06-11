@@ -222,6 +222,20 @@ export function showItemDetailPanel(roomId, containerId, itemName) {
   conditionSection.appendChild(conditionContent);
   sheet.appendChild(conditionSection);
 
+  // Vorrat / Meldebestand section
+  const stockSection = document.createElement('div');
+  stockSection.className = 'item-detail-section';
+  const stockHeader = document.createElement('div');
+  stockHeader.className = 'item-detail-section-header';
+  stockHeader.textContent = 'Vorrat & Nachkauf';
+  stockSection.appendChild(stockHeader);
+
+  const stockContent = document.createElement('div');
+  stockContent.className = 'item-detail-stock-content';
+  renderStockSection(stockContent, roomId, containerId, itemName);
+  stockSection.appendChild(stockContent);
+  sheet.appendChild(stockSection);
+
   // Actions section
   const actionsSection = document.createElement('div');
   actionsSection.className = 'item-detail-section';
@@ -277,6 +291,57 @@ export function showItemDetailPanel(roomId, containerId, itemName) {
   requestAnimationFrame(() => {
     panel.classList.add('item-detail-panel--visible');
   });
+}
+
+function renderStockSection(container, roomId, containerId, itemName) {
+  container.innerHTML = '';
+  const c = Brain.getContainer(roomId, containerId);
+  const item = (c?.items || []).find(i => Brain.getItemName(i) === itemName);
+  const itemObj = typeof item === 'object' && item ? item : {};
+  const menge = itemObj.menge || 1;
+  const minStock = itemObj.min_stock || null;
+
+  const field = document.createElement('div');
+  field.className = 'item-detail-field';
+  field.style.whiteSpace = 'pre-line';
+  let text = `📦 Vorrat: ${menge}×`;
+  if (minStock) {
+    text += `   ·   Meldebestand: ${minStock}`;
+    if (menge <= minStock) {
+      text += `\n⚠️ Nachkaufen – mindestens ${minStock - menge + 1}× besorgen`;
+    }
+  }
+  field.textContent = text;
+  container.appendChild(field);
+
+  if (!minStock) {
+    const hint = document.createElement('p');
+    hint.className = 'item-detail-empty-hint';
+    hint.textContent = 'Meldebestand setzen: Sobald der Vorrat darauf fällt, landet das Item auf der Einkaufsliste.';
+    container.appendChild(hint);
+  }
+
+  const minField = createReviewField('Meldebestand (0 = aus)', minStock != null ? String(minStock) : '', 'number');
+  container.appendChild(minField);
+  const minInput = minField.querySelector('input');
+  minInput.min = '0';
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'item-detail-purchase-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'item-detail-action-btn';
+  saveBtn.textContent = '💾 Speichern';
+  saveBtn.addEventListener('click', () => {
+    const ok = Brain.setMinStock(roomId, containerId, itemName, minInput.value === '' ? 0 : Number(minInput.value));
+    if (ok) {
+      showToast('Meldebestand gespeichert');
+      renderStockSection(container, roomId, containerId, itemName);
+    } else {
+      showToast('Speichern fehlgeschlagen');
+    }
+  });
+  btnRow.appendChild(saveBtn);
+  container.appendChild(btnRow);
 }
 
 const CONDITION_LABELS = {

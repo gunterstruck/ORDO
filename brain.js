@@ -1796,6 +1796,71 @@ const Brain = {
     return true;
   },
 
+  // --- Vorrats-Management (Meldebestände für Verbrauchsgüter) ---
+
+  /**
+   * Setzt den Meldebestand eines Items. minStock <= 0 oder null entfernt ihn.
+   * @returns {boolean}
+   */
+  setMinStock(roomId, containerId, itemName, minStock) {
+    const data = this.getData();
+    const c = this._findContainerInTree(data.rooms?.[roomId]?.containers, containerId);
+    if (!c) return false;
+    this._migrateContainerItems(c);
+    const item = c.items.find(i => this.getItemName(i) === itemName);
+    if (!item || typeof item === 'string') return false;
+
+    const min = Math.floor(Number(minStock));
+    if (!Number.isFinite(min) || min <= 0) {
+      delete item.min_stock;
+    } else {
+      item.min_stock = min;
+    }
+    c.last_updated = Date.now();
+    this.save(data);
+    return true;
+  },
+
+  /**
+   * Einkaufsliste: alle aktiven Items, deren Menge auf/unter dem Meldebestand
+   * liegt – am dringendsten (größte Unterdeckung) zuerst.
+   * @returns {Array<{name: string, menge: number, min_stock: number, missing: number,
+   *   roomId: string, roomName: string, containerId: string, containerName: string}>}
+   */
+  getShoppingList() {
+    const data = this.getData();
+    const list = [];
+    const walk = (containers, roomId, roomName) => {
+      for (const [cId, c] of Object.entries(containers || {})) {
+        if (!c) continue;
+        this._migrateContainerItems(c);
+        for (const item of c.items || []) {
+          if (typeof item !== 'object' || !item.min_stock) continue;
+          if (item.status && item.status !== 'aktiv') continue;
+          const menge = item.menge || 1;
+          if (menge <= item.min_stock) {
+            list.push({
+              name: this.getItemName(item),
+              menge,
+              min_stock: item.min_stock,
+              missing: item.min_stock - menge + 1,
+              roomId,
+              roomName,
+              containerId: cId,
+              containerName: c.name,
+            });
+          }
+        }
+        if (c.containers) walk(c.containers, roomId, roomName);
+      }
+    };
+    for (const [roomId, room] of Object.entries(data?.rooms || {})) {
+      if (room) walk(room.containers, roomId, room.name);
+    }
+    list.sort((a, b) => b.missing - a.missing);
+    return list;
+  },
+
   // --- Infrastructure Ignore ---
 
   addInfrastructureIgnore(roomId, containerId, name) {
