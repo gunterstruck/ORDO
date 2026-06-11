@@ -445,6 +445,12 @@ const Brain = {
     } catch (err) {
       if (typeof debugLog === 'function') debugLog(`getData: JSON-Parse fehlgeschlagen – ${err.message}`);
       this._cache = null;
+      // Rettungskopie des korrupten Rohstands anlegen, bevor er gleich
+      // überschrieben wird – sonst ist der Haushalt unwiederbringlich weg.
+      try {
+        const corrupt = localStorage.getItem(STORAGE_KEY);
+        if (corrupt) localStorage.setItem(STORAGE_KEY + '_corrupt_backup', corrupt);
+      } catch { /* best effort – Quota o.ä. darf die Reinitialisierung nicht blockieren */ }
       // Corrupted data – reinitialize with fresh structure
       const fresh = {
         version: '1.5',
