@@ -1979,6 +1979,72 @@ describe('getExpiryStatus (inline test)', () => {
   });
 });
 
+describe('Brain Condition Reports', () => {
+  it('addConditionReport speichert einen Zustandsbericht', () => {
+    resetBrain();
+    Brain.addRoom('wohnzimmer', 'Wohnzimmer', '🛋️');
+    Brain.addContainer('wohnzimmer', 'vitrine', 'Vitrine', 'schrank');
+    Brain.addItem('wohnzimmer', 'vitrine', 'Vase');
+    const ok = Brain.addConditionReport('wohnzimmer', 'vitrine', 'Vase', {
+      status: 'gut',
+      note: 'Kleiner Kratzer am Fuß'
+    });
+    assertEqual(ok, true);
+    const reports = Brain.getConditionReports('wohnzimmer', 'vitrine', 'Vase');
+    assertEqual(reports.length, 1);
+    assertEqual(reports[0].status, 'gut');
+    assertEqual(reports[0].note, 'Kleiner Kratzer am Fuß');
+    assertEqual(typeof reports[0].date, 'string');
+    assertEqual(reports[0].photo_key, null);
+  });
+
+  it('lehnt ungültigen Status ab', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'Uhr');
+    const ok = Brain.addConditionReport('test', 'c1', 'Uhr', { status: 'fantastisch' });
+    assertEqual(ok, false);
+    assertEqual(Brain.getConditionReports('test', 'c1', 'Uhr').length, 0);
+  });
+
+  it('gibt false zurück bei nicht existierendem Item', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    const ok = Brain.addConditionReport('test', 'c1', 'NichtDa', { status: 'gut' });
+    assertEqual(ok, false);
+  });
+
+  it('getConditionReports liefert neueste zuerst', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'Gemälde');
+    Brain.addConditionReport('test', 'c1', 'Gemälde', { status: 'neuwertig' });
+    // Zweiten Bericht mit künstlich späterem Datum direkt manipulieren,
+    // da beide Berichte sonst im selben Millisekunden-Fenster liegen können.
+    Brain.addConditionReport('test', 'c1', 'Gemälde', { status: 'beschädigt', note: 'Wasserschaden' });
+    const data = Brain.getData();
+    const item = data.rooms.test.containers.c1.items.find(i => Brain.getItemName(i) === 'Gemälde');
+    item.condition_reports[1].date = '2099-01-01T00:00:00.000Z';
+    Brain.save(data);
+    const reports = Brain.getConditionReports('test', 'c1', 'Gemälde');
+    assertEqual(reports.length, 2);
+    assertEqual(reports[0].status, 'beschädigt');
+    assertEqual(reports[1].status, 'neuwertig');
+  });
+
+  it('getConditionReports gibt leeres Array für Item ohne Berichte', () => {
+    resetBrain();
+    Brain.addRoom('test', 'Test', '🧪');
+    Brain.addContainer('test', 'c1', 'Container', 'sonstiges');
+    Brain.addItem('test', 'c1', 'Buch');
+    assertEqual(Brain.getConditionReports('test', 'c1', 'Buch').length, 0);
+    assertEqual(Brain.getConditionReports('test', 'fehlt', 'Buch').length, 0);
+  });
+});
+
 // ── Ergebnis ────────────────────────────────────────────
 const success = printResults();
 process.exit(success ? 0 : 1);
